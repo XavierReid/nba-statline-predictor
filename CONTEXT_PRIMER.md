@@ -167,12 +167,13 @@ If I ever say "be more concise" mid-session, immediately tighten further.
 ### Current state of the scaffold
 
 - Docker Compose brings up Postgres + the FastAPI app on `docker compose up`.
-- Block 1 complete: ingestion fully working. 30 teams, 530 players, 1225 games
-  ingested from nba_api into Postgres. Run via `python -m scripts.run_ingestion --season 2024-25`.
-- Migration `0001_initial_schema.py` creates 3 tables: teams, players, games.
-- Predictor-era code fully removed. GitHub Actions CI removed.
-- Python 3.9 in use — use `Optional[X]` not `X | None` in type hints.
-- No tests currently (skipped for ingestion; will add for simulator logic).
+- Block 1 complete: 30 teams, 530 players, 1225 games ingested. Run via `python -m scripts.run_ingestion --season 2024-25`.
+- Migration 0001: teams, players, games. Migration 0002: player_season_stats, player_attributes (+ overall_rating), player_tendencies, player_attribute_overrides.
+- RatingEngine live: percentile-based, volume-weighted, position-adjusted defaults, overall rating, approximate usage rate.
+- 6 RatingEngine unit tests passing.
+- Python 3.9 — use `Optional[X]` not `X | None`.
+- RFC.md is the source of truth for design decisions. Read it before proposing changes.
+- Pending: run `alembic upgrade head` then `python -m scripts.run_ingestion --season 2024-25` to seed attributes. Then inspect ratings for Jokić/Curry/Wembanyama.
 
 **Simulator requirements aligned on (2026-06-02):**
 - Box-score level simulation (player stat lines per game, not just final score)
@@ -254,8 +255,10 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ### Today's plan
 
-Next: Block 2 — single game simulator. Start with design discussion before any code.
-File will live at `app/services/game_simulator.py`.
+1. Run `alembic upgrade head` (migration 0002 pending)
+2. Run `python -m scripts.run_ingestion --season 2024-25` to seed PlayerSeasonStats + PlayerAttributes
+3. Query DB: inspect Jokić (passing, rebounding), Curry (three_point), Wembanyama (block) — validate before touching simulator
+4. If ratings pass smell test: build Lineup model, then GameSimulator (possession-based — see RFC.md)
 
 ---
 

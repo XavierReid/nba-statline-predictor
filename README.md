@@ -101,13 +101,17 @@ scripts/           CLI entrypoints
 ## Roadmap
 
 - [x] Scaffold (FastAPI, Postgres, Alembic, Docker)
-- [x] Ingestion: teams
-- [ ] Ingestion: players + schedule
-- [ ] Game simulator (box-score level)
+- [x] Ingestion: teams, players, schedule (2024-25)
+- [x] Ingestion: season stats + player attribute/tendency seeding
+- [x] Rating engine: percentile-based, position-adjusted, position-specific overall weights
+- [ ] Game simulator (possession-based, box-score level)
 - [ ] Season simulator + persistence
 - [ ] REST API: run simulations, query standings
 - [ ] **v2**: Kafka event streaming layer
-- [ ] **v3**: multi-season with player aging, free agency
+- [ ] **v2**: multi-season with player aging, free agency
+
+See [`RFC.md`](RFC.md) for architecture and design decisions.  
+See [`RUNBOOK.md`](RUNBOOK.md) for commands, queries, and scripts.
 
 ---
 

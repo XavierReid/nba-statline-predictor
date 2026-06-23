@@ -1,3 +1,4 @@
+from typing import Optional
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,10 +11,10 @@ class Player(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)  # NBA player_id
     full_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), index=True)
-    position: Mapped[str | None] = mapped_column(String(8))
+    team_id: Mapped[Optional[int]] = mapped_column(ForeignKey("teams.id"), index=True)
+    position: Mapped[Optional[str]] = mapped_column(String(8))
 
-    team: Mapped[Team | None] = relationship(lazy="joined")
+    team: Mapped[Optional[Team]] = relationship(lazy="joined")
 
     def __repr__(self) -> str:
         return f"<Player {self.full_name}>"

@@ -1,7 +1,8 @@
 import enum
 from datetime import date
+from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer
+from sqlalchemy import Date, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,14 +18,14 @@ class GameStatus(str, enum.Enum):
 class Game(Base):
     __tablename__ = "games"
 
-    id: Mapped[int] = mapped_column(primary_key=True)  # NBA game_id
+    id: Mapped[str] = mapped_column(primary_key=True)  # NBA game_id
     game_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True, nullable=False)
     away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True, nullable=False)
-    home_score: Mapped[int | None] = mapped_column(Integer)
-    away_score: Mapped[int | None] = mapped_column(Integer)
+    home_score: Mapped[Optional[int]] = mapped_column(Integer)
+    away_score: Mapped[Optional[int]] = mapped_column(Integer)
     status: Mapped[GameStatus] = mapped_column(
-        Enum(GameStatus, name="game_status"), nullable=False, default=GameStatus.SCHEDULED
+        String(16), nullable=False, default=GameStatus.SCHEDULED
     )
 
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id], lazy="joined")

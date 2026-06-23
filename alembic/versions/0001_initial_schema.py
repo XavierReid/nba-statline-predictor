@@ -38,18 +38,15 @@ def upgrade() -> None:
     op.create_index("ix_players_full_name", "players", ["full_name"])
     op.create_index("ix_players_team_id", "players", ["team_id"])
 
-    game_status = sa.Enum("scheduled", "in_progress", "final", name="game_status")
-    game_status.create(op.get_bind(), checkfirst=True)
-
     op.create_table(
         "games",
-        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("id", sa.String(20), primary_key=True),
         sa.Column("game_date", sa.Date, nullable=False),
         sa.Column("home_team_id", sa.Integer, sa.ForeignKey("teams.id"), nullable=False),
         sa.Column("away_team_id", sa.Integer, sa.ForeignKey("teams.id"), nullable=False),
         sa.Column("home_score", sa.Integer),
         sa.Column("away_score", sa.Integer),
-        sa.Column("status", game_status, nullable=False, server_default="scheduled"),
+        sa.Column("status", sa.String(16), nullable=False, server_default="scheduled"),
     )
     op.create_index("ix_games_game_date", "games", ["game_date"])
     op.create_index("ix_games_home_team_id", "games", ["home_team_id"])

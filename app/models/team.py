@@ -1,3 +1,4 @@
+from typing import Optional
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,8 +12,8 @@ class Team(Base):
     abbreviation: Mapped[str] = mapped_column(String(8), unique=True, nullable=False)
     nickname: Mapped[str] = mapped_column(String(64), nullable=False)
     city: Mapped[str] = mapped_column(String(64), nullable=False)
-    conference: Mapped[str | None] = mapped_column(String(16))
-    division: Mapped[str | None] = mapped_column(String(32))
+    conference: Mapped[Optional[str]] = mapped_column(String(16))
+    division: Mapped[Optional[str]] = mapped_column(String(32))
 
     def __repr__(self) -> str:
         return f"<Team {self.abbreviation}>"

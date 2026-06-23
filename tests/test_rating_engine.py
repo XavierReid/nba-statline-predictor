@@ -39,9 +39,9 @@ class FakeStats:
 
 
 def test_percentile_curve_anchors():
-    assert percentile_to_rating(0) == 30
+    assert percentile_to_rating(0) == 40
     assert percentile_to_rating(99) == 99
-    assert percentile_to_rating(50) == 58
+    assert percentile_to_rating(50) == 72
 
 
 def test_elite_high_volume_shooter_rated_above_role_player():

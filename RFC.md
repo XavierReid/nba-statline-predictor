@@ -112,21 +112,53 @@ Each attribute has its own `volume_normalizer`, `minimum_attempts`, `minimum_gam
 
 ### Overall Rating
 
-`PlayerAttributes` includes an `overall_rating` computed as a weighted average of attribute groups:
+`PlayerAttributes` includes an `overall_rating` computed in two steps:
 
-```
-overall = weighted_avg(
-    inside_scoring:  close_shot, layup, dunk           (weight 0.15)
-    shooting:        mid_range, three_point, free_throw (weight 0.15)
-    playmaking:      passing, ball_handle               (weight 0.10)
-    defense:         perimeter_defense, interior_defense, steal, block (weight 0.20)
-    athleticism:     speed, acceleration, strength, stamina, vertical  (weight 0.15)
-    rebounding:      offensive_rebound, defensive_rebound              (weight 0.10)
-    role_weight:     scaled by usage_rate / league_avg_usage           (weight 0.15)
-)
-```
+**Step 1 — Position-weighted group average**
 
-This mirrors how 2K surfaces sub-ratings (Inside Scoring, Shooting, Playmaking) under a single Overall.
+Derived and estimated attributes are kept in separate groups so position-defaults cannot
+suppress real measurements. Weights are position-specific (C / F / G):
+
+| Group | Attributes | C | F | G | Type |
+|---|---|---|---|---|---|
+| shooting | mid_range, three_point, free_throw | 0.12 | 0.20 | 0.28 | derived |
+| passing | passing | 0.12 | 0.12 | 0.15 | derived |
+| steal_block | steal, block | 0.18 | 0.15 | 0.12 | derived |
+| rebounding | offensive_rebound, defensive_rebound | 0.35 | 0.20 | 0.08 | derived |
+| finishing | close_shot, layup, dunk | 0.15 | 0.12 | 0.05 | estimated |
+| ball_handle | ball_handle | 0.03 | 0.08 | 0.17 | estimated |
+| perimeter_def | perimeter_defense | 0.00 | 0.08 | 0.10 | estimated |
+| interior_def | interior_defense | 0.05 | 0.05 | 0.05 | estimated |
+
+**Step 2 — Non-linear overall curve**
+
+The weighted average is passed through `_OVERALL_CURVE`, which compresses the middle
+and expands separation at the top — the same anchor-point design as `_CURVE_ANCHORS`.
+This allows elite players to reach 2K-style ratings (90+) when their best attributes
+are genuinely elite, without requiring every group to be strong.
+
+| Raw avg | Overall |
+|---|---|
+| 50 | 60 |
+| 60 | 70 |
+| 70 | 80 |
+| 75 | 86 |
+| 80 | 90 |
+| 85 | 94 |
+| 90 | 97 |
+| 95 | 99 |
+
+**Why two steps?** A single weighted average has a mathematical ceiling: a player with
+elite derived attributes but weak estimated ones (e.g., Jokić's ball_handle default)
+can never reach 90+ regardless of weight tuning. The curve decouples "how good are your
+best attributes" from "how bad are your worst", which is how 2K's overall actually works.
+
+**Athleticism excluded from overall.** Speed, acceleration, strength, stamina, and
+vertical are position-estimated with no stat signal from box scores. Including them
+in the overall suppresses every player uniformly. They remain on the `PlayerAttributes`
+model for use in the game simulator (speed affects fast-break probability, etc.) but
+do not contribute to overall_rating. Real data sources for v2: `LeagueDashPtStats`
+(speed/distance tracking), `DraftCombineStats` (measured vertical/wingspan).
 
 ### Attribute Categories
 
@@ -237,13 +269,11 @@ If these fail the smell test, tune `SkillMetricConfig` before touching simulatio
 - [x] Models: PlayerSeasonStats, PlayerAttributes (+ overall_rating), PlayerTendencies, PlayerAttributeOverride
 - [x] Migration 0002: simulation foundation tables
 - [x] RatingEngine: percentile-based ratings, SkillMetricConfig, position-adjusted defaults
-- [x] Unit tests for RatingEngine (6 passing)
-
-### In Progress
-- [ ] Run migration 0002
-- [ ] Ingest 2024-25 season stats
-- [ ] Seed PlayerAttributes and PlayerTendencies
-- [ ] Inspect ratings — validate before proceeding
+- [x] Unit tests for RatingEngine (8 passing)
+- [x] Ingested 2024-25 season stats (431 players; 138 skipped — not on ingested rosters)
+- [x] Seeded PlayerAttributes + PlayerTendencies for 2024-25
+- [x] Rating validation: Jokić 94, Wemby/Luka/Tatum 86-87, bench 65-74 ✓
+- [x] Overall rating redesign: position-specific group weights + non-linear overall curve
 
 ### Next
 - [ ] Lineup model (migration 0003)

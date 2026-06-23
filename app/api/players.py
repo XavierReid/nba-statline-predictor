@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,7 @@ def get_player(player_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{player_id}/history")
-def get_player_history(player_id: int, vs_team: int | None = None, limit: int = 20,
+def get_player_history(player_id: int, vs_team: Optional[int] = None, limit: int = 20,
                        db: Session = Depends(get_db)):
     """Recent box scores for a player. Optional filter by opponent team_id."""
     # TODO: implement filtering by vs_team and joining games for opponent context.

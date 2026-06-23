@@ -80,9 +80,9 @@ def fetch_season_stats(season: str) -> list[dict]:
     response = leaguedashplayerstats.LeagueDashPlayerStats(
         season=season,
         season_type_all_star='Regular Season',
-        per_mode_simple='PerGame',
+        per_mode_detailed='PerGame',
         headers=CUSTOM_HEADERS,
-        timeout=60,
+        timeout=120,
     )
     return response.get_normalized_dict()['LeagueDashPlayerStats']
 

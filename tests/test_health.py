@@ -17,4 +17,4 @@ def test_health_returns_ok():
 def test_openapi_docs_available():
     response = client.get("/openapi.json")
     assert response.status_code == 200
-    assert response.json()["info"]["title"] == "NBA Statline Predictor"
+    assert response.json()["info"]["title"] == "NBA Franchise Simulator"

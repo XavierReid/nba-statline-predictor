@@ -86,9 +86,14 @@ def ingest_season_stats(db: Session, season: str) -> int:
     """Upsert per-game averages for all players from LeagueDashPlayerStats."""
     from sqlalchemy import select
     rows = nba_client.fetch_season_stats(season)
+    known_player_ids = {pid for (pid,) in db.execute(select(Player.id)).all()}
     count = 0
+    skipped = 0
     for row in rows:
         pid = row['PLAYER_ID']
+        if pid not in known_player_ids:
+            skipped += 1
+            continue
         existing = db.execute(
             select(PlayerSeasonStats).where(
                 PlayerSeasonStats.player_id == pid,
@@ -139,6 +144,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
                 plus_minus=row['PLUS_MINUS'],
             ))
         count += 1
+    log.info("ingest_season_stats: %d upserted, %d skipped (not in players table)", count, skipped)
     return count
 
 
@@ -180,7 +186,7 @@ def seed_player_attributes(db: Session, season: str) -> int:
             )
         ).scalars().all()
         full_attrs = apply_overrides(full_attrs, overrides)
-        full_attrs["overall_rating"] = compute_overall(full_attrs)
+        full_attrs["overall_rating"] = compute_overall(full_attrs, player.position if player else None)
         attr_vals = full_attrs
 
         existing_attr = db.execute(

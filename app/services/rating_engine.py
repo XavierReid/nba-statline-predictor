@@ -17,11 +17,11 @@ import math
 # Design intent: 99 is rare, most players cluster 45-75.
 # ---------------------------------------------------------------------------
 _CURVE_ANCHORS = [
-    (0.0,  30),
-    (25.0, 45),
-    (50.0, 58),
-    (75.0, 75),
-    (90.0, 88),
+    (0.0,  40),
+    (25.0, 60),
+    (50.0, 72),
+    (75.0, 82),
+    (90.0, 92),
     (99.0, 99),
 ]
 
@@ -131,28 +131,67 @@ def position_defaults(position: Optional[str]) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 # Overall rating calculation
 # ---------------------------------------------------------------------------
-_OVERALL_WEIGHTS = [
-    (["close_shot", "layup", "dunk"],                            0.15),
-    (["mid_range", "three_point", "free_throw"],                 0.15),
-    (["passing", "ball_handle"],                                 0.10),
-    (["perimeter_defense", "interior_defense", "steal", "block"], 0.20),
-    (["speed", "acceleration", "strength", "stamina", "vertical"], 0.15),
-    (["offensive_rebound", "defensive_rebound"],                  0.10),
+# Derived and estimated groups are kept separate so position-defaults can't
+# drag down real measurements. Weights per position sum to 1.0.
+#
+# Each entry: (attribute_list, weight_C, weight_F, weight_G)
+_OVERALL_GROUPS = [
+    # --- derived (from box scores) ---
+    (["mid_range", "three_point", "free_throw"], 0.12, 0.20, 0.28),
+    (["passing"],                                0.12, 0.12, 0.15),
+    (["steal", "block"],                         0.18, 0.15, 0.12),
+    (["offensive_rebound", "defensive_rebound"], 0.35, 0.20, 0.08),
+    # --- estimated (position-adjusted defaults; real data replaces these in v2) ---
+    (["close_shot", "layup", "dunk"],            0.15, 0.12, 0.05),
+    (["ball_handle"],                            0.03, 0.08, 0.17),
+    (["perimeter_defense"],                      0.00, 0.08, 0.10),
+    (["interior_defense"],                       0.05, 0.05, 0.05),
 ]
-_OVERALL_BASE_WEIGHT = 0.15  # remaining weight for base average
+
+_POS_WEIGHT_INDEX = {"C": 1, "F": 2, "G": 3}
+
+# Non-linear curve applied to the weighted attribute average.
+# Same anchor-point design as _CURVE_ANCHORS: compresses the middle,
+# expands separation at the top so elite players reach 2K-style ratings.
+_OVERALL_CURVE = [
+    (50.0, 60),
+    (60.0, 70),
+    (70.0, 80),
+    (75.0, 86),
+    (80.0, 90),
+    (85.0, 94),
+    (90.0, 97),
+    (95.0, 99),
+]
 
 
-def compute_overall(attrs: dict[str, int]) -> int:
-    total = 0.0
-    weight_sum = 0.0
-    for attr_list, weight in _OVERALL_WEIGHTS:
+def _apply_overall_curve(raw: float) -> int:
+    anchors = _OVERALL_CURVE
+    if raw <= anchors[0][0]:
+        return anchors[0][1]
+    if raw >= anchors[-1][0]:
+        return anchors[-1][1]
+    for i in range(len(anchors) - 1):
+        lo_raw, lo_rat = anchors[i]
+        hi_raw, hi_rat = anchors[i + 1]
+        if lo_raw <= raw <= hi_raw:
+            t = (raw - lo_raw) / (hi_raw - lo_raw)
+            return round(lo_rat + t * (hi_rat - lo_rat))
+    return 75
+
+
+def compute_overall(attrs: dict[str, int], position: Optional[str] = None) -> int:
+    pos_key = None
+    if position:
+        pos_key = position.upper().split("-")[0]
+    weight_idx = _POS_WEIGHT_INDEX.get(pos_key, 2)  # default to F if unknown
+    raw = 0.0
+    for group in _OVERALL_GROUPS:
+        attr_list, *weights = group
+        weight = weights[weight_idx - 1]
         group_avg = sum(attrs.get(a, ESTIMATED_DEFAULT) for a in attr_list) / len(attr_list)
-        total += group_avg * weight
-        weight_sum += weight
-    base_avg = sum(attrs.values()) / len(attrs) if attrs else ESTIMATED_DEFAULT
-    total += base_avg * _OVERALL_BASE_WEIGHT
-    weight_sum += _OVERALL_BASE_WEIGHT
-    return round(total / weight_sum)
+        raw += group_avg * weight
+    return _apply_overall_curve(raw)
 
 
 # ---------------------------------------------------------------------------

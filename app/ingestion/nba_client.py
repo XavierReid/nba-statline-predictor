@@ -74,6 +74,19 @@ def fetch_games_for_season(season: str) -> list[dict]:
     return games
 
 
+def fetch_season_stats(season: str) -> list[dict]:
+    """Return per-game averages for all players in a season via LeagueDashPlayerStats."""
+    from nba_api.stats.endpoints import leaguedashplayerstats
+    response = leaguedashplayerstats.LeagueDashPlayerStats(
+        season=season,
+        season_type_all_star='Regular Season',
+        per_mode_simple='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=60,
+    )
+    return response.get_normalized_dict()['LeagueDashPlayerStats']
+
+
 def fetch_box_score(game_id: int) -> list[dict]:
     """Pull per-player box scores for a single game."""
     # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2

@@ -167,16 +167,12 @@ If I ever say "be more concise" mid-session, immediately tighten further.
 ### Current state of the scaffold
 
 - Docker Compose brings up Postgres + the FastAPI app on `docker compose up`.
-- Teams ingestion implemented: `fetch_all_teams()` + `ingest_teams()` done.
-  Team model uses `city` + `nickname`. Players/games ingestion still stubs.
-- `tests/test_ingestions.py` exists but `test_ingest_teams` is not yet written.
-- 9 tests passing: 7 unit tests on the old predictor, 2 smoke tests.
-- Alembic migration `0001_initial_schema.py` creates 5 tables (teams, players,
-  games, player_game_stats, team_defensive_ratings).
-- Pending cleanup: delete `app/services/predictor.py`, `app/schemas/prediction.py`,
-  `app/api/predictions.py`, `app/api/backtest.py`, `app/models/team_defensive_rating.py`.
-  Decide fate of `app/models/player_game_stats.py` (repurpose for simulated results or replace).
-- `scratch/01_fetch_teams.py` exists as Phase 1 artifact.
+- Block 1 complete: ingestion fully working. 30 teams, 530 players, 1225 games
+  ingested from nba_api into Postgres. Run via `python -m scripts.run_ingestion --season 2024-25`.
+- Migration `0001_initial_schema.py` creates 3 tables: teams, players, games.
+- Predictor-era code fully removed. GitHub Actions CI removed.
+- Python 3.9 in use — use `Optional[X]` not `X | None` in type hints.
+- No tests currently (skipped for ingestion; will add for simulator logic).
 
 **Simulator requirements aligned on (2026-06-02):**
 - Box-score level simulation (player stat lines per game, not just final score)
@@ -258,9 +254,8 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ### Today's plan
 
-Next: finish `test_ingest_teams` in `tests/test_ingestions.py`, run pytest green,
-commit, then do the cleanup pass (delete predictor-era files). After that, start
-Session 1 — players + schedule ingestion.
+Next: Block 2 — single game simulator. Start with design discussion before any code.
+File will live at `app/services/game_simulator.py`.
 
 ---
 

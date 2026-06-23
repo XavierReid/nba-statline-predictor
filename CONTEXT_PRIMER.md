@@ -167,13 +167,14 @@ If I ever say "be more concise" mid-session, immediately tighten further.
 ### Current state of the scaffold
 
 - Docker Compose brings up Postgres + the FastAPI app on `docker compose up`.
-- Block 1 complete: 30 teams, 530 players, 1225 games ingested. Run via `python -m scripts.run_ingestion --season 2024-25`.
-- Migration 0001: teams, players, games. Migration 0002: player_season_stats, player_attributes (+ overall_rating), player_tendencies, player_attribute_overrides.
-- RatingEngine live: percentile-based, volume-weighted, position-adjusted defaults, overall rating, approximate usage rate.
-- 6 RatingEngine unit tests passing.
+- Block 1 complete: 30 teams, 530 players, 1225 games ingested.
+- Migrations 0001 + 0002 applied.
+- 2024-25 season stats ingested (431 players). PlayerAttributes + PlayerTendencies seeded.
+- RatingEngine live: percentile-based, volume-weighted, position-adjusted defaults, position-specific overall weights, non-linear overall curve. See RFC.md for full design rationale.
+- Rating validation passed: Jokić 94, Wemby/Luka/Tatum 86-87, bench 65-74.
+- 8 RatingEngine + health tests passing.
 - Python 3.9 — use `Optional[X]` not `X | None`.
 - RFC.md is the source of truth for design decisions. Read it before proposing changes.
-- Pending: run `alembic upgrade head` then `python -m scripts.run_ingestion --season 2024-25` to seed attributes. Then inspect ratings for Jokić/Curry/Wembanyama.
 
 **Simulator requirements aligned on (2026-06-02):**
 - Box-score level simulation (player stat lines per game, not just final score)
@@ -255,10 +256,8 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ### Today's plan
 
-1. Run `alembic upgrade head` (migration 0002 pending)
-2. Run `python -m scripts.run_ingestion --season 2024-25` to seed PlayerSeasonStats + PlayerAttributes
-3. Query DB: inspect Jokić (passing, rebounding), Curry (three_point), Wembanyama (block) — validate before touching simulator
-4. If ratings pass smell test: build Lineup model, then GameSimulator (possession-based — see RFC.md)
+1. Build migration 0003: Lineup, SimulationRun, SimulatedGame, SimulatedPlayerLine models
+2. Build GameSimulator — possession-based (see RFC.md for design). Start with Phase 1 in scratch/ before moving into app/services/.
 
 ---
 

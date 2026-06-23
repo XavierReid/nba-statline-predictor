@@ -22,7 +22,8 @@ def upgrade() -> None:
         "teams",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("abbreviation", sa.String(8), nullable=False, unique=True),
-        sa.Column("name", sa.String(64), nullable=False),
+        sa.Column("city", sa.String(64), nullable=False),
+        sa.Column("nickname", sa.String(64), nullable=False),
         sa.Column("conference", sa.String(16)),
         sa.Column("division", sa.String(32)),
     )
@@ -54,48 +55,8 @@ def upgrade() -> None:
     op.create_index("ix_games_home_team_id", "games", ["home_team_id"])
     op.create_index("ix_games_away_team_id", "games", ["away_team_id"])
 
-    op.create_table(
-        "player_game_stats",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("game_id", sa.Integer, sa.ForeignKey("games.id"), nullable=False),
-        sa.Column("player_id", sa.Integer, sa.ForeignKey("players.id"), nullable=False),
-        sa.Column("team_id", sa.Integer, sa.ForeignKey("teams.id"), nullable=False),
-        sa.Column("minutes", sa.Float),
-        sa.Column("points", sa.Integer),
-        sa.Column("rebounds", sa.Integer),
-        sa.Column("assists", sa.Integer),
-        sa.Column("steals", sa.Integer),
-        sa.Column("blocks", sa.Integer),
-        sa.Column("turnovers", sa.Integer),
-        sa.Column("fg_made", sa.Integer),
-        sa.Column("fg_attempted", sa.Integer),
-        sa.Column("three_made", sa.Integer),
-        sa.Column("three_attempted", sa.Integer),
-        sa.Column("ft_made", sa.Integer),
-        sa.Column("ft_attempted", sa.Integer),
-        sa.Column("is_home", sa.Boolean, nullable=False, server_default=sa.text("false")),
-        sa.UniqueConstraint("game_id", "player_id", name="uq_pgs_game_player"),
-    )
-    op.create_index("ix_pgs_game_id", "player_game_stats", ["game_id"])
-    op.create_index("ix_pgs_player_id", "player_game_stats", ["player_id"])
-    op.create_index("ix_pgs_team_id", "player_game_stats", ["team_id"])
-
-    op.create_table(
-        "team_defensive_ratings",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("team_id", sa.Integer, sa.ForeignKey("teams.id"), nullable=False),
-        sa.Column("date", sa.Date, nullable=False),
-        sa.Column("defensive_rating", sa.Float, nullable=False),
-        sa.Column("pace", sa.Float),
-        sa.UniqueConstraint("team_id", "date", name="uq_tdr_team_date"),
-    )
-    op.create_index("ix_tdr_team_id", "team_defensive_ratings", ["team_id"])
-    op.create_index("ix_tdr_date", "team_defensive_ratings", ["date"])
-
 
 def downgrade() -> None:
-    op.drop_table("team_defensive_ratings")
-    op.drop_table("player_game_stats")
     op.drop_table("games")
     op.execute("DROP TYPE IF EXISTS game_status")
     op.drop_table("players")

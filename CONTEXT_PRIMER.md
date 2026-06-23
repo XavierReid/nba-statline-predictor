@@ -8,13 +8,27 @@ Claude conversation to bring the new agent up to speed.
 ## The primer (copy from here)
 
 I have a Python/FastAPI backend project at
-`/Users/xavierreid/Desktop/projects_2026/nba-statline-predictor/` —
-it predicts NBA player statlines for upcoming games using rule-based heuristics
-over historical data. A production-grade scaffold (FastAPI, SQLAlchemy 2.0,
-Alembic, Docker Compose, GitHub Actions CI, pytest) is in place and pushed to
-https://github.com/XavierReid/nba-statline-predictor. The predictor service
-itself is fully implemented (pure functions with unit tests); everything else
-is mostly stubs that I'll fill in.
+`/Users/xavierreid/Desktop/projects_2026/nba-statline-predictor/`.
+
+**Important: the project is pivoting direction.** The original idea was a
+statline predictor (and the existing repo name and predictor service reflect
+that). The new direction is an **NBA Franchise Simulator** — closer in spirit
+to MyLeague mode in NBA 2K. I want to simulate seasons (games, standings,
+playoffs), and later add trades, draft, multi-year player progression. No
+graphics or game-engine polish — just a backend simulation engine with REST
+APIs.
+
+A production-grade scaffold (FastAPI, SQLAlchemy 2.0, Alembic, Docker Compose,
+GitHub Actions CI, pytest) is in place and pushed to
+https://github.com/XavierReid/nba-statline-predictor. **The teams ingestion
+has been implemented** (see `app/ingestion/jobs.py` and `nba_client.py`);
+the predictor service in `app/services/predictor.py` is currently working
+code but no longer matches the new direction — we'll be replacing it with
+a game simulator and season simulator.
+
+Note: the GitHub repo name still reflects the old "predictor" framing. I may
+want to rename it to `nba-franchise-simulator` or similar. Worth discussing
+how to handle that without breaking the resume link.
 
 **Before answering**, please read `README.md` and skim the file tree so you
 understand what's already built. Then read this primer end-to-end before
@@ -27,11 +41,10 @@ proposing what to do.
 - Backend engineer, 5+ years pro experience (mostly Java + Spring Boot at LinkedIn).
 - Between roles after the mid-2025 LinkedIn layoff round; actively job searching
   for mid-level backend / full-stack roles.
-- Currently sharp in Python from interview prep, but my Java instincts are
-  deeper. Treat me as "experienced engineer learning Python idioms" — don't
-  re-explain ORMs, REST, migrations, dependency injection in the abstract;
-  do explain the Python-specific syntax and gotchas (SQLAlchemy 2.0 style,
-  FastAPI's Depends pattern, Pydantic Settings, etc.).
+- Python-first mental models right now — not translating from Java. Unfamiliar
+  with production project structure (how layers compose), not the language itself.
+  Don't over-explain Python syntax; do explain SQLAlchemy 2.0 patterns, FastAPI's
+  Depends, Pydantic Settings, and similar framework-specific idioms.
 
 ---
 
@@ -41,9 +54,12 @@ proposing what to do.
    "I designed and built a Kafka producer/consumer end-to-end" by the time
    v2 is done.
 2. **Demonstrate clean backend engineering** — schema design, REST API design,
-   data pipelines, explainable prediction logic.
+   data pipelines, state machines, event-driven systems.
 3. **Understand every piece of the code I ship.** Not just what it does, but
    why. I will be defending this in interviews.
+4. **Build something I find genuinely interesting.** The simulator pivot
+   matters here — I'll actually finish it because I want to see "who won my
+   simulated 2025-26 season."
 
 ---
 
@@ -75,97 +91,176 @@ of the learning progression).
 
 ### How I want you to work with me (rules of engagement)
 
-These are non-negotiable. Please follow them strictly.
+I want a pragmatic collaboration, not strict learn-by-writing. Generate code
+freely for scaffolding, boilerplate, and routine implementation — but make
+sure I understand it before we move on.
 
-1. **Coach me through implementation; don't generate code for me.** When we
-   tackle a feature, you describe the approach + trade-offs, I write the code,
-   you review and explain. Pair-programming style, with me at the keyboard.
-2. **Explain "why" before "how."** Before any code, we discuss the design
-   choice. I should be able to defend every decision without you present.
-3. **Start each feature with the dumbest possible version.** Don't pre-empt
-   complexity. If I write 5 lines that work, that's correct — even if it's
-   missing things you'd add in production.
-4. **One concept per session.** Don't try to do ingestion + the prediction API
-   + tests in one sitting. Pick one, finish it cleanly with tests, commit,
-   and stop.
-5. **Ask me "what if…?" questions.** What if the API times out? What if two
+1. **Generate code when it's faster, but explain it.** You can write whole
+   files when it makes sense (models, route handlers, test files, etc.).
+   When you do, walk me through the key parts in a few sentences so I'm not
+   blindly copying.
+2. **Explain "why" before "how" for design choices.** Before introducing a
+   new pattern (event-driven flow, state machine, schema decision), discuss
+   the trade-offs. I should be able to defend every architectural decision
+   without you present.
+3. **For *core* simulation logic, slow down.** The game simulator, season
+   simulator, and any prediction/decision code is what I'll defend in
+   interviews. For those specifically, walk me through the design step by
+   step, and either let me write the code or explain every line of generated
+   code so I can defend it. Everything else (data plumbing, ingestion,
+   migrations, API stubs) — generate freely.
+4. **Start each feature with the simplest version that works.** Don't pre-empt
+   complexity. If 5 lines work, that's the right answer for v1 — even if
+   you'd add more in production. Add layers when I feel a real pain.
+5. **Stay focused per session.** Don't try to do ingestion + simulator + API
+   + tests in one sitting. Pick a logical chunk, finish it cleanly with
+   tests, commit, and stop.
+6. **Ask me "what if…?" questions.** What if the API times out? What if two
    ingestion jobs run concurrently? What if the season changes mid-run? Make
    me think about edge cases — these are interview gold.
-6. **End every session with three deliverables:**
+7. **End every session with three deliverables:**
    - Green test run (`pytest`)
    - Git commit with a clear message
    - Update to the "Current state" and "Today's plan" sections of this primer
-7. **Don't generate large code blocks.** If you find yourself writing more
-   than ~20 lines of code in a single response, stop and ask if I want to
-   write it instead.
 
-If I push back on a constraint or ask you to "just write it," gently remind me
-of these rules. The constraint protects my learning.
+If I push back wanting to write something myself, hand me the keyboard. The
+default is your generation, the exception is my hand-coding the parts I
+want to own.
+
+---
+
+### Token / context efficiency rules
+
+Long Code-tab sessions chew through context. Stick to these:
+
+1. **No preamble, no recap, no apologies.** Answer the question and stop.
+2. **Don't quote my code back to me.** If you changed something, say what you
+   changed in one sentence — don't paste the file back.
+3. **Use Edit, not Write.** When modifying existing files, prefer the Edit
+   tool (sends diffs only) over Write (sends the whole file).
+4. **Don't re-read files unless something likely changed.** Trust your prior
+   read of a file in the same conversation.
+5. **Minimal formatting.** Use prose paragraphs. Headers and bullets only
+   when they materially help comprehension. No decorative emojis.
+6. **One question at a time.** Don't ask 3 clarifying questions in one turn.
+7. **Don't restate the plan.** If we agreed on the next step, just do it.
+8. **Show only what changed, not the whole file.** A 3-line patch doesn't
+   need 100 lines of context.
+9. **Skip the "let me know if you'd like" closers.** End on the action or
+   stop. No filler.
+10. **Match the depth of the question.** A yes/no answer doesn't need three
+    paragraphs of reasoning.
+
+**Session-level habits that save context across sessions:**
+
+- **Update the "Current state" and "Today's plan" sections of this primer**
+  at the end of every session. Context lives in the file, not the chat.
+- **Use git commits as memory.** Clear commit messages mean future sessions
+  can `git log` to understand what's been done — no need to re-explain.
+- **End each session with a clean state.** Don't leave dangling half-implemented
+  features that require chat-history context to understand.
+
+If I ever say "be more concise" mid-session, immediately tighten further.
 
 ---
 
 ### Current state of the scaffold
 
 - Docker Compose brings up Postgres + the FastAPI app on `docker compose up`.
-- 7 routes registered (`/health`, `/players/...`, `/games/...`,
-  `/predictions/...`, `/backtest`). Most return stubs; the predictor service
-  itself is fully implemented as pure functions.
-- 9 tests passing: 7 unit tests on the predictor, 2 smoke tests on the FastAPI app.
-- Alembic migration `0001_initial_schema.py` creates all 5 tables (teams,
-  players, games, player_game_stats, team_defensive_ratings).
-- Ingestion is stubs only — `app/ingestion/nba_client.py` and
-  `app/ingestion/jobs.py` have function signatures with `raise NotImplementedError`.
-- `scratch/` folder exists for Phase 1 experiments (see scratch/README.md).
+- Teams ingestion implemented: `fetch_all_teams()` + `ingest_teams()` done.
+  Team model uses `city` + `nickname`. Players/games ingestion still stubs.
+- `tests/test_ingestions.py` exists but `test_ingest_teams` is not yet written.
+- 9 tests passing: 7 unit tests on the old predictor, 2 smoke tests.
+- Alembic migration `0001_initial_schema.py` creates 5 tables (teams, players,
+  games, player_game_stats, team_defensive_ratings).
+- Pending cleanup: delete `app/services/predictor.py`, `app/schemas/prediction.py`,
+  `app/api/predictions.py`, `app/api/backtest.py`, `app/models/team_defensive_rating.py`.
+  Decide fate of `app/models/player_game_stats.py` (repurpose for simulated results or replace).
+- `scratch/01_fetch_teams.py` exists as Phase 1 artifact.
+
+**Simulator requirements aligned on (2026-06-02):**
+- Box-score level simulation (player stat lines per game, not just final score)
+- Real NBA rosters seeded from `nba_api`
+- Flexible scope: full season, playoffs, single series, single game
+- One active simulation at a time to start; results persisted and referenceable
+- Long-tail (out of scope for now): trades, draft, contracts, salary cap
 
 ---
 
-### Suggested barebones-first build progression
+### Suggested barebones-first build progression (post-pivot)
 
 Each session = one feature, progressed through phases 1 → 2 → 3.
 
-**Session 1 — Fetch teams (a single API call, end to end)**
+**Done already (predictor era — keep the ingestion, discard the prediction logic later):**
+- `fetch_all_teams()` is implemented and persists to Postgres
+- Teams model updated with `city` and `nickname` columns
 
-- *Phase 1:* In `scratch/01_fetch_teams.py`, write a 5-line script that imports
-  nba_api, calls `teams.get_teams()`, and prints the results.
-- *Phase 2:* Move into `app/ingestion/nba_client.py::fetch_all_teams()`. Add a
-  simple upsert into the `teams` table via SQLAlchemy session. Call it from
-  `app/ingestion/jobs.py::ingest_teams()`.
-- *Phase 3:* Add error handling for API failures, a unit test for `nba_client`
-  using a mock, and idempotency (running twice doesn't duplicate).
+**Session 1 — Fetch players + season schedule**
 
-**Session 2 — Fetch players and games for one season**
+- *Phase 1:* In `scratch/02_fetch_players.py`, get the list of active players
+  from `nba_api.stats.static.players.get_active_players()` and print it.
+- *Phase 2:* Move to `app/ingestion/nba_client.py::fetch_all_active_players()`
+  and the corresponding `ingest_active_players()` job. Same for the game
+  schedule for a chosen season.
+- *Phase 3:* Error handling + idempotency + unit test with a mock.
 
-- Similar phased progression. End state: you can run
-  `python -m scripts.run_ingestion --season 2024-25` and have your DB populated
-  with one season of teams, players, and games.
+**Session 2 — Single-game simulator (the heart of v1)**
 
-**Session 3 — Box scores and the stat history function**
+- Build `app/services/game_simulator.py`. Given two team rosters and a date,
+  return a simulated final score plus simulated box-score lines.
+- Phase 1 prototype: weighted-coin-flip outcome based on combined team strength
+  (use averages of player stats). 30 lines, no fanciness.
+- Phase 2: move into the scaffold, write tests against synthetic rosters.
+- Discuss interview-worthy questions: how do you model team strength? How
+  random is too random? How explainable should the result be?
 
-- Pull per-player box scores. Then write the function that, given a `player_id`,
-  returns their `recent_avg`, `season_avg`, `vs_opponent_avg` — feeding into
-  the predictor.
+**Session 3 — Full-season simulator**
 
-**Session 4 — Wire the prediction endpoint to real data**
+- Build `app/services/season_simulator.py` that runs all 82 games for all 30
+  teams against a real schedule. Persist results to a `simulated_games` table
+  (separate from real `games`).
+- Phase 1: hardcode the schedule loop, persist results.
+- Phase 2: add a `seasons` parent table so multiple sim runs can coexist.
+- Phase 3: standings calculation + playoff bracket generation.
 
-- Update `app/api/predictions.py` so `/predictions/{player_id}/{game_id}` returns
-  real numbers. **The project becomes demoable here.**
+**Session 4 — REST endpoints + first demoable artifact**
 
-**Session 5 — The backtest endpoint**
+- `POST /simulations/seasons` — kick off a new season sim, return the
+  simulation ID
+- `GET /simulations/seasons/{id}` — return final standings + bracket + champ
+- `GET /simulations/seasons/{id}/games` — list simulated games
+- **The project becomes demoable here.**
 
-- For a past date, re-run predictions and compare to actuals. Compute MAE per
-  stat. This is the killer interview demo feature.
+**Session 5 — Multi-season + player aging (v2 territory)**
+
+- Add `player_seasons` table tracking per-season stats and age.
+- Simple linear aging curve: peak years 25-29, decline after 30.
+- Rookies enter via random team assignment each year (skip real draft logic).
+- Free agents move randomly at season end.
 
 **Session 6 (optional, big resume payoff) — Kafka layer**
 
-- Add producer/consumer for live in-game updates. Now the Kafka resume claim
-  is airtight.
+- Producer emits events: `season.started`, `game.completed`,
+  `season.completed`, `champion.crowned`.
+- Consumer updates per-team and per-player stats in near-real-time.
+- Now the Kafka resume claim is airtight.
+
+**Out of scope for v1/v2 (don't get sucked in):**
+- Real draft with team-need logic
+- Trade evaluation / negotiation
+- Salary cap modeling
+- Player development curves
+- Coaching effects, injury simulation, etc.
+
+These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ---
 
 ### Today's plan
 
-[Pick ONE of: walk through the scaffold | start Session 1 Phase 1 (the
-throwaway script) | something else. Tell me which.]
+Next: finish `test_ingest_teams` in `tests/test_ingestions.py`, run pytest green,
+commit, then do the cleanup pass (delete predictor-era files). After that, start
+Session 1 — players + schedule ingestion.
 
 ---
 

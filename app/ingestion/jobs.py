@@ -9,14 +9,30 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.ingestion import nba_client
+from app.models.team import Team
 
 log = logging.getLogger(__name__)
 
 
 def ingest_teams(db: Session) -> int:
     """Upsert teams. Returns count inserted/updated."""
-    # TODO: call nba_client.fetch_all_teams() and upsert into Team table
-    raise NotImplementedError
+    teams = nba_client.fetch_all_teams()
+    for team in teams:
+        existing = db.get(Team, team['id'])
+        if existing is not None:
+            existing.city = team['city']
+            existing.abbreviation = team['abbreviation']
+            existing.nickname = team['nickname']
+        else:
+            db.add(Team(
+                id=team['id'],
+                city=team['city'],
+                abbreviation=team['abbreviation'],
+                nickname=team['nickname'],
+                conference=None,
+                division=None))
+        
+    return len(teams)
 
 
 def ingest_active_players(db: Session) -> int:

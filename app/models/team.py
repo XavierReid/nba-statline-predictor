@@ -9,7 +9,8 @@ class Team(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)  # NBA team_id
     abbreviation: Mapped[str] = mapped_column(String(8), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    nickname: Mapped[str] = mapped_column(String(64), nullable=False)
+    city: Mapped[str] = mapped_column(String(64), nullable=False)
     conference: Mapped[str | None] = mapped_column(String(16))
     division: Mapped[str | None] = mapped_column(String(32))
 

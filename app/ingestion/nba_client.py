@@ -7,13 +7,12 @@ Docs: https://github.com/swar/nba_api
 """
 
 # from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2
-# from nba_api.stats.static import teams, players
+from nba_api.stats.static import teams, players
 
 
 def fetch_all_teams() -> list[dict]:
-    """Return all NBA teams as list of dicts: {id, abbreviation, name, conference, division}."""
-    # TODO: implement using nba_api.stats.static.teams.get_teams()
-    raise NotImplementedError
+    """Return all NBA teams as list of dicts: {id, abbreviation, nickname, city, conference, division}."""
+    return teams.get_teams()
 
 
 def fetch_all_active_players() -> list[dict]:

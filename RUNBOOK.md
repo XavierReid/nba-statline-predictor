@@ -68,7 +68,8 @@ python -m pytest tests/test_rating_engine.py -v
 ```bash
 # Interactive ratings explorer — top 30 overall, best by skill,
 # top 10 per position, distribution, and specific player lookups
-python scratch/explore_ratings.py
+python scratch/explore_ratings.py           # defaults to 2024-25
+python scratch/explore_ratings.py 2025-26   # pass any ingested season
 ```
 
 To look up a different player, edit the `lookups` list near the bottom of
@@ -147,6 +148,20 @@ JOIN teams t ON t.id = p.team_id
 JOIN player_attributes a ON a.player_id = p.id AND a.season = '2024-25'
 WHERE t.abbreviation = 'DEN'
 ORDER BY a.overall_rating DESC;
+```
+
+**Year-over-year overall rating change (requires both seasons ingested):**
+```sql
+SELECT p.full_name, p.position,
+       a1.overall_rating AS ovr_2425,
+       a2.overall_rating AS ovr_2526,
+       a2.overall_rating - a1.overall_rating AS delta
+FROM player_attributes a1
+JOIN player_attributes a2 ON a2.player_id = a1.player_id AND a2.season = '2025-26'
+JOIN players p ON p.id = a1.player_id
+WHERE a1.season = '2024-25'
+ORDER BY delta DESC
+LIMIT 20;
 ```
 
 **Season schedule (how many games per team):**

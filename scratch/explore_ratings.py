@@ -1,8 +1,7 @@
 """
 Quick data explorer — run from the project root:
-    python scratch/explore_ratings.py
-
-Prints rating snapshots for the 2024-25 season. Edit SECTION flags to toggle sections.
+    python scratch/explore_ratings.py           # defaults to 2024-25
+    python scratch/explore_ratings.py 2025-26   # or pass any season
 """
 import sys
 import os
@@ -16,7 +15,8 @@ from app.models.team import Team
 from app.models.player_season_stats import PlayerSeasonStats
 from sqlalchemy import select, func
 
-SEASON = "2024-25"
+SEASON = sys.argv[1] if len(sys.argv) > 1 else "2024-25"
+print(f"Season: {SEASON}\n")
 db = SessionLocal()
 
 def section(title):

@@ -68,12 +68,12 @@ nba_api
 
 ### Planned (migration 0003)
 
-| Table | Purpose |
-|---|---|
-| `lineups` | Starting 5 + bench + expected minutes per player |
-| `simulation_runs` | id, season, seed, parameters (JSON), status, created_at |
-| `simulated_games` | simulation_id, game_id (real schedule ref), scores |
-| `simulated_player_lines` | Per-player box score per simulated game |
+| Table | Key Fields | Notes |
+|---|---|---|
+| `lineup_players` | simulation_id, team_id, player_id, season, minutes_per_game, is_starter | Seeded from player_season_stats on run creation. Top 10 by minutes per team, normalized to sum to 240 player-minutes. Players with no stats sit out unless overridden. |
+| `simulation_runs` | id, season, scope, status, seed, parameters (JSON), games_completed, created_at, completed_at | status: pending/running/paused/failed/complete/cancelled |
+| `simulated_games` | id, simulation_id, game_id, home_score, away_score, home/away Q1-Q4 | unique(simulation_id, game_id) |
+| `simulated_player_lines` | id, simulated_game_id, player_id, team_id, minutes, pts, reb, ast, stl, blk, to, fgm/a, fg3m/a, ftm/a, plus_minus | unique(simulated_game_id, player_id) |
 
 ---
 
@@ -215,6 +215,17 @@ Every simulation run must be reproducible. Requirements:
 
 This enables: debugging specific runs, comparing parameter sensitivity, and is a strong portfolio signal of engineering maturity.
 
+### Rotation Model
+
+Before possessions begin, the GameSimulator pre-generates a rotation schedule for each team:
+
+1. Take the team's `lineup_players` rows (top 10 by minutes, normalized to 240 total)
+2. For each substitution window, sample timing from `Normal(expected_minute, σ)` rather than fixed boundaries — so the bench unit enters around minute 6 of Q1, not always exactly at minute 6
+3. Enforce constraints: exactly 5 on court at all times, minimum ~2-minute rest before a player re-enters, starters bias toward closing Q4
+4. `σ` (substitution variance) is a simulation parameter stored in `parameters` JSON
+
+This produces a possession-indexed map of which 5 players are active at any given moment. The schedule is generated once per game from the run's random seed, making results reproducible.
+
 ### Game Simulator — Possession-Based (not stat-projection)
 
 The simulator operates at the possession level, not the player-average level. This is the critical design distinction from a stat prediction engine.
@@ -237,12 +248,52 @@ This means:
 
 **Do not start by sampling per-player distributions directly.** That produces a stat projection engine, not a basketball simulator.
 
+### Simulation Lifecycle
+
+**Status machine:**
+```
+pending → running → complete        (terminal, non-blocking)
+           ├─▶ paused  → running    (resume)
+           │     └─▶ cancelled      (terminal, non-blocking)
+           ├─▶ failed  → running    (retry)
+           │     └─▶ cancelled      (terminal, non-blocking)
+           └─▶ cancelled            (terminal, non-blocking)
+```
+
+Blocking states (prevent new simulations): `running`, `paused`, `failed`.
+Terminal/non-blocking: `complete`, `cancelled`.
+
+A failed or paused run holds the lock until explicitly retried, resumed, or cancelled.
+Partial results from cancelled/failed runs are kept in the DB and remain queryable.
+
+**Control endpoints:**
+
+| Endpoint | From | To |
+|---|---|---|
+| `POST /simulations` | — | `pending → running` |
+| `POST /simulations/{id}/pause` | `running` | `paused` |
+| `POST /simulations/{id}/resume` | `paused` | `running` |
+| `POST /simulations/{id}/step` | `paused` | `paused` (one game, returns box score immediately) |
+| `POST /simulations/{id}/retry` | `failed` | `running` |
+| `POST /simulations/{id}/cancel` | `running`, `paused`, `failed` | `cancelled` |
+
+**Simulation scope:**
+
+Stored in `parameters` JSON on `SimulationRun`:
+- `"scope": "league"` — simulate all games in the season schedule
+- `"scope": "team", "team_id": <id>` — simulate only games involving that team (82 games)
+
+Both scopes produce full box scores for all players in each simulated game.
+Full-league with team focus (simulate all 1225, surface one team) deferred to v2.
+
 ### Season Simulator
 
-- Loop real game schedule from `games` table
-- Run GameSimulator for each game using that game's lineups
-- Persist to `simulation_runs` → `simulated_games` → `simulated_player_lines`
-- Compute standings after all games complete
+- Fetch regular season games from `games` table (filter to avoid playoff games)
+- For team-scoped runs: filter to games where `home_team_id = team_id OR away_team_id = team_id`
+- Run GameSimulator for each game using that game's lineup rows from `lineup_players`
+- Between each game: poll `SimulationRun.status` — stop if `paused` or `cancelled`
+- Persist to `simulated_games` → `simulated_player_lines` after each game
+- On completion: set status to `complete`; on unhandled exception: set status to `failed`
 
 ### Validation (before building simulator)
 

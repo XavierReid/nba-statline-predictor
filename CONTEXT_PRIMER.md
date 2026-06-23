@@ -256,8 +256,9 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ### Today's plan
 
-1. Build migration 0003: Lineup, SimulationRun, SimulatedGame, SimulatedPlayerLine models
-2. Build GameSimulator — possession-based (see RFC.md for design). Start with Phase 1 in scratch/ before moving into app/services/.
+1. Write migration 0003 models: LineupPlayer, SimulationRun, SimulatedGame, SimulatedPlayerLine
+2. Write and apply migration 0003
+3. Build GameSimulator Phase 1 scratch script — possession-based, rotation model with variance (see RFC.md)
 
 ---
 

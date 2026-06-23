@@ -81,7 +81,7 @@ To look up a different player, edit the `lookups` list near the bottom of
 
 Connect to Postgres:
 ```bash
-docker exec -it nba-statline-predictor-postgres-1 psql -U postgres -d postgres
+docker exec -it nba-statline-predictor-postgres-1 psql -U nba -d nba_predictor
 ```
 
 **Top 20 players by overall rating:**

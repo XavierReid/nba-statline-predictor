@@ -186,7 +186,7 @@ def resolve_possession(
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None,
         "turnover_by": None, "steal_by": None, "block_by": None,
-        "fta": 0, "ftm": 0,
+        "fouled_by": None, "fta": 0, "ftm": 0,
     }
 
     # 1. Select ball handler weighted by usage_rate
@@ -261,6 +261,7 @@ def resolve_possession(
     # 8. Foul / free throws — applies to all non-three attempts
     # ~20% of non-three attempts draw a foul (makes = and-one, misses = 2 FTs)
     if shot_type != "three" and rng.random() < 0.20:
+        result["fouled_by"] = defender["id"]
         ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
         if result["made"]:
             # and-one: shot counts + 1 FT
@@ -320,9 +321,31 @@ def simulate_game(home_players: list[dict], away_players: list[dict], seed: int)
 
     # Box score: player_id → stats
     box = {pid: {"pts": 0, "reb": 0, "ast": 0, "stl": 0, "blk": 0,
-                 "tov": 0, "fgm": 0, "fga": 0, "fg3m": 0, "fg3a": 0,
-                 "ftm": 0, "fta": 0, "min": 0.0, "possessions": 0}
+                 "tov": 0, "pf": 0, "fgm": 0, "fga": 0, "fg3m": 0, "fg3a": 0,
+                 "ftm": 0, "fta": 0, "min": 0.0, "possessions": 0,
+                 "fouled_out": False}
            for pid in list(home_by_id) + list(away_by_id)}
+
+    # Players sorted by minutes descending — used to find foul-out replacements
+    home_by_min = sorted(home_players, key=lambda p: p["minutes"], reverse=True)
+    away_by_min = sorted(away_players, key=lambda p: p["minutes"], reverse=True)
+
+    def patch_rotation(rotation: list, fouled_out_id: int, players_by_min: list, from_minute: int) -> None:
+        """Replace a fouled-out player in all remaining rotation slots."""
+        for m in range(from_minute, GAME_MINUTES):
+            if fouled_out_id not in rotation[m]:
+                continue
+            # Find highest-minutes eligible player not already in this slot and not fouled out
+            replacement = next(
+                (p["id"] for p in players_by_min
+                 if p["id"] != fouled_out_id
+                 and p["id"] not in rotation[m]
+                 and not box[p["id"]]["fouled_out"]),
+                None,
+            )
+            rotation[m].remove(fouled_out_id)
+            if replacement:
+                rotation[m].append(replacement)
 
     quarter_scores = {"home": [0, 0, 0, 0], "away": [0, 0, 0, 0]}
     game_clock = 0.0   # seconds elapsed
@@ -412,6 +435,17 @@ def simulate_game(home_players: list[dict], away_players: list[dict], seed: int)
             if result["rebounded_by"] and result["rebounded_by"] in box:
                 box[result["rebounded_by"]]["reb"] += 1
 
+        # Personal foul — credit to defender, check for foul-out
+        fouled_pid = result.get("fouled_by")
+        if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
+            box[fouled_pid]["pf"] += 1
+            if box[fouled_pid]["pf"] >= 6:
+                box[fouled_pid]["fouled_out"] = True
+                if fouled_pid in home_by_id:
+                    patch_rotation(home_rotation, fouled_pid, home_by_min, current_minute + 1)
+                else:
+                    patch_rotation(away_rotation, fouled_pid, away_by_min, current_minute + 1)
+
         # Quarter scores
         side = "home" if is_home else "away"
         quarter_scores[side][q_idx] += pts
@@ -432,7 +466,7 @@ def simulate_game(home_players: list[dict], away_players: list[dict], seed: int)
 # ---------------------------------------------------------------------------
 def print_box_score(players_by_id: dict, box: dict, team_name: str, team_ids: set):
     print(f"\n  {team_name}")
-    print(f"  {'Name':<25} {'MIN':>5} {'PTS':>4} {'REB':>4} {'AST':>4} {'STL':>4} {'BLK':>4} {'TOV':>4} {'FG':>8} {'3PT':>8} {'FT':>8}")
+    print(f"  {'Name':<27} {'MIN':>5} {'PTS':>4} {'REB':>4} {'AST':>4} {'STL':>4} {'BLK':>4} {'TOV':>4} {'PF':>3} {'FG':>8} {'3PT':>8} {'FT':>8}")
     rows = sorted(
         [(pid, s) for pid, s in box.items() if pid in team_ids],
         key=lambda x: x[1]["pts"], reverse=True
@@ -441,10 +475,12 @@ def print_box_score(players_by_id: dict, box: dict, team_name: str, team_ids: se
         if s["min"] < 0.5:
             continue
         name = players_by_id.get(pid, {}).get("name", str(pid))
+        if s["fouled_out"]:
+            name = name + " (FO)"
         fg = f"{s['fgm']}/{s['fga']}"
         three = f"{s['fg3m']}/{s['fg3a']}"
         ft = f"{s['ftm']}/{s['fta']}"
-        print(f"  {name:<25} {s['min']:>5.1f} {s['pts']:>4} {s['reb']:>4} {s['ast']:>4} {s['stl']:>4} {s['blk']:>4} {s['tov']:>4} {fg:>8} {three:>8} {ft:>8}")
+        print(f"  {name:<27} {s['min']:>5.1f} {s['pts']:>4} {s['reb']:>4} {s['ast']:>4} {s['stl']:>4} {s['blk']:>4} {s['tov']:>4} {s['pf']:>3} {fg:>8} {three:>8} {ft:>8}")
 
 
 # ---------------------------------------------------------------------------

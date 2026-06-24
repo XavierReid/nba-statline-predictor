@@ -20,6 +20,7 @@ def _cleanup_expired() -> None:
 
 def create_session(
     chunks: list,
+    chunk_events: list,
     home_players: list,
     away_players: list,
     home_team: str,
@@ -31,6 +32,7 @@ def create_session(
     token = str(uuid.uuid4())
     _sessions[token] = {
         "chunks": chunks,
+        "chunk_events": chunk_events,
         "cursor": 0,
         "created_at": time.time(),
         "home_players": home_players,
@@ -62,6 +64,7 @@ def pop_next_chunk(token: str) -> Optional[dict]:
 
     # Capture everything before possible eviction
     chunk = session["chunks"][cursor]
+    events = session["chunk_events"][cursor] if session["chunk_events"] else []
     home_players = session["home_players"]
     away_players = session["away_players"]
     home_team = session["home_team"]
@@ -77,6 +80,7 @@ def pop_next_chunk(token: str) -> Optional[dict]:
 
     return {
         "chunk": chunk,
+        "events": events,
         "step": cursor + 1,
         "total_steps": total,
         "complete": complete,

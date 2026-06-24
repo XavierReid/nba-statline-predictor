@@ -74,6 +74,8 @@ class StepThroughResponse(BaseModel):
     step: int
     total_steps: int
     complete: bool
+    elapsed_minutes: float
+    quarter: int
     season: str
     seed: int
     home_team: str
@@ -129,6 +131,8 @@ def _build_stepthrough_response(token: str, data: dict) -> StepThroughResponse:
         step=data["step"],
         total_steps=data["total_steps"],
         complete=data["complete"],
+        elapsed_minutes=chunk["elapsed_minutes"],
+        quarter=chunk["quarter"],
         season=data["season"],
         seed=data["seed"],
         home_team=data["home_team"],
@@ -210,6 +214,7 @@ def start_stepthrough(req: StepThroughRequest, db: Session = Depends(get_db)):
 
     token = create_session(
         chunks=result["chunks"],
+        chunk_events=result["chunk_events"],
         home_players=home_players,
         away_players=away_players,
         home_team=req.home_team.upper(),

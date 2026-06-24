@@ -7,6 +7,7 @@ Public surface:
     load_roster(db, team_id, season) -> list[dict]
     simulate_game(home_players, away_players, seed, season, steps) -> dict
 """
+import math
 import random
 from typing import Optional, Tuple
 
@@ -387,6 +388,8 @@ def simulate_game(
             for i in range(steps)
         }
     chunks: list = []
+    chunk_events: list = []
+    current_chunk_events: list = []
     home_total = 0
     away_total = 0
 
@@ -435,12 +438,27 @@ def simulate_game(
             away_total += pts
         quarter_scores["home" if is_home else "away"][q_idx] += pts
 
+        if steps:
+            current_chunk_events.append({
+                "possession": poss_idx + 1,
+                "game_clock_seconds": round(game_clock),
+                "quarter": q_idx + 1,
+                "is_home": is_home,
+                "pts": pts,
+                **event,
+            })
+
         if (poss_idx + 1) in chunk_boundaries:
+            elapsed = round((poss_idx + 1) * GAME_MINUTES / POSSESSIONS_PER_GAME, 1)
             chunks.append({
                 "home_score": home_total,
                 "away_score": away_total,
+                "elapsed_minutes": elapsed,
+                "quarter": min(4, math.ceil(elapsed / 12)),
                 "box": _snapshot_box(box),
             })
+            chunk_events.append(current_chunk_events)
+            current_chunk_events = []
 
     return {
         "season": season,
@@ -449,4 +467,5 @@ def simulate_game(
         "quarter_scores": quarter_scores,
         "box_score": box,
         "chunks": chunks,
+        "chunk_events": chunk_events,
     }

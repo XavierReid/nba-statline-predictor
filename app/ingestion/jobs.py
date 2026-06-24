@@ -120,6 +120,9 @@ def ingest_season_stats(db: Session, season: str) -> int:
             existing.ft_pct = row['FT_PCT']
             existing.plus_minus = row['PLUS_MINUS']
             existing.usg_pct = row.get('USG_PCT')
+            existing.ast_pct = row.get('AST_PCT')
+            existing.oreb_pct = row.get('OREB_PCT')
+            existing.dreb_pct = row.get('DREB_PCT')
         else:
             db.add(PlayerSeasonStats(
                 player_id=pid,
@@ -144,6 +147,9 @@ def ingest_season_stats(db: Session, season: str) -> int:
                 ft_pct=row['FT_PCT'],
                 plus_minus=row['PLUS_MINUS'],
                 usg_pct=row.get('USG_PCT'),
+                ast_pct=row.get('AST_PCT'),
+                oreb_pct=row.get('OREB_PCT'),
+                dreb_pct=row.get('DREB_PCT'),
             ))
         count += 1
     log.info("ingest_season_stats: %d upserted, %d skipped (not in players table)", count, skipped)

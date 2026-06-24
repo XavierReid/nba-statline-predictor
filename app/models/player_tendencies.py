@@ -18,7 +18,9 @@ class PlayerTendencies(Base):
     shot_tendency: Mapped[Optional[float]] = mapped_column(Float)    # FGA per possession used
     three_point_rate: Mapped[Optional[float]] = mapped_column(Float) # FG3A / FGA
     assist_rate: Mapped[Optional[float]] = mapped_column(Float)      # AST per 36 min
-    rebound_rate: Mapped[Optional[float]] = mapped_column(Float)     # REB per 36 min
+    oreb_rate: Mapped[Optional[float]] = mapped_column(Float)        # offensive rebound % (NBA Advanced)
+    dreb_rate: Mapped[Optional[float]] = mapped_column(Float)        # defensive rebound % (NBA Advanced)
+    rebound_rate: Mapped[Optional[float]] = mapped_column(Float)     # REB per 36 min (fallback)
     turnover_rate: Mapped[Optional[float]] = mapped_column(Float)    # TOV per possession used
 
     def __repr__(self) -> str:

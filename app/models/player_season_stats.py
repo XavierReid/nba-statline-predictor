@@ -36,6 +36,9 @@ class PlayerSeasonStats(Base):
 
     plus_minus: Mapped[Optional[float]] = mapped_column(Float)
     usg_pct: Mapped[Optional[float]] = mapped_column(Float)
+    ast_pct: Mapped[Optional[float]] = mapped_column(Float)
+    oreb_pct: Mapped[Optional[float]] = mapped_column(Float)
+    dreb_pct: Mapped[Optional[float]] = mapped_column(Float)
 
     def __repr__(self) -> str:
         return f"<PlayerSeasonStats player_id={self.player_id} season={self.season}>"

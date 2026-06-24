@@ -335,11 +335,25 @@ def compute_tendencies(stats, team_totals: Optional[dict] = None) -> dict:
         estimated_team_poss = player_possessions / max(minutes_pct, 0.01)
         usage_rate = player_possessions / estimated_team_poss if estimated_team_poss > 0 else None
 
+    # Rebound rates: prefer NBA-provided percentages (available after Advanced ingest),
+    # fall back to per-36 derived from box score totals.
+    if getattr(stats, "oreb_pct", None) is not None:
+        oreb_rate = stats.oreb_pct
+    else:
+        oreb_rate = (stats.rebounds or 0) / max(minutes, 1) * 36  # rough fallback
+
+    if getattr(stats, "dreb_pct", None) is not None:
+        dreb_rate = stats.dreb_pct
+    else:
+        dreb_rate = (stats.rebounds or 0) / max(minutes, 1) * 36
+
     return {
         "usage_rate": round(usage_rate, 4) if usage_rate else None,
         "shot_tendency": fga / max(minutes, 1) * 36,
         "three_point_rate": fg3a / fga if fga > 0 else 0,
         "assist_rate": (stats.assists or 0) / max(minutes, 1) * 36,
+        "oreb_rate": round(oreb_rate, 4),
+        "dreb_rate": round(dreb_rate, 4),
         "rebound_rate": (stats.rebounds or 0) / max(minutes, 1) * 36,
         "turnover_rate": tov / max(minutes, 1) * 36,
     }

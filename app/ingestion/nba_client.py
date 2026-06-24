@@ -7,8 +7,11 @@ Docs: https://github.com/swar/nba_api
 """
 
 # from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2
+import time
 from nba_api.stats.static import teams
 from nba_api.stats.endpoints import commonteamroster
+
+_RATE_LIMIT_DELAY = 0.6  # seconds between per-team requests to avoid throttling
 
 CUSTOM_HEADERS  = {
 "Host": "stats.nba.com",
@@ -32,8 +35,9 @@ def fetch_all_active_players() -> list[dict]:
     all_players = []
     for team in teams.get_teams():
         team_id = team['id']
-        roster = commonteamroster.CommonTeamRoster(team_id=team_id,headers=CUSTOM_HEADERS,timeout=60)
+        roster = commonteamroster.CommonTeamRoster(team_id=team_id, headers=CUSTOM_HEADERS, timeout=60)
         all_players.extend(roster.get_normalized_dict()['CommonTeamRoster'])
+        time.sleep(_RATE_LIMIT_DELAY)
     return all_players
 
 
@@ -52,6 +56,7 @@ def fetch_games_for_season(season: str) -> list[dict]:
         )
         for row in finder.get_normalized_dict()['LeagueGameFinderResults']:
             rows_by_game.setdefault(row['GAME_ID'], []).append(row)
+        time.sleep(_RATE_LIMIT_DELAY)
 
     games = []
     for game_id, rows in rows_by_game.items():
@@ -75,16 +80,41 @@ def fetch_games_for_season(season: str) -> list[dict]:
 
 
 def fetch_season_stats(season: str) -> list[dict]:
-    """Return per-game averages for all players in a season via LeagueDashPlayerStats."""
+    """Return per-game averages merged with advanced stats for all players in a season.
+
+    Makes two calls to LeagueDashPlayerStats (PerGame + Advanced) and merges
+    by PLAYER_ID so downstream ingestion gets everything in one list of dicts.
+    """
     from nba_api.stats.endpoints import leaguedashplayerstats
-    response = leaguedashplayerstats.LeagueDashPlayerStats(
+
+    per_game = leaguedashplayerstats.LeagueDashPlayerStats(
         season=season,
         season_type_all_star='Regular Season',
         per_mode_detailed='PerGame',
         headers=CUSTOM_HEADERS,
         timeout=120,
-    )
-    return response.get_normalized_dict()['LeagueDashPlayerStats']
+    ).get_normalized_dict()['LeagueDashPlayerStats']
+
+    time.sleep(_RATE_LIMIT_DELAY)
+
+    advanced = leaguedashplayerstats.LeagueDashPlayerStats(
+        season=season,
+        season_type_all_star='Regular Season',
+        per_mode_detailed='PerGame',
+        measure_type_detailed_defense='Advanced',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueDashPlayerStats']
+
+    advanced_by_id = {r['PLAYER_ID']: r for r in advanced}
+    for row in per_game:
+        adv = advanced_by_id.get(row['PLAYER_ID'], {})
+        row['USG_PCT'] = adv.get('USG_PCT')
+        row['AST_PCT'] = adv.get('AST_PCT')
+        row['OREB_PCT'] = adv.get('OREB_PCT')
+        row['DREB_PCT'] = adv.get('DREB_PCT')
+
+    return per_game
 
 
 def fetch_box_score(game_id: int) -> list[dict]:

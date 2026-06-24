@@ -83,7 +83,9 @@ def load_roster(db, team_id: int, season: str) -> list[dict]:
             "usage_rate": t.usage_rate or 0.20,
             "three_point_rate": t.three_point_rate or 0.30,
             "shot_tendency": t.shot_tendency or 15.0,
-            "assist_rate": s.assists or 1.0,   # AST/game — captures minutes, not per-36
+            "assist_rate": s.assists or 1.0,      # AST/game — per-game weight for attribution
+            "oreb_rate": t.oreb_rate or 0.05,     # OREB% from Advanced stats
+            "dreb_rate": t.dreb_rate or 0.10,     # DREB% from Advanced stats
             "rebound_rate": t.rebound_rate or 5.0,
             "turnover_rate": t.turnover_rate or 2.0,
         })
@@ -283,16 +285,14 @@ def resolve_possession(
                     passers, weights=ast_weights
                 )[0]["id"]
 
-    # 8. Rebound on miss
+    # 8. Rebound on miss — use NBA Advanced oreb_pct/dreb_pct for individual attribution,
+    # but determine team-level possession via NBA average OREB% (~27%)
     if not result["made"] and result["fta"] == 0:
-        oreb_weights = [p["offensive_rebound"] for p in offense]
-        dreb_weights = [p["defensive_rebound"] for p in defense]
-        total_oreb = sum(oreb_weights)
-        total_dreb = sum(dreb_weights)
-        oreb_prob = total_oreb / (total_oreb + total_dreb * 2.5)   # defense favored
-        if rng.random() < oreb_prob:
+        if rng.random() < 0.27:
+            oreb_weights = [p["oreb_rate"] for p in offense]
             result["rebounded_by"] = rng.choices(offense, weights=oreb_weights)[0]["id"]
         else:
+            dreb_weights = [p["dreb_rate"] for p in defense]
             result["rebounded_by"] = rng.choices(defense, weights=dreb_weights)[0]["id"]
 
     return result

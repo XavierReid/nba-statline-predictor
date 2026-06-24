@@ -77,6 +77,26 @@ To look up a different player, edit the `lookups` list near the bottom of
 
 ---
 
+## Game simulator (scratch CLI)
+
+```bash
+# Default: DEN vs GSW, seed 42, season 2024-25
+python scratch/03_game_simulator.py
+
+# Custom matchup: HOME AWAY SEED SEASON
+python scratch/03_game_simulator.py MIL IND 42 2024-25
+python scratch/03_game_simulator.py BOS LAL 99 2024-25
+
+# Same seed = identical result every time (reproducibility check)
+python scratch/03_game_simulator.py DEN GSW 1 2024-25
+python scratch/03_game_simulator.py DEN GSW 1 2024-25
+```
+
+Output includes: score by quarter, full box score with PTS/REB/AST/STL/BLK/TOV/PF/FG/3PT/FT.
+Players who foul out are annotated with `(FO)`.
+
+---
+
 ## Useful SQL queries
 
 Connect to Postgres:
@@ -178,18 +198,48 @@ ORDER BY t.abbreviation;
 
 ---
 
-## API (once simulator is built)
+## API
 
 ```bash
 # Start the API server
 uvicorn app.main:app --reload
 
-# Interactive docs
+# Interactive docs (Swagger UI)
 open http://localhost:8000/docs
 
 # Health check
 curl http://localhost:8000/health
 ```
+
+### Simulate a standalone game
+
+```bash
+# DEN vs GSW, 2024-25 stats, seed 42 (reproducible)
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "DEN", "away_team": "GSW", "season": "2024-25", "seed": 42}' | jq .
+
+# Random seed (different result each call)
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "MIL", "away_team": "IND", "season": "2024-25"}' | jq .
+
+# Just the score line
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "BOS", "away_team": "LAL", "season": "2024-25", "seed": 1}' \
+  | jq '{season, seed, home_team, away_team, home_score, away_score, quarter_scores}'
+
+# Top scorer from each team
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "DEN", "away_team": "MIL", "season": "2024-25", "seed": 7}' \
+  | jq '{home: .home_box[0], away: .away_box[0]}'
+```
+
+**Error cases to know:**
+- Unknown team abbreviation → `404 Team 'XYZ' not found`
+- Season not ingested → `422 No roster data for DEN in season 2030-31. Run ingestion first.`
 
 ---
 

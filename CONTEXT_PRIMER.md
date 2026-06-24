@@ -167,21 +167,25 @@ If I ever say "be more concise" mid-session, immediately tighten further.
 ### Current state of the scaffold
 
 - Docker Compose brings up Postgres + the FastAPI app on `docker compose up`.
-- Block 1 complete: 30 teams, 530 players, 1225 games ingested.
-- Migrations 0001 + 0002 applied.
+- 30 teams, 530 players, 1225 games ingested. Migrations 0001–0006 applied.
 - 2024-25 season stats ingested (431 players). PlayerAttributes + PlayerTendencies seeded.
-- RatingEngine live: percentile-based, volume-weighted, position-adjusted defaults, position-specific overall weights, non-linear overall curve. See RFC.md for full design rationale.
-- Rating validation passed: Jokić 94, Wemby/Luka/Tatum 86-87, bench 65-74.
-- 8 RatingEngine + health tests passing.
-- Python 3.9 — use `Optional[X]` not `X | None`.
+- Advanced stats (USG_PCT, AST_PCT, OREB_PCT, DREB_PCT) pulled from NBA API and stored.
+- RatingEngine live: percentile-based, position-specific overall weights, non-linear curve. Jokić 94, Wemby/Luka/Tatum 86-87, bench 65-74. See RFC.md for full rationale.
+- 8 tests passing. Python 3.9 — use `Optional[X]` not `X | None`.
 - RFC.md is the source of truth for design decisions. Read it before proposing changes.
 
-**Simulator requirements aligned on (2026-06-02):**
-- Box-score level simulation (player stat lines per game, not just final score)
-- Real NBA rosters seeded from `nba_api`
-- Flexible scope: full season, playoffs, single series, single game
-- One active simulation at a time to start; results persisted and referenceable
-- Long-tail (out of scope for now): trades, draft, contracts, salary cap
+**Simulator — Phase 1 complete (scratch/03_game_simulator.py):**
+- Possession-based game simulation with rotation model, substitution variance
+- Usage-weighted ball handler selection, shot type selection via tendencies
+- Steal/block/foul checks, assist attribution, rebound attribution (OREB%/DREB%)
+- Foul tracking: 6-foul limit, foul-out rotation patching, offensive fouls
+- Season awareness: `season` is a required param throughout
+
+**Simulator — Phase 2 in progress:**
+- `app/services/game_simulator.py` — service extracted from scratch script
+- `POST /simulations/game` — standalone game endpoint, live and demoable
+- Scratch script is now a thin CLI wrapper importing from the service
+- Next: step-through (Step 3), season simulation (Steps 4–5)
 
 ---
 
@@ -256,9 +260,10 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 
 ### Today's plan
 
-1. Write migration 0003 models: LineupPlayer, SimulationRun, SimulatedGame, SimulatedPlayerLine
-2. Write and apply migration 0003
-3. Build GameSimulator Phase 1 scratch script — possession-based, rotation model with variance (see RFC.md)
+Phase 2 continuation:
+1. Step 3 — Step-through for standalone games (in-memory UUID token cache, quarter/minute granularity)
+2. Step 4 — Season simulation: POST /simulations, background task, persist to simulated_games + simulated_player_lines
+3. Step 5 — Season sim control endpoints: pause, resume, cancel, retry
 
 ---
 

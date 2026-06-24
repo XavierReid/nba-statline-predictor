@@ -363,21 +363,25 @@ If these fail the smell test, tune `SkillMetricConfig` before touching simulatio
 - [x] Scaffold: FastAPI, SQLAlchemy 2.0, Alembic, Docker Compose
 - [x] Ingestion: teams, players, games (2024-25 — 30 teams, 530 players, 1225 games)
 - [x] Models: PlayerSeasonStats, PlayerAttributes (+ overall_rating), PlayerTendencies, PlayerAttributeOverride
-- [x] Migration 0002: simulation foundation tables
-- [x] RatingEngine: percentile-based ratings, SkillMetricConfig, position-adjusted defaults
+- [x] Migrations 0001–0006 applied
+- [x] RatingEngine: percentile-based ratings, SkillMetricConfig, position-adjusted defaults, position-specific overall weights, non-linear overall curve
 - [x] Unit tests for RatingEngine (8 passing)
-- [x] Ingested 2024-25 season stats (431 players; 138 skipped — not on ingested rosters)
+- [x] Ingested 2024-25 season stats (431 players); Advanced stats (USG_PCT, AST_PCT, OREB_PCT, DREB_PCT)
 - [x] Seeded PlayerAttributes + PlayerTendencies for 2024-25
 - [x] Rating validation: Jokić 94, Wemby/Luka/Tatum 86-87, bench 65-74 ✓
-- [x] Overall rating redesign: position-specific group weights + non-linear overall curve
+- [x] Usage rate fix: real NBA usage formula (team_poss/team_min); Giannis 0.346 ✓
+- [x] Rate limiting: 0.6s delay between per-team API requests
+- [x] Simulation models: SimulationRun, LineupPlayer, SimulatedGame, SimulatedPlayerLine (migration 0003)
+- [x] GameSimulator Phase 1 (scratch/03_game_simulator.py) — possession-based, rotation model with substitution variance, steal/block/foul/offensive-foul checks, foul-out rotation patching
+- [x] GameSimulator Phase 2 — extracted to app/services/game_simulator.py
+- [x] POST /simulations/game — standalone game endpoint, season-aware, reproducible by seed
 
 ### Next
-- [ ] Lineup model (migration 0003)
-- [ ] SimulationRun + SimulatedGame + SimulatedPlayerLine models (migration 0003)
-- [ ] TeamRatingCalculator service
-- [ ] GameSimulator — possession-based (app/services/game_simulator.py)
-- [ ] SeasonSimulator (app/services/season_simulator.py)
-- [ ] REST endpoints: POST /simulations, GET /simulations/{id}/standings
+- [ ] POST /simulations/game/stepthrough + GET /simulations/game/stepthrough/{token}/next
+- [ ] POST /simulations — season simulation (background task, persists to DB)
+- [ ] Season sim control: pause / resume / cancel / retry
+- [ ] POST /simulations/{id}/games/{game_id}/stepthrough
+- [ ] Lineup overrides: PUT /simulations/{id}/lineups
 
 ### v2
 - [ ] Kafka producer/consumer

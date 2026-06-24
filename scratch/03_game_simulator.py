@@ -83,7 +83,7 @@ def load_roster(db, team_id: int, season: str) -> list[dict]:
             "usage_rate": t.usage_rate or 0.20,
             "three_point_rate": t.three_point_rate or 0.30,
             "shot_tendency": t.shot_tendency or 15.0,
-            "assist_rate": t.assist_rate or 4.0,
+            "assist_rate": s.assists or 1.0,   # AST/game — captures minutes, not per-36
             "rebound_rate": t.rebound_rate or 5.0,
             "turnover_rate": t.turnover_rate or 2.0,
         })

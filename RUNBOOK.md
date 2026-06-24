@@ -18,18 +18,64 @@ source .venv/bin/activate
 
 ## Ingestion
 
-```bash
-# Full ingestion: teams, players, schedule, season stats, attributes
-# Idempotent — safe to re-run. Skips players not on ingested rosters.
-python -m scripts.run_ingestion --season 2024-25
+### Check what's ingested
 
-# Stats + attributes only (if teams/players/schedule already ingested)
+```bash
+# Via API (server must be running)
+curl -s http://localhost:8000/ingestion/seasons | jq .
+# Returns: season, stats_players, attrs_seeded, tends_seeded, ready (bool)
+# ready=false means the season can't be simulated yet
+
+# Via SQL (no server needed)
+docker exec -i nba-statline-predictor-postgres-1 psql -U nba -d nba_predictor -c "
+SELECT s.season,
+       COUNT(DISTINCT s.player_id) AS stats,
+       COUNT(DISTINCT a.player_id) AS attrs,
+       COUNT(DISTINCT t.player_id) AS tends
+FROM player_season_stats s
+LEFT JOIN player_attributes a ON a.player_id = s.player_id AND a.season = s.season
+LEFT JOIN player_tendencies t ON t.player_id = s.player_id AND t.season = s.season
+GROUP BY s.season ORDER BY s.season;"
+```
+
+### Ingest a new season
+
+```bash
+# Via API — runs in background, check /ingestion/seasons for completion
+curl -s -X POST http://localhost:8000/ingestion/seasons/2024-25/ingest | jq .
+
+# Via CLI (more reliable for slow NBA API connections)
 python - <<'EOF'
 from app.database import SessionLocal
 from app.ingestion.jobs import ingest_season_stats, seed_player_attributes
 db = SessionLocal()
 n = ingest_season_stats(db, "2024-25"); db.commit(); print(f"stats: {n}")
 n = seed_player_attributes(db, "2024-25"); db.commit(); print(f"attrs: {n}")
+db.close()
+EOF
+```
+
+### Seed (or re-seed) attributes only
+
+Needed when: stats are ingested but attrs/tends show 0, or after rating engine changes.
+
+```bash
+# Via API
+curl -s -X POST http://localhost:8000/ingestion/seasons/2024-25/seed \
+  -H "Content-Type: application/json" \
+  -d '{"season": "2024-25", "force": false}' | jq .
+
+# force=true wipes existing attrs/tends before re-seeding (use after engine changes)
+curl -s -X POST http://localhost:8000/ingestion/seasons/2024-25/seed \
+  -H "Content-Type: application/json" \
+  -d '{"season": "2024-25", "force": true}' | jq .
+
+# Via CLI
+python - <<'EOF'
+from app.database import SessionLocal
+from app.ingestion.jobs import seed_player_attributes
+db = SessionLocal()
+n = seed_player_attributes(db, "2024-25"); db.commit(); print(f"seeded: {n}")
 db.close()
 EOF
 ```

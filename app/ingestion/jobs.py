@@ -119,6 +119,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
             existing.fta = row['FTA']
             existing.ft_pct = row['FT_PCT']
             existing.plus_minus = row['PLUS_MINUS']
+            existing.usg_pct = row.get('USG_PCT')
         else:
             db.add(PlayerSeasonStats(
                 player_id=pid,
@@ -142,6 +143,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
                 fta=row['FTA'],
                 ft_pct=row['FT_PCT'],
                 plus_minus=row['PLUS_MINUS'],
+                usg_pct=row.get('USG_PCT'),
             ))
         count += 1
     log.info("ingest_season_stats: %d upserted, %d skipped (not in players table)", count, skipped)
@@ -169,6 +171,19 @@ def seed_player_attributes(db: Session, season: str) -> int:
         attr: compute_ratings_for_attribute(attr, all_stats, SKILL_CONFIGS[attr])
         for attr in derived_attributes
     }
+
+    # Aggregate season-total possessions + minutes per team for accurate usage_rate.
+    # Stats are stored as per-game averages, so multiply by games_played.
+    # team_totals[team_id] = (season_total_possessions, season_total_player_minutes)
+    team_totals: dict = {}
+    for s in all_stats:
+        if s.team_id is None:
+            continue
+        gp = s.games_played or 1
+        poss = ((s.fga or 0) + 0.44 * (s.fta or 0) + (s.turnovers or 0)) * gp
+        mins = (s.minutes_per_game or 0) * gp
+        prev_poss, prev_mins = team_totals.get(s.team_id, (0.0, 0.0))
+        team_totals[s.team_id] = (prev_poss + poss, prev_mins + mins)
 
     count = 0
     for stats in all_stats:
@@ -202,7 +217,7 @@ def seed_player_attributes(db: Session, season: str) -> int:
         else:
             db.add(PlayerAttributes(player_id=pid, season=season, **attr_vals))
 
-        tendencies = compute_tendencies(stats)
+        tendencies = compute_tendencies(stats, team_totals=team_totals)
         existing_tend = db.execute(
             select(PlayerTendencies).where(
                 PlayerTendencies.player_id == pid,

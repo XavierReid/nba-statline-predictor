@@ -317,12 +317,21 @@ def compute_tendencies(stats, team_totals: Optional[dict] = None) -> dict:
 
     player_possessions = fga + 0.44 * fta + tov
 
-    if team_totals and stats.team_id in team_totals:
-        team_poss = team_totals[stats.team_id]
-        usage_rate = player_possessions / team_poss if team_poss > 0 else None
+    if getattr(stats, "usg_pct", None) is not None:
+        # NBA-provided usage % — most accurate
+        usage_rate = stats.usg_pct
+    elif team_totals and stats.team_id in team_totals:
+        # Standard NBA usage formula (season totals):
+        # USG% = (player_poss * team_min / 5) / (player_min * team_poss)
+        # Stats are per-game averages in the DB, so convert to season totals first.
+        gp = stats.games_played or 1
+        player_poss_season = player_possessions * gp  # player_possessions is already per-game
+        player_min_season = minutes * gp
+        team_poss_season, team_min_season = team_totals[stats.team_id]
+        usage_rate = (player_poss_season * (team_min_season / 5)) / max(player_min_season * team_poss_season, 1)
     else:
-        # Approximation: assume player accounts for minutes_pct of team possessions
-        minutes_pct = minutes / 240.0  # 240 = 5 players * 48 min
+        # Fallback: approximate via minutes share — intentionally rough
+        minutes_pct = minutes / 240.0
         estimated_team_poss = player_possessions / max(minutes_pct, 0.01)
         usage_rate = player_possessions / estimated_team_poss if estimated_team_poss > 0 else None
 

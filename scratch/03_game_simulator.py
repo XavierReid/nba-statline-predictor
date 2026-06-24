@@ -137,12 +137,8 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
             if len(slots[idx]) < 5 and idx not in visited:
                 slots[idx].add(player["id"])
                 remaining -= 1
-                visited.add(idx)
-            minute += direction
-            if minute >= 48:
-                minute = 0
-            elif minute < 0:
-                minute = 47
+            visited.add(idx)  # always mark scanned, not just assigned
+            minute = (minute + 1) % 48
 
     # Assign starters first — preferred start at minute 0, 24 (Q1, Q3)
     for p in starters:
@@ -187,7 +183,8 @@ def resolve_possession(
     result = {
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None,
-        "turnover_by": None, "fta": 0, "ftm": 0,
+        "turnover_by": None, "steal_by": None, "block_by": None,
+        "fta": 0, "ftm": 0,
     }
 
     # 1. Select ball handler weighted by usage_rate
@@ -195,15 +192,25 @@ def resolve_possession(
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 
-    # 2. Turnover check (~13% base rate, modified by ball handler's turnover tendency)
-    tov_rate = ball_handler["turnover_rate"] / 36.0 * 0.14   # rough per-possession rate
+    # 2. Steal check — defender intercepts before a shot
+    # Steals happen on ~13% of turnovers; ~1.7% of all possessions end in a steal
+    best_defender = max(defense, key=lambda p: p["steal"])
+    steal_prob = (best_defender["steal"] / 100.0) * 0.034
+    if rng.random() < steal_prob:
+        result["turnover_by"] = ball_handler["id"]
+        result["steal_by"] = best_defender["id"]
+        return result
+
+    # 3. Turnover check — ball handler miscues (bad pass, travel, etc.)
+    # Normalized to league average (~2.5 TOV/36) so rate lands near 13% per possession
+    LEAGUE_AVG_TOV_PER36 = 2.5
+    tov_rate = (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13
     if rng.random() < tov_rate:
         result["turnover_by"] = ball_handler["id"]
         return result
 
-    # 3. Shot type selection weighted by tendencies
+    # 4. Shot type selection weighted by tendencies
     three_rate = ball_handler["three_point_rate"]
-    # remaining split between mid and close/paint
     mid_rate = (1 - three_rate) * 0.4
     close_rate = (1 - three_rate) * 0.6
 
@@ -214,35 +221,55 @@ def resolve_possession(
     result["shot_type"] = shot_type
     result["scorer"] = ball_handler["id"]
 
-    # 4. Defender — pick closest positional match from defense
+    # 5. Block check on non-three shots
+    # Best interior defender has a small chance to block; blocked shots miss
+    if shot_type != "three":
+        best_blocker = max(defense, key=lambda p: p["block"])
+        block_prob = (best_blocker["block"] / 100.0) * 0.04
+        if rng.random() < block_prob:
+            result["made"] = False
+            result["block_by"] = best_blocker["id"]
+            # blocked shot goes to rebound — fall through to rebound logic below
+            # skip make/miss resolution and foul check
+            ow = [p["offensive_rebound"] for p in offense]
+            dw = [p["defensive_rebound"] for p in defense]
+            if rng.random() < sum(ow) / (sum(ow) + sum(dw) * 2.5):
+                result["rebounded_by"] = rng.choices(offense, weights=ow)[0]["id"]
+            else:
+                result["rebounded_by"] = rng.choices(defense, weights=dw)[0]["id"]
+            return result
+
+    # 6. Defender — random from active defense
     defender = rng.choice(defense)
 
-    # 5. Resolve make/miss
+    # 7. Resolve make/miss
     if shot_type == "three":
-        offense_rating = ball_handler["three_point"]
         defense_penalty = defender["perimeter_defense"] / 100.0 * 0.08
-        base_prob = attr_to_prob(offense_rating, lo=0.28, hi=0.55)
+        base_prob = attr_to_prob(ball_handler["three_point"], lo=0.28, hi=0.42)
     elif shot_type == "mid":
-        offense_rating = ball_handler["mid_range"]
         defense_penalty = defender["perimeter_defense"] / 100.0 * 0.06
-        base_prob = attr_to_prob(offense_rating, lo=0.35, hi=0.58)
+        base_prob = attr_to_prob(ball_handler["mid_range"], lo=0.35, hi=0.52)
     else:  # close
-        offense_rating = ball_handler["close_shot"]
         defense_penalty = defender["interior_defense"] / 100.0 * 0.10
-        base_prob = attr_to_prob(offense_rating, lo=0.45, hi=0.70)
+        base_prob = attr_to_prob(ball_handler["close_shot"], lo=0.45, hi=0.65)
 
     make_prob = max(0.15, base_prob - defense_penalty + home_bonus / 100.0)
     result["made"] = rng.random() < make_prob
 
-    # 6. Foul / free throws (~15% of shot attempts draw a foul, simplified)
-    if not result["made"] and shot_type != "three" and rng.random() < 0.15:
-        ft_rating = ball_handler["free_throw"]
-        ft_prob = attr_to_prob(ft_rating, lo=0.60, hi=0.95)
-        result["fta"] = 2
-        result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
-        result["made"] = False   # shot didn't count, free throws do
+    # 8. Foul / free throws — applies to all non-three attempts
+    # ~20% of non-three attempts draw a foul (makes = and-one, misses = 2 FTs)
+    if shot_type != "three" and rng.random() < 0.20:
+        ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+        if result["made"]:
+            # and-one: shot counts + 1 FT
+            result["fta"] = 1
+            result["ftm"] = 1 if rng.random() < ft_prob else 0
+        else:
+            # shooting foul: 2 FTs, shot wiped
+            result["fta"] = 2
+            result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
 
-    # 7. Assist (if made, ~60% assisted)
+    # 9. Assist (if made, ~60% assisted)
     if result["made"] and shot_type in ("three", "mid"):
         if rng.random() < 0.60:
             passers = [p for p in offense if p["id"] != ball_handler["id"]]
@@ -340,7 +367,17 @@ def simulate_game(home_players: list[dict], away_players: list[dict], seed: int)
             pid = result["turnover_by"]
             if pid in box:
                 box[pid]["tov"] += 1
+            # credit steal to defender (on opposite team)
+            steal_pid = result.get("steal_by")
+            if steal_pid and steal_pid in box:
+                box[steal_pid]["stl"] += 1
+
         elif result["scorer"]:
+            # credit block to defender
+            block_pid = result.get("block_by")
+            if block_pid and block_pid in box:
+                box[block_pid]["blk"] += 1
+
             pid = result["scorer"]
             if pid in box:
                 box[pid]["possessions"] += 1

@@ -295,6 +295,51 @@ Full-league with team focus (simulate all 1225, surface one team) deferred to v2
 - Persist to `simulated_games` → `simulated_player_lines` after each game
 - On completion: set status to `complete`; on unhandled exception: set status to `failed`
 
+### Standalone Game Simulation
+
+A single game can be simulated outside of a season sim — primary use case is testing and ad-hoc matchups.
+
+```
+POST /simulations/game
+{
+  "home_team_id": 15,
+  "away_team_id": 2,
+  "season": "2024-25",
+  "seed": 12345,          ← optional, random if omitted
+  "step_mode": true,      ← optional, default false
+  "step_by": "quarter"    ← "quarter" | "minute", default "quarter"
+}
+```
+
+- Lineups auto-built from `player_season_stats` for the given season (top 10 by minutes, normalized to 240 player-minutes). Custom lineup overrides deferred to v2.
+- Synchronous — returns box score immediately when `step_mode: false`.
+- No DB persistence by default. Results exist only for the lifetime of the step session.
+
+### Step-Through (game level)
+
+Applies to both standalone games and games stepped through within a season sim. The pattern is identical:
+
+1. Game simulates to completion instantly (single game ≈ milliseconds)
+2. Result is stored in an **in-memory cache** keyed by a UUID token
+3. Results are delivered chunk-by-chunk on subsequent step calls
+
+```
+POST /simulations/game          → returns token + first chunk
+POST /simulations/game/{token}/step  → returns next chunk
+... (repeat until game ends, then cache is cleared)
+
+POST /simulations/{id}/step     → same for season sim games
+  { "step_by": "quarter" | "minute" }
+```
+
+**Granularity options:**
+- `"quarter"` — 4 chunks (default). Each chunk contains all possession outcomes + running box score for that quarter.
+- `"minute"` — 48 chunks. Each chunk contains possessions within that game-clock minute.
+
+**Implementation note:** The GameSimulator tags each possession with a game-clock timestamp (running clock, ~14 seconds per possession). Results are stored as 48 minute-buckets internally. Quarter view = aggregate of minutes 1–12, 13–24, 25–36, 37–48. One storage format serves both granularities.
+
+**In-memory cache** (Python dict, keyed by UUID token) is sufficient for v1. Lost on server restart, which is acceptable for a testing tool. Drop-in swap to Redis if cross-session persistence is needed later.
+
 ### Validation (before building simulator)
 
 Inspect generated ratings for known players:

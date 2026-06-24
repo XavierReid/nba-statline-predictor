@@ -211,6 +211,13 @@ def resolve_possession(
         result["turnover_by"] = ball_handler["id"]
         return result
 
+    # 3b. Offensive foul check — charge or illegal screen (~1.5% of possessions)
+    # Turnover for the offense + PF on the ball handler (not the defender)
+    if rng.random() < 0.015:
+        result["turnover_by"] = ball_handler["id"]
+        result["fouled_by"] = ball_handler["id"]   # offensive player gets the PF
+        return result
+
     # 4. Shot type selection weighted by tendencies
     three_rate = ball_handler["three_point_rate"]
     mid_rate = (1 - three_rate) * 0.4

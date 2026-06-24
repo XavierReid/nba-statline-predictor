@@ -43,6 +43,7 @@ class PlayerLine(BaseModel):
     blocks: int
     turnovers: int
     personal_fouls: int
+    plus_minus: int
     fgm: int
     fga: int
     fg3m: int
@@ -113,6 +114,7 @@ def _build_box(players: list[dict], box: dict) -> list[PlayerLine]:
             blocks=s.get("blk", 0),
             turnovers=s.get("tov", 0),
             personal_fouls=s.get("pf", 0),
+            plus_minus=s.get("plus_minus", 0),
             fgm=s.get("fgm", 0),
             fga=s.get("fga", 0),
             fg3m=s.get("fg3m", 0),

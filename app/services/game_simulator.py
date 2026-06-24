@@ -108,7 +108,7 @@ def _empty_stats() -> dict:
         "pts": 0, "reb": 0, "ast": 0, "stl": 0, "blk": 0,
         "tov": 0, "pf": 0, "fgm": 0, "fga": 0,
         "fg3m": 0, "fg3a": 0, "ftm": 0, "fta": 0,
-        "min": 0.0, "fouled_out": False,
+        "min": 0.0, "fouled_out": False, "plus_minus": 0,
     }
 
 
@@ -437,6 +437,14 @@ def simulate_game(
         else:
             away_total += pts
         quarter_scores["home" if is_home else "away"][q_idx] += pts
+
+        home_delta = pts if is_home else -pts
+        for pid in home_active_ids:
+            if pid in box:
+                box[pid]["plus_minus"] += home_delta
+        for pid in away_active_ids:
+            if pid in box:
+                box[pid]["plus_minus"] -= home_delta
 
         if steps:
             current_chunk_events.append({

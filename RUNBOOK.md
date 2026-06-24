@@ -287,6 +287,39 @@ curl -s -X POST http://localhost:8000/simulations/game \
 - Unknown team abbreviation → `404 Team 'XYZ' not found`
 - Season not ingested → `422 No roster data for DEN in season 2030-31. Run ingestion first.`
 
+### Step-through a game
+
+```bash
+# Start a session — returns token + step 1 (default: 4 steps = quarters)
+curl -s -X POST http://localhost:8000/simulations/game/stepthrough \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "DEN", "away_team": "GSW", "season": "2024-25", "seed": 42}' \
+  | jq '{token, step, total_steps, complete, home_score, away_score}'
+
+# Advance to next step (replace <token> with value from above)
+curl -s http://localhost:8000/simulations/game/stepthrough/<token>/next \
+  | jq '{step, complete, home_score, away_score}'
+
+# Minute-by-minute (48 steps)
+curl -s -X POST http://localhost:8000/simulations/game/stepthrough \
+  -H "Content-Type: application/json" \
+  -d '{"home_team": "MIL", "away_team": "IND", "season": "2024-25", "seed": 7, "steps": 48}'
+```
+
+**Steps reference — pick based on how many round-trips you want:**
+
+| steps | chunk size       | round-trips | best for                       |
+|-------|------------------|-------------|--------------------------------|
+| 2     | ~100 possessions | 2           | halftime split                 |
+| 4     | ~50 possessions  | 4           | quarters (default)             |
+| 8     | ~25 possessions  | 8           | scoring runs (~6 min segments) |
+| 12    | ~17 possessions  | 12          | TV timeout segments (~4 min)   |
+| 24    | ~8 possessions   | 24          | ~2 minute segments             |
+| 48    | ~4 possessions   | 48          | minute-by-minute               |
+| 200   | 1 possession     | 200         | full play-by-play              |
+
+Beyond 48 steps you're in play-by-play territory — expect ~200 requests and noticeable latency without a client batching the calls. Sessions expire after 1 hour or when the final step is consumed (`complete: true`).
+
 ---
 
 ## Rating engine notes

@@ -188,7 +188,21 @@ def start_stepthrough(req: StepThroughRequest, db: Session = Depends(get_db)):
 
     Simulates the full game upfront and caches it server-side. Returns a token
     and the first step. Call GET /simulations/game/stepthrough/{token}/next to
-    advance through the game. Sessions expire after 1 hour or when complete.
+    advance. Sessions expire after 1 hour or when the final step is consumed.
+
+    **Steps reference:**
+    | steps | chunk size       | round-trips | best for                        |
+    |-------|------------------|-------------|---------------------------------|
+    | 2     | ~100 possessions | 2           | halftime split                  |
+    | 4     | ~50 possessions  | 4           | quarters (default)              |
+    | 8     | ~25 possessions  | 8           | scoring runs (~6 min segments)  |
+    | 12    | ~17 possessions  | 12          | TV timeout segments (~4 min)    |
+    | 24    | ~8 possessions   | 24          | ~2 minute segments              |
+    | 48    | ~4 possessions   | 48          | minute-by-minute                |
+    | 200   | 1 possession     | 200         | full play-by-play               |
+
+    Beyond 48 steps you are in play-by-play territory — expect ~200 requests
+    and noticeable latency without a client batching the calls.
     """
     home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)

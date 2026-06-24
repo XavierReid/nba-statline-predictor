@@ -269,12 +269,15 @@ def resolve_possession(
             result["fta"] = 2
             result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
 
-    # 9. Assist (if made, ~60% assisted)
-    if result["made"] and shot_type in ("three", "mid"):
-        if rng.random() < 0.60:
+    # 9. Assist (if made) — rate varies by shot type, weighted by assist_rate tendency
+    # Three/mid: ~62% assisted (kick-outs, catch-and-shoot)
+    # Close: ~38% assisted (cuts, lobs, pick-and-roll drops)
+    if result["made"]:
+        ast_rate = 0.62 if shot_type in ("three", "mid") else 0.38
+        if rng.random() < ast_rate:
             passers = [p for p in offense if p["id"] != ball_handler["id"]]
             if passers:
-                ast_weights = [p["passing"] for p in passers]
+                ast_weights = [p["assist_rate"] for p in passers]
                 result["assisted_by"] = rng.choices(
                     passers, weights=ast_weights
                 )[0]["id"]

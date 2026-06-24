@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import games, players
+from app.api import games, players, simulations
 from app.config import settings
 
 
@@ -35,3 +35,4 @@ def health():
 
 app.include_router(players.router)
 app.include_router(games.router)
+app.include_router(simulations.router)

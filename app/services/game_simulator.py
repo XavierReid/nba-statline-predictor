@@ -361,6 +361,10 @@ def simulate_game(
     home_rotation = build_rotation(home_players, rng)
     away_rotation = build_rotation(away_players, rng)
 
+    # Tip-off: coin flip determines Q1 possession; Q3 goes to the tip loser.
+    # Q2 and Q4 continue alternating naturally from their preceding quarter.
+    tip_winner_is_home = rng.random() < 0.5
+
     box: dict = {pid: _empty_stats() for pid in list(home_by_id) + list(away_by_id)}
 
     home_by_min = sorted(home_players, key=lambda p: p["minutes"], reverse=True)
@@ -414,10 +418,12 @@ def simulate_game(
             if pid in box:
                 box[pid]["min"] += min_per_poss
 
-        if poss_idx % 2 == 0:
-            offense, defense, is_home = home_active, away_active, True
+        within_half = poss_idx % 100
+        if poss_idx < 100:
+            is_home = (within_half % 2 == 0) == tip_winner_is_home
         else:
-            offense, defense, is_home = away_active, home_active, False
+            is_home = (within_half % 2 == 0) != tip_winner_is_home
+        offense, defense = (home_active, away_active) if is_home else (away_active, home_active)
 
         if not offense or not defense:
             continue

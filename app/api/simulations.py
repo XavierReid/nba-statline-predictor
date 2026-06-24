@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
+from app.services.stepthrough_store import create_session, pop_next_chunk
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
@@ -21,6 +22,14 @@ class SimulateGameRequest(BaseModel):
     away_team: str = Field(..., description="Team abbreviation, e.g. 'GSW'")
     season: str = Field(..., description="Season string, e.g. '2024-25'")
     seed: Optional[int] = Field(None, description="RNG seed for reproducibility. Omit for a random game.")
+
+
+class StepThroughRequest(BaseModel):
+    home_team: str = Field(..., description="Team abbreviation, e.g. 'DEN'")
+    away_team: str = Field(..., description="Team abbreviation, e.g. 'GSW'")
+    season: str = Field(..., description="Season string, e.g. '2024-25'")
+    seed: Optional[int] = Field(None, description="RNG seed for reproducibility.")
+    steps: int = Field(4, ge=1, le=200, description="Number of steps to split the game into. Default 4 (quarters).")
 
 
 class PlayerLine(BaseModel):
@@ -56,6 +65,21 @@ class SimulateGameResponse(BaseModel):
     home_score: int
     away_score: int
     quarter_scores: QuarterScores
+    home_box: list[PlayerLine]
+    away_box: list[PlayerLine]
+
+
+class StepThroughResponse(BaseModel):
+    token: str
+    step: int
+    total_steps: int
+    complete: bool
+    season: str
+    seed: int
+    home_team: str
+    away_team: str
+    home_score: int
+    away_score: int
     home_box: list[PlayerLine]
     away_box: list[PlayerLine]
 
@@ -98,6 +122,36 @@ def _build_box(players: list[dict], box: dict) -> list[PlayerLine]:
     return sorted(lines, key=lambda l: l.points, reverse=True)
 
 
+def _build_stepthrough_response(token: str, data: dict) -> StepThroughResponse:
+    chunk = data["chunk"]
+    return StepThroughResponse(
+        token=token,
+        step=data["step"],
+        total_steps=data["total_steps"],
+        complete=data["complete"],
+        season=data["season"],
+        seed=data["seed"],
+        home_team=data["home_team"],
+        away_team=data["away_team"],
+        home_score=chunk["home_score"],
+        away_score=chunk["away_score"],
+        home_box=_build_box(data["home_players"], chunk["box"]),
+        away_box=_build_box(data["away_players"], chunk["box"]),
+    )
+
+
+def _load_rosters(db: Session, home_team_abbr: str, away_team_abbr: str, season: str) -> tuple:
+    home_team = _get_team(db, home_team_abbr)
+    away_team = _get_team(db, away_team_abbr)
+    home_players = load_roster(db, home_team.id, season)
+    away_players = load_roster(db, away_team.id, season)
+    if not home_players:
+        raise HTTPException(422, detail=f"No roster data for {home_team_abbr} in season {season}. Run ingestion first.")
+    if not away_players:
+        raise HTTPException(422, detail=f"No roster data for {away_team_abbr} in season {season}. Run ingestion first.")
+    return home_players, away_players
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -108,23 +162,7 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
     The result is not persisted — use this for testing matchups and exploring
     player performance without running a full season simulation.
     """
-    home_team = _get_team(db, req.home_team)
-    away_team = _get_team(db, req.away_team)
-
-    home_players = load_roster(db, home_team.id, req.season)
-    away_players = load_roster(db, away_team.id, req.season)
-
-    if not home_players:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No roster data for {req.home_team} in season {req.season}. Run ingestion first.",
-        )
-    if not away_players:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No roster data for {req.away_team} in season {req.season}. Run ingestion first.",
-        )
-
+    home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)
     result = simulate_game(home_players, away_players, seed=seed, season=req.season)
 
@@ -142,3 +180,40 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
         home_box=_build_box(home_players, result["box_score"]),
         away_box=_build_box(away_players, result["box_score"]),
     )
+
+
+@router.post("/game/stepthrough", response_model=StepThroughResponse)
+def start_stepthrough(req: StepThroughRequest, db: Session = Depends(get_db)):
+    """Start a step-through session for a game.
+
+    Simulates the full game upfront and caches it server-side. Returns a token
+    and the first step. Call GET /simulations/game/stepthrough/{token}/next to
+    advance through the game. Sessions expire after 1 hour or when complete.
+    """
+    home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
+    seed = req.seed if req.seed is not None else random.randint(0, 2**31)
+    result = simulate_game(home_players, away_players, seed=seed, season=req.season, steps=req.steps)
+
+    token = create_session(
+        chunks=result["chunks"],
+        home_players=home_players,
+        away_players=away_players,
+        home_team=req.home_team.upper(),
+        away_team=req.away_team.upper(),
+        season=req.season,
+        seed=seed,
+    )
+    return _build_stepthrough_response(token, pop_next_chunk(token))
+
+
+@router.get("/game/stepthrough/{token}/next", response_model=StepThroughResponse)
+def next_stepthrough(token: str):
+    """Advance to the next step in a step-through session.
+
+    Returns 404 if the token is unknown or expired (including after the final step).
+    Check complete=true in the response to know when the game has ended.
+    """
+    data = pop_next_chunk(token)
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    return _build_stepthrough_response(token, data)

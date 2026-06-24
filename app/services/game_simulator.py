@@ -5,10 +5,10 @@ CLI wrapper around this module.
 
 Public surface:
     load_roster(db, team_id, season) -> list[dict]
-    simulate_game(home_players, away_players, seed) -> dict
+    simulate_game(home_players, away_players, seed, season, steps) -> dict
 """
 import random
-from typing import Optional
+from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -97,6 +97,79 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             p["minutes"] = round(p["minutes"] / total * 240, 1)
 
     return players
+
+
+# ---------------------------------------------------------------------------
+# Box score helpers
+# ---------------------------------------------------------------------------
+def _empty_stats() -> dict:
+    return {
+        "pts": 0, "reb": 0, "ast": 0, "stl": 0, "blk": 0,
+        "tov": 0, "pf": 0, "fgm": 0, "fga": 0,
+        "fg3m": 0, "fg3a": 0, "ftm": 0, "fta": 0,
+        "min": 0.0, "fouled_out": False,
+    }
+
+
+def _snapshot_box(box: dict) -> dict:
+    """Shallow-copy a box score dict. Safe because all values are primitives."""
+    return {pid: dict(stats) for pid, stats in box.items()}
+
+
+def _apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
+    """Apply one possession event to box in place.
+
+    Returns (pts_scored, fouled_out_player_id or None). Rotation patching for
+    foul-outs is left to the caller since it requires simulation state.
+    """
+    pts = 0
+
+    if event["turnover_by"] and event["turnover_by"] in box:
+        box[event["turnover_by"]]["tov"] += 1
+        if event.get("steal_by") and event["steal_by"] in box:
+            box[event["steal_by"]]["stl"] += 1
+
+    elif event["scorer"]:
+        if event.get("block_by") and event["block_by"] in box:
+            box[event["block_by"]]["blk"] += 1
+
+        pid = event["scorer"]
+        if pid in box:
+            if event["shot_type"] == "three":
+                box[pid]["fg3a"] += 1
+                box[pid]["fga"] += 1
+                if event["made"]:
+                    box[pid]["fg3m"] += 1
+                    box[pid]["fgm"] += 1
+                    box[pid]["pts"] += 3
+                    pts = 3
+            else:
+                box[pid]["fga"] += 1
+                if event["made"]:
+                    box[pid]["fgm"] += 1
+                    box[pid]["pts"] += 2
+                    pts = 2
+
+            if event["fta"] > 0:
+                box[pid]["fta"] += event["fta"]
+                box[pid]["ftm"] += event["ftm"]
+                box[pid]["pts"] += event["ftm"]
+                pts += event["ftm"]
+
+        if event.get("assisted_by") and event["assisted_by"] in box:
+            box[event["assisted_by"]]["ast"] += 1
+        if event.get("rebounded_by") and event["rebounded_by"] in box:
+            box[event["rebounded_by"]]["reb"] += 1
+
+    fouled_out_pid = None
+    fouled_pid = event.get("fouled_by")
+    if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
+        box[fouled_pid]["pf"] += 1
+        if box[fouled_pid]["pf"] >= 6:
+            box[fouled_pid]["fouled_out"] = True
+            fouled_out_pid = fouled_pid
+
+    return pts, fouled_out_pid
 
 
 # ---------------------------------------------------------------------------
@@ -269,11 +342,15 @@ def simulate_game(
     away_players: list[dict],
     seed: int,
     season: Optional[str] = None,
+    steps: Optional[int] = None,
 ) -> dict:
     """Simulate one full game.
 
     Returns a dict with:
-        home_score, away_score, quarter_scores, box_score, season
+        home_score, away_score, quarter_scores, box_score, season, chunks
+
+    chunks is a list of step snapshots when steps is provided, empty otherwise.
+    Each chunk: {home_score, away_score, box} — cumulative through that step.
     """
     rng = random.Random(seed)
 
@@ -283,15 +360,7 @@ def simulate_game(
     home_rotation = build_rotation(home_players, rng)
     away_rotation = build_rotation(away_players, rng)
 
-    box: dict = {
-        pid: {
-            "pts": 0, "reb": 0, "ast": 0, "stl": 0, "blk": 0,
-            "tov": 0, "pf": 0, "fgm": 0, "fga": 0,
-            "fg3m": 0, "fg3a": 0, "ftm": 0, "fta": 0,
-            "min": 0.0, "fouled_out": False,
-        }
-        for pid in list(home_by_id) + list(away_by_id)
-    }
+    box: dict = {pid: _empty_stats() for pid in list(home_by_id) + list(away_by_id)}
 
     home_by_min = sorted(home_players, key=lambda p: p["minutes"], reverse=True)
     away_by_min = sorted(away_players, key=lambda p: p["minutes"], reverse=True)
@@ -310,6 +379,16 @@ def simulate_game(
             rotation[m].remove(fouled_out_id)
             if replacement:
                 rotation[m].append(replacement)
+
+    chunk_boundaries: set = set()
+    if steps:
+        chunk_boundaries = {
+            round((i + 1) * POSSESSIONS_PER_GAME / steps)
+            for i in range(steps)
+        }
+    chunks: list = []
+    home_total = 0
+    away_total = 0
 
     quarter_scores: dict = {"home": [0, 0, 0, 0], "away": [0, 0, 0, 0]}
     game_clock = 0.0
@@ -343,55 +422,25 @@ def simulate_game(
         home_bonus = HOME_ADVANTAGE / POSSESSIONS_PER_GAME if is_home else 0.0
         event = resolve_possession(offense, defense, rng, home_bonus)
 
-        pts = 0
-        if event["turnover_by"] and event["turnover_by"] in box:
-            box[event["turnover_by"]]["tov"] += 1
-            if event.get("steal_by") and event["steal_by"] in box:
-                box[event["steal_by"]]["stl"] += 1
+        pts, fouled_out_pid = _apply_event(box, event)
+        if fouled_out_pid:
+            if fouled_out_pid in home_by_id:
+                patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
+            else:
+                patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
 
-        elif event["scorer"]:
-            if event.get("block_by") and event["block_by"] in box:
-                box[event["block_by"]]["blk"] += 1
-
-            pid = event["scorer"]
-            if pid in box:
-                if event["shot_type"] == "three":
-                    box[pid]["fg3a"] += 1
-                    box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fg3m"] += 1
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 3
-                        pts = 3
-                else:
-                    box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 2
-                        pts = 2
-
-                if event["fta"] > 0:
-                    box[pid]["fta"] += event["fta"]
-                    box[pid]["ftm"] += event["ftm"]
-                    box[pid]["pts"] += event["ftm"]
-                    pts += event["ftm"]
-
-            if event.get("assisted_by") and event["assisted_by"] in box:
-                box[event["assisted_by"]]["ast"] += 1
-            if event.get("rebounded_by") and event["rebounded_by"] in box:
-                box[event["rebounded_by"]]["reb"] += 1
-
-        fouled_pid = event.get("fouled_by")
-        if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
-            box[fouled_pid]["pf"] += 1
-            if box[fouled_pid]["pf"] >= 6:
-                box[fouled_pid]["fouled_out"] = True
-                if fouled_pid in home_by_id:
-                    patch_rotation(home_rotation, fouled_pid, home_by_min, current_minute + 1)
-                else:
-                    patch_rotation(away_rotation, fouled_pid, away_by_min, current_minute + 1)
-
+        if is_home:
+            home_total += pts
+        else:
+            away_total += pts
         quarter_scores["home" if is_home else "away"][q_idx] += pts
+
+        if (poss_idx + 1) in chunk_boundaries:
+            chunks.append({
+                "home_score": home_total,
+                "away_score": away_total,
+                "box": _snapshot_box(box),
+            })
 
     return {
         "season": season,
@@ -399,4 +448,5 @@ def simulate_game(
         "away_score": sum(quarter_scores["away"]),
         "quarter_scores": quarter_scores,
         "box_score": box,
+        "chunks": chunks,
     }

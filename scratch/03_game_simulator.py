@@ -270,10 +270,11 @@ def resolve_possession(
             result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
 
     # 9. Assist (if made) — rate varies by shot type, weighted by assist_rate tendency
-    # Three/mid: ~62% assisted (kick-outs, catch-and-shoot)
-    # Close: ~38% assisted (cuts, lobs, pick-and-roll drops)
+    # Three/mid: ~65% assisted (kick-outs, catch-and-shoot)
+    # Close: ~50% assisted (cuts, lobs, pick-and-roll drops)
+    # Blended ~59%, close to NBA average of 62-67%
     if result["made"]:
-        ast_rate = 0.62 if shot_type in ("three", "mid") else 0.38
+        ast_rate = 0.65 if shot_type in ("three", "mid") else 0.50
         if rng.random() < ast_rate:
             passers = [p for p in offense if p["id"] != ball_handler["id"]]
             if passers:

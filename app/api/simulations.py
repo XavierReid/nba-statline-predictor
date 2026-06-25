@@ -283,6 +283,8 @@ class SimulationStatusResponse(BaseModel):
     status: str
     games_completed: int
     total_games: int
+    wins: Optional[int] = None
+    losses: Optional[int] = None
     created_at: datetime
     completed_at: Optional[datetime]
     games: Optional[list[SimulatedGameSummary]] = None
@@ -385,13 +387,19 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
 
     total_games = (sim.parameters or {}).get("total_games", 82)
 
+    wins = losses = None
     games_summary = None
     if sim.status == "complete":
+        wins = losses = 0
         games_summary = []
         for sg in simulated_games:
             real_game = db.get(Game, sg.game_id)
             is_home = real_game.home_team_id == sim.team_id
             win = (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
+            if win:
+                wins += 1
+            else:
+                losses += 1
             games_summary.append(SimulatedGameSummary(
                 game_id=sg.game_id,
                 game_date=str(real_game.game_date),
@@ -411,6 +419,8 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         status=sim.status,
         games_completed=sim.games_completed,
         total_games=total_games,
+        wins=wins,
+        losses=losses,
         created_at=sim.created_at,
         completed_at=sim.completed_at,
         games=games_summary,

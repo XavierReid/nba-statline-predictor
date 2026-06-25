@@ -31,3 +31,4 @@ docker-compose.override.yml
 # Local data dumps
 data/
 *.sqlite3
+CONTEXT_PRIMER.md

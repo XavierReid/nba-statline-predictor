@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,28 +10,20 @@ class SimulationRun(Base):
     """A single season simulation run.
 
     status lifecycle:
-        pending → running → complete        (terminal)
-                   ├─▶ paused  → running    (resume)
-                   │     └─▶ cancelled      (terminal)
-                   ├─▶ failed  → running    (retry)
-                   │     └─▶ cancelled      (terminal)
-                   └─▶ cancelled            (terminal)
-
-    Blocking states (prevent new runs): running, paused, failed.
-    Terminal/non-blocking: complete, cancelled.
+        pending → running → complete    (terminal)
+                   ├─▶ failed          (terminal)
+                   └─▶ cancelled       (terminal)
     """
     __tablename__ = "simulation_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     season: Mapped[str] = mapped_column(String(8), nullable=False)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
 
-    # Reproducibility
     seed: Mapped[int] = mapped_column(Integer, nullable=False)
-    # JSON blob: scope, team_id, home_advantage, variance_factor, sub_variance, etc.
     parameters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
-    # Progress tracking — avoids COUNT(simulated_games) on every poll
     games_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -44,14 +36,7 @@ class SimulationRun(Base):
 
 
 class LineupPlayer(Base):
-    """A player slot in a simulation run's roster.
-
-    Seeded from player_season_stats when the run is created.
-    Top 10 players by minutes per team, normalized so the team
-    total equals 240 player-minutes (5 players × 48 min).
-    Players with no stats for the season have minutes_per_game=0
-    and are excluded from rotation unless manually overridden.
-    """
+    """A player slot in a simulation run's roster."""
     __tablename__ = "lineup_players"
     __table_args__ = (
         UniqueConstraint("simulation_id", "team_id", "player_id", name="uq_lp_sim_team_player"),
@@ -83,16 +68,10 @@ class SimulatedGame(Base):
 
     home_score: Mapped[int] = mapped_column(Integer, nullable=False)
     away_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    went_to_ot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Quarter scores
-    home_q1: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    home_q2: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    home_q3: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    home_q4: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    away_q1: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    away_q2: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    away_q3: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    away_q4: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # {"home": [28, 31, 22, 19], "away": [24, 27, 25, 21]} — grows beyond 4 entries for OT
+    quarter_scores: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     def __repr__(self) -> str:
         return f"<SimulatedGame sim={self.simulation_id} game={self.game_id} {self.home_score}-{self.away_score}>"
@@ -117,6 +96,8 @@ class SimulatedPlayerLine(Base):
     steals: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     blocks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     turnovers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    personal_fouls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fouled_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fgm: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     fga: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     fg3m: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

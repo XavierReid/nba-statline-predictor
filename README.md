@@ -115,4 +115,4 @@ See [`RUNBOOK.md`](RUNBOOK.md) for commands, queries, and scripts.
 
 ---
 
-*Built by Xavier Reid — [github.com/xavierreid](https://github.com/xavierreid) · [linkedin.com/in/xavierreid](https://linkedin.com/in/xavierreid)*
+*Built by Xavier Reid — [github.com/xavierreid](https://github.com/xavierreid) · [https://www.linkedin.com/in/xavier-reid-246814115/](https://www.linkedin.com/in/xavier-reid-246814115/)*

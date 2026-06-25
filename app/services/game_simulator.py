@@ -25,6 +25,9 @@ from app.models.player_season_stats import PlayerSeasonStats
 POSSESSIONS_PER_GAME = 200      # ~100 per team, matches NBA average pace
 GAME_MINUTES = 48
 SECONDS_PER_POSSESSION = (GAME_MINUTES * 60) / POSSESSIONS_PER_GAME
+POSSESSIONS_PER_OT = 20         # ~10 per team per OT period
+OT_MINUTES = 5
+SECONDS_PER_OT_POSSESSION = (OT_MINUTES * 60) / POSSESSIONS_PER_OT   # 15.0
 HOME_ADVANTAGE = 3.0            # extra points spread across home possessions
 SUB_VARIANCE = 2.0              # σ in minutes for substitution timing (Normal dist)
 LEAGUE_AVG_TOV_PER36 = 2.5     # used to normalize per-player turnover rates
@@ -136,20 +139,22 @@ def _apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
 
         pid = event["scorer"]
         if pid in box:
-            if event["shot_type"] == "three":
-                box[pid]["fg3a"] += 1
-                box[pid]["fga"] += 1
-                if event["made"]:
-                    box[pid]["fg3m"] += 1
-                    box[pid]["fgm"] += 1
-                    box[pid]["pts"] += 3
-                    pts = 3
-            else:
-                box[pid]["fga"] += 1
-                if event["made"]:
-                    box[pid]["fgm"] += 1
-                    box[pid]["pts"] += 2
-                    pts = 2
+            shot_type = event.get("shot_type")
+            if shot_type:  # bonus fouls have no shot attempt — skip FGA
+                if shot_type == "three":
+                    box[pid]["fg3a"] += 1
+                    box[pid]["fga"] += 1
+                    if event["made"]:
+                        box[pid]["fg3m"] += 1
+                        box[pid]["fgm"] += 1
+                        box[pid]["pts"] += 3
+                        pts = 3
+                else:
+                    box[pid]["fga"] += 1
+                    if event["made"]:
+                        box[pid]["fgm"] += 1
+                        box[pid]["pts"] += 2
+                        pts = 2
 
             if event["fta"] > 0:
                 box[pid]["fta"] += event["fta"]
@@ -223,13 +228,65 @@ def _attr_to_prob(rating: int, lo: float = 0.25, hi: float = 0.75) -> float:
     return lo + (rating / 100.0) * (hi - lo)
 
 
+def describe_event(event: dict, name_map: dict) -> str:
+    """Return a human-readable description of a possession event.
+
+    name_map: {player_id: player_name} — built from home + away player lists.
+    Kept as a module-level function so both resolve_possession (when
+    capture_descriptions=True) and the step-through flatten pass can call it.
+    """
+    def name(pid: Optional[int]) -> str:
+        return name_map.get(pid, f"Player {pid}") if pid else "Unknown"
+
+    scorer = event.get("scorer")
+
+    if event.get("turnover_by"):
+        if event.get("steal_by"):
+            return f"{name(event['turnover_by'])} turns it over — stolen by {name(event['steal_by'])}"
+        if event.get("fouled_by") == event.get("turnover_by"):
+            return f"{name(event['turnover_by'])} commits an offensive foul"
+        return f"{name(event['turnover_by'])} turns it over"
+
+    # Bonus foul (no shot_type) or shooting foul on a missed shot
+    if not event.get("shot_type"):
+        ftm, fta = event.get("ftm", 0), event.get("fta", 0)
+        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul)"
+
+    shot_labels = {"three": "3-pointer", "mid": "mid-range jumper", "close": "layup/close shot"}
+    shot = shot_labels.get(event["shot_type"], "shot")
+
+    if event.get("block_by"):
+        return f"{name(scorer)} blocked by {name(event['block_by'])}"
+
+    if not event.get("made"):
+        desc = f"{name(scorer)} misses a {shot}"
+        if event.get("rebounded_by"):
+            desc += f" — {name(event['rebounded_by'])} rebounds"
+        if event.get("fta"):
+            desc += f" — shooting foul, {event['ftm']}/{event['fta']} FTs"
+        return desc
+
+    desc = f"{name(scorer)} hits a {shot}"
+    if event.get("assisted_by"):
+        desc += f" (assisted by {name(event['assisted_by'])})"
+    if event.get("fta"):
+        desc += f" — and-1, {event['ftm']}/1 FT"
+    return desc
+
+
 def resolve_possession(
     offense: list[dict],
     defense: list[dict],
     rng: random.Random,
     home_bonus: float = 0.0,
+    name_map: Optional[dict] = None,
 ) -> dict:
     """Simulate one possession and return an event dict."""
+    def _done(r: dict) -> dict:
+        if name_map is not None:
+            r["description"] = describe_event(r, name_map)
+        return r
+
     result: dict = {
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None,
@@ -242,23 +299,34 @@ def resolve_possession(
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 
+    # 1b. Bonus foul — approximates non-shooting fouls when team is over the foul
+    # limit (~5.5% of possessions). Real tracking requires per-quarter foul counts
+    # (v1.5). The 2 FTs end the possession with no field goal attempt.
+    if rng.random() < 0.055:
+        result["scorer"] = ball_handler["id"]
+        result["fouled_by"] = rng.choice(defense)["id"]
+        ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+        result["fta"] = 2
+        result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
+        return _done(result)
+
     # 2. Steal check (~1.7% of possessions)
     best_defender = max(defense, key=lambda p: p["steal"])
     if rng.random() < (best_defender["steal"] / 100.0) * 0.034:
         result["turnover_by"] = ball_handler["id"]
         result["steal_by"] = best_defender["id"]
-        return result
+        return _done(result)
 
     # 3. Turnover — bad pass, travel, etc. (~13% at league average)
     if rng.random() < (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13:
         result["turnover_by"] = ball_handler["id"]
-        return result
+        return _done(result)
 
     # 3b. Offensive foul — charge or illegal screen (~1.5% of possessions)
     if rng.random() < 0.015:
         result["turnover_by"] = ball_handler["id"]
         result["fouled_by"] = ball_handler["id"]
-        return result
+        return _done(result)
 
     # 4. Shot type selection
     three_rate = ball_handler["three_point_rate"]
@@ -282,28 +350,39 @@ def resolve_possession(
                 result["rebounded_by"] = rng.choices(
                     defense, weights=[p["dreb_rate"] for p in defense]
                 )[0]["id"]
-            return result
+            return _done(result)
 
     # 6. Defender
     defender = rng.choice(defense)
 
     # 7. Make/miss
     if shot_type == "three":
-        base_prob = _attr_to_prob(ball_handler["three_point"], lo=0.28, hi=0.42)
-        defense_penalty = defender["perimeter_defense"] / 100.0 * 0.08
-    elif shot_type == "mid":
-        base_prob = _attr_to_prob(ball_handler["mid_range"], lo=0.35, hi=0.52)
+        base_prob = _attr_to_prob(ball_handler["three_point"], lo=0.38, hi=0.44)
         defense_penalty = defender["perimeter_defense"] / 100.0 * 0.06
+    elif shot_type == "mid":
+        base_prob = _attr_to_prob(ball_handler["mid_range"], lo=0.51, hi=0.58)
+        defense_penalty = defender["perimeter_defense"] / 100.0 * 0.05
     else:
-        base_prob = _attr_to_prob(ball_handler["close_shot"], lo=0.45, hi=0.65)
-        defense_penalty = defender["interior_defense"] / 100.0 * 0.10
+        base_prob = _attr_to_prob(ball_handler["close_shot"], lo=0.65, hi=0.72)
+        defense_penalty = defender["interior_defense"] / 100.0 * 0.08
 
     result["made"] = rng.random() < max(0.15, base_prob - defense_penalty + home_bonus / 100.0)
 
-    # 8. Foul / free throws — non-three attempts only (~20%)
-    if shot_type != "three" and rng.random() < 0.20:
+    ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+
+    # 8a. 3PT shooting foul (~2% of 3PT attempts): missed = 3 FTs, made = and-1
+    if shot_type == "three" and rng.random() < 0.02:
         result["fouled_by"] = defender["id"]
-        ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+        if result["made"]:
+            result["fta"] = 1
+            result["ftm"] = 1 if rng.random() < ft_prob else 0
+        else:
+            result["fta"] = 3
+            result["ftm"] = sum(1 for _ in range(3) if rng.random() < ft_prob)
+
+    # 8b. 2PT shooting foul (~15% of non-3PT attempts): made = and-1, missed = 2 FTs
+    elif shot_type != "three" and rng.random() < 0.15:
+        result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
             result["ftm"] = 1 if rng.random() < ft_prob else 0
@@ -332,7 +411,7 @@ def resolve_possession(
                 defense, weights=[p["dreb_rate"] for p in defense]
             )[0]["id"]
 
-    return result
+    return _done(result)
 
 
 # ---------------------------------------------------------------------------
@@ -344,19 +423,25 @@ def simulate_game(
     seed: int,
     season: Optional[str] = None,
     steps: Optional[int] = None,
+    capture_descriptions: bool = False,
 ) -> dict:
-    """Simulate one full game.
+    """Simulate one full game including any overtime periods.
+
+    Chunks (when steps is provided) are time-based: chunk_duration = 48 / steps
+    minutes. Snapshots fire whenever the game clock crosses a multiple of
+    chunk_duration, so OT periods generate proportional extra chunks automatically.
+    A final snapshot is always added at game end if the last possession didn't
+    coincide with a threshold.
 
     Returns a dict with:
-        home_score, away_score, quarter_scores, box_score, season, chunks
-
-    chunks is a list of step snapshots when steps is provided, empty otherwise.
-    Each chunk: {home_score, away_score, box} — cumulative through that step.
+        home_score, away_score, quarter_scores, box_score, season, chunks,
+        chunk_events, went_to_ot, ot_periods
     """
     rng = random.Random(seed)
 
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
+    name_map = {p["id"]: p["name"] for p in home_players + away_players} if capture_descriptions else None
 
     home_rotation = build_rotation(home_players, rng)
     away_rotation = build_rotation(away_players, rng)
@@ -385,64 +470,73 @@ def simulate_game(
             if replacement:
                 rotation[m].append(replacement)
 
-    chunk_boundaries: set = set()
-    if steps:
-        chunk_boundaries = {
-            round((i + 1) * POSSESSIONS_PER_GAME / steps)
-            for i in range(steps)
-        }
+    # Time-based chunk tracking — threshold stored in a list so the nested
+    # helper can mutate it without nonlocal.
+    chunk_duration = GAME_MINUTES / steps if steps else None
+    next_threshold = [chunk_duration]
     chunks: list = []
     chunk_events: list = []
     current_chunk_events: list = []
     home_total = 0
     away_total = 0
+    possession_counter = 0
+    q_idx = 0
 
     quarter_scores: dict = {"home": [0, 0, 0, 0], "away": [0, 0, 0, 0]}
     game_clock = 0.0
     min_per_poss = GAME_MINUTES / POSSESSIONS_PER_GAME
 
-    for poss_idx in range(POSSESSIONS_PER_GAME):
-        game_clock += SECONDS_PER_POSSESSION
-        current_minute = min(GAME_MINUTES - 1, int(game_clock / 60))
-        q_idx = min(3, current_minute // 12)
+    def _maybe_snapshot(elapsed_minutes: float, current_q_idx: int) -> None:
+        while chunk_duration and elapsed_minutes >= next_threshold[0]:
+            chunks.append({
+                "home_score": home_total,
+                "away_score": away_total,
+                "elapsed_minutes": round(elapsed_minutes, 1),
+                "quarter": current_q_idx + 1,
+                "box": _snapshot_box(box),
+            })
+            chunk_events.append(list(current_chunk_events))
+            current_chunk_events.clear()
+            next_threshold[0] += chunk_duration
 
-        home_active_ids = home_rotation[current_minute]
-        away_active_ids = away_rotation[current_minute]
+    def _apply_possession(
+        home_active_ids: list,
+        away_active_ids: list,
+        is_home: bool,
+        sec_per_poss: float,
+        min_per_poss_val: float,
+        current_q_idx: int,
+    ) -> Optional[int]:
+        nonlocal game_clock, home_total, away_total, possession_counter, q_idx
+
+        game_clock += sec_per_poss
+        elapsed_minutes = game_clock / 60
+        q_idx = current_q_idx
+
         home_active = [home_by_id[pid] for pid in home_active_ids if pid in home_by_id]
         away_active = [away_by_id[pid] for pid in away_active_ids if pid in away_by_id]
 
         for pid in home_active_ids:
             if pid in box:
-                box[pid]["min"] += min_per_poss
+                box[pid]["min"] += min_per_poss_val
         for pid in away_active_ids:
             if pid in box:
-                box[pid]["min"] += min_per_poss
+                box[pid]["min"] += min_per_poss_val
 
-        within_half = poss_idx % 100
-        if poss_idx < 100:
-            is_home = (within_half % 2 == 0) == tip_winner_is_home
-        else:
-            is_home = (within_half % 2 == 0) != tip_winner_is_home
         offense, defense = (home_active, away_active) if is_home else (away_active, home_active)
-
         if not offense or not defense:
-            continue
+            return None
 
         home_bonus = HOME_ADVANTAGE / POSSESSIONS_PER_GAME if is_home else 0.0
-        event = resolve_possession(offense, defense, rng, home_bonus)
+        event = resolve_possession(offense, defense, rng, home_bonus, name_map)
 
         pts, fouled_out_pid = _apply_event(box, event)
-        if fouled_out_pid:
-            if fouled_out_pid in home_by_id:
-                patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
-            else:
-                patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
 
         if is_home:
             home_total += pts
         else:
             away_total += pts
-        quarter_scores["home" if is_home else "away"][q_idx] += pts
+        quarter_scores["home" if is_home else "away"][current_q_idx] += pts
 
         home_delta = pts if is_home else -pts
         for pid in home_active_ids:
@@ -452,34 +546,103 @@ def simulate_game(
             if pid in box:
                 box[pid]["plus_minus"] -= home_delta
 
+        possession_counter += 1
         if steps:
             current_chunk_events.append({
-                "possession": poss_idx + 1,
+                "possession": possession_counter,
                 "game_clock_seconds": round(game_clock),
-                "quarter": q_idx + 1,
+                "quarter": current_q_idx + 1,
                 "is_home": is_home,
                 "pts": pts,
                 **event,
             })
 
-        if (poss_idx + 1) in chunk_boundaries:
-            elapsed = round((poss_idx + 1) * GAME_MINUTES / POSSESSIONS_PER_GAME, 1)
-            chunks.append({
-                "home_score": home_total,
-                "away_score": away_total,
-                "elapsed_minutes": elapsed,
-                "quarter": min(4, math.ceil(elapsed / 12)),
-                "box": _snapshot_box(box),
-            })
-            chunk_events.append(current_chunk_events)
-            current_chunk_events = []
+        _maybe_snapshot(elapsed_minutes, current_q_idx)
+        return fouled_out_pid
+
+    # -----------------------------------------------------------------------
+    # Regulation
+    # -----------------------------------------------------------------------
+    for poss_idx in range(POSSESSIONS_PER_GAME):
+        current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
+        reg_q_idx = min(3, current_minute // 12)
+
+        home_active_ids = home_rotation[current_minute]
+        away_active_ids = away_rotation[current_minute]
+
+        within_half = poss_idx % 100
+        if poss_idx < 100:
+            is_home = (within_half % 2 == 0) == tip_winner_is_home
+        else:
+            is_home = (within_half % 2 == 0) != tip_winner_is_home
+
+        fouled_out_pid = _apply_possession(
+            home_active_ids, away_active_ids, is_home,
+            SECONDS_PER_POSSESSION, min_per_poss, reg_q_idx,
+        )
+        if fouled_out_pid:
+            if fouled_out_pid in home_by_id:
+                patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
+            else:
+                patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
+
+    # -----------------------------------------------------------------------
+    # Overtime — loop until a winner emerges
+    # -----------------------------------------------------------------------
+    ot_period = 0
+    min_per_ot_poss = OT_MINUTES / POSSESSIONS_PER_OT
+
+    while home_total == away_total:
+        ot_period += 1
+        ot_tip_is_home = rng.random() < 0.5
+        ot_q_idx = 3 + ot_period  # OT1=4, OT2=5, ...
+        quarter_scores["home"].append(0)
+        quarter_scores["away"].append(0)
+
+        # OT lineup: start from Q4 end, track foul-outs within this OT period
+        home_ot_ids = list(home_rotation[GAME_MINUTES - 1])
+        away_ot_ids = list(away_rotation[GAME_MINUTES - 1])
+
+        for ot_poss_idx in range(POSSESSIONS_PER_OT):
+            is_home = (ot_poss_idx % 2 == 0) == ot_tip_is_home
+            fouled_out_pid = _apply_possession(
+                home_ot_ids, away_ot_ids, is_home,
+                SECONDS_PER_OT_POSSESSION, min_per_ot_poss, ot_q_idx,
+            )
+            # Handle foul-outs within OT by replacing directly in the active list
+            if fouled_out_pid:
+                if fouled_out_pid in home_ot_ids:
+                    home_ot_ids = [p for p in home_ot_ids if p != fouled_out_pid]
+                    repl = next((p["id"] for p in home_by_min
+                                 if p["id"] not in home_ot_ids and not box[p["id"]]["fouled_out"]), None)
+                    if repl:
+                        home_ot_ids.append(repl)
+                else:
+                    away_ot_ids = [p for p in away_ot_ids if p != fouled_out_pid]
+                    repl = next((p["id"] for p in away_by_min
+                                 if p["id"] not in away_ot_ids and not box[p["id"]]["fouled_out"]), None)
+                    if repl:
+                        away_ot_ids.append(repl)
+
+    # Final snapshot if game end didn't land on a time threshold
+    if steps and (not chunks or chunks[-1]["home_score"] != home_total or chunks[-1]["away_score"] != away_total):
+        chunks.append({
+            "home_score": home_total,
+            "away_score": away_total,
+            "elapsed_minutes": round(game_clock / 60, 1),
+            "quarter": q_idx + 1,
+            "box": _snapshot_box(box),
+        })
+        chunk_events.append(list(current_chunk_events))
 
     return {
         "season": season,
-        "home_score": sum(quarter_scores["home"]),
-        "away_score": sum(quarter_scores["away"]),
+        "home_score": home_total,
+        "away_score": away_total,
         "quarter_scores": quarter_scores,
         "box_score": box,
         "chunks": chunks,
         "chunk_events": chunk_events,
+        "went_to_ot": ot_period > 0,
+        "ot_periods": ot_period,
     }

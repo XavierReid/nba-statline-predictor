@@ -45,6 +45,26 @@ def create_session(
     return token
 
 
+def peek_events(token: str) -> Optional[dict]:
+    """Return all events captured so far without advancing the cursor.
+
+    Returns None if the token is unknown or expired.
+    Returns a dict with chunk_events[0:cursor] and the player lists needed
+    to build a name map for description generation.
+    """
+    _cleanup_expired()
+    session = _sessions.get(token)
+    if not session:
+        return None
+    return {
+        "chunk_events": session["chunk_events"][: session["cursor"]],
+        "home_players": session["home_players"],
+        "away_players": session["away_players"],
+        "home_team": session["home_team"],
+        "away_team": session["away_team"],
+    }
+
+
 def pop_next_chunk(token: str) -> Optional[dict]:
     """Advance the session cursor and return the next chunk.
 

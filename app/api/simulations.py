@@ -11,9 +11,11 @@ from app.database import get_db
 from app.models.game import Game
 from app.models.simulation import SimulatedGame, SimulatedPlayerLine, SimulationRun
 from app.models.team import Team
+from app.services.events import build_name_map, flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
+from app.services.season_simulator import _game_seed
 from app.services.season_simulator import run_season_simulation
-from app.services.stepthrough_store import create_session, pop_next_chunk
+from app.services.stepthrough_store import create_session, peek_events, pop_next_chunk
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
@@ -537,3 +539,78 @@ def _sim_game_is_win(db: Session, sg: SimulatedGame, team_id: int) -> bool:
     real_game = db.get(Game, sg.game_id)
     is_home = real_game.home_team_id == team_id
     return (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
+
+
+# ---------------------------------------------------------------------------
+# Play-by-play event schemas + endpoints
+# ---------------------------------------------------------------------------
+
+class PossessionEvent(BaseModel):
+    possession: int
+    quarter: int
+    game_clock_seconds: int
+    is_home: bool
+    pts: int
+    running_home_score: int
+    running_away_score: int
+    description: Optional[str]
+    scorer: Optional[int]
+    shot_type: Optional[str]
+    made: Optional[bool]
+    assisted_by: Optional[int]
+    rebounded_by: Optional[int]
+    turnover_by: Optional[int]
+    steal_by: Optional[int]
+    block_by: Optional[int]
+    fouled_by: Optional[int]
+    fta: int
+    ftm: int
+
+
+@router.get("/game/stepthrough/{token}/events", response_model=list[PossessionEvent])
+def stepthrough_events(token: str):
+    """Return all possession events from game start through the current step.
+
+    Read-only — does not advance the cursor. Call this at any step to see
+    what led to the current score. Returns 404 if the token is unknown or expired.
+    """
+    data = peek_events(token)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    home_ids = {p["id"] for p in data["home_players"]}
+    name_map = build_name_map(data["home_players"], data["away_players"])
+    return flatten_and_enrich(data["chunk_events"], home_ids, name_map)
+
+
+@router.get("/{sim_id}/games/{game_id}/events", response_model=list[PossessionEvent])
+def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db)):
+    """Return the full play-by-play for a game from a completed season simulation.
+
+    Re-simulates the game on demand using the stored seed — deterministic,
+    no event storage required. Returns 200 events (one per possession).
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
+
+    sg = db.execute(
+        select(SimulatedGame)
+        .where(SimulatedGame.simulation_id == sim_id, SimulatedGame.game_id == game_id)
+    ).scalar_one_or_none()
+    if not sg:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found in simulation {sim_id}.")
+
+    real_game = db.get(Game, game_id)
+    home_players = load_roster(db, real_game.home_team_id, sim.season)
+    away_players = load_roster(db, real_game.away_team_id, sim.season)
+
+    seed = _game_seed(sim.seed, game_id)
+    result = simulate_game(
+        home_players, away_players,
+        seed=seed, season=sim.season,
+        steps=200, capture_descriptions=True,
+    )
+
+    home_ids = {p["id"] for p in home_players}
+    return flatten_and_enrich(result["chunk_events"], home_ids)

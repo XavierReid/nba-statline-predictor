@@ -125,6 +125,28 @@ This is not a full PRD — it's a checklist to front-load discovery before touch
 
 ---
 
+### Feature flow (end to end)
+
+Every feature goes through all six steps in order — no skipping tests, no committing mid-feature, no starting the next thing before the current one is clean.
+
+**1. Spec pass** — fill out the template above before writing any code. Surfaces what we already know upfront.
+
+**2. Design alignment** — answer architectural questions before touching code. Catch schema gaps, race conditions, complexity concerns here, not mid-implementation.
+
+**3. Build** — implement the feature. When new requirements surface mid-build, triage immediately: blocks current feature → handle now; related but not blocking → note in backlog, finish first; future version → park it.
+
+**4. Tests** — write tests before calling the feature done. Minimum: happy path, invariant checks (plus/minus zero-sum, score totals, etc.), error cases, non-obvious edge cases.
+
+**5. Definition of done check:**
+- [ ] Happy path works
+- [ ] Error cases handled
+- [ ] All tests green (`pytest`)
+- [ ] Primer "Today's plan" updated
+
+**6. Commit** — one commit per completed feature with a clear message.
+
+---
+
 ### How I want you to work with me (rules of engagement)
 
 I want a pragmatic collaboration, not strict learn-by-writing. Generate code

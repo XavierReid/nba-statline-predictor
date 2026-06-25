@@ -1,0 +1,264 @@
+"""Tests for the possession-based game simulator.
+
+Covers: reproducibility, box score consistency, plus/minus integrity,
+chunk boundary behaviour, OT logic, and stepthrough session store.
+"""
+import pytest
+from app.services.game_simulator import simulate_game
+from app.services.stepthrough_store import create_session, pop_next_chunk
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def make_player(pid: int, is_starter: bool = True) -> dict:
+    """Minimal valid player dict with average ratings."""
+    return {
+        "id": pid,
+        "name": f"Player{pid}",
+        "minutes": 32.0 if is_starter else 15.0,
+        "is_starter": is_starter,
+        "usage_rate": 0.22,
+        "steal": 65.0,
+        "block": 60.0,
+        "dreb_rate": 0.75,
+        "oreb_rate": 0.25,
+        "assist_rate": 3.0,
+        "turnover_rate": 2.5,
+        "three_point": 72.0,
+        "mid_range": 72.0,
+        "close_shot": 72.0,
+        "free_throw": 78.0,
+        "three_point_rate": 0.35,
+        "perimeter_defense": 68.0,
+        "interior_defense": 65.0,
+    }
+
+
+def make_team(id_offset: int) -> list:
+    return [make_player(id_offset + i, is_starter=i < 5) for i in range(10)]
+
+
+HOME = make_team(0)
+AWAY = make_team(100)
+SEED = 42
+OT_SEED = 24   # verified: produces 1 OT period with HOME/AWAY above
+
+
+# ---------------------------------------------------------------------------
+# Return shape
+# ---------------------------------------------------------------------------
+
+def test_result_has_expected_keys():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    for key in ("home_score", "away_score", "quarter_scores", "box_score",
+                "chunks", "chunk_events", "went_to_ot", "ot_periods"):
+        assert key in r, f"Missing key: {key}"
+
+
+def test_scores_are_positive():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    assert r["home_score"] > 0
+    assert r["away_score"] > 0
+
+
+def test_no_chunks_without_steps():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    assert r["chunks"] == []
+    assert r["chunk_events"] == []
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+
+def test_same_seed_same_result():
+    r1 = simulate_game(HOME, AWAY, seed=SEED)
+    r2 = simulate_game(HOME, AWAY, seed=SEED)
+    assert r1["home_score"] == r2["home_score"]
+    assert r1["away_score"] == r2["away_score"]
+    assert r1["box_score"] == r2["box_score"]
+
+
+def test_different_seeds_produce_variation():
+    scores = {simulate_game(HOME, AWAY, seed=s)["home_score"] for s in range(20)}
+    assert len(scores) > 1
+
+
+# ---------------------------------------------------------------------------
+# Box score consistency
+# ---------------------------------------------------------------------------
+
+def test_quarter_scores_sum_to_final():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    assert sum(r["quarter_scores"]["home"]) == r["home_score"]
+    assert sum(r["quarter_scores"]["away"]) == r["away_score"]
+
+
+def test_box_score_pts_match_team_totals():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    box = r["box_score"]
+    home_ids = {p["id"] for p in HOME}
+    away_ids = {p["id"] for p in AWAY}
+    assert sum(s["pts"] for pid, s in box.items() if pid in home_ids) == r["home_score"]
+    assert sum(s["pts"] for pid, s in box.items() if pid in away_ids) == r["away_score"]
+
+
+def test_plus_minus_is_zero_sum():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    assert sum(s["plus_minus"] for s in r["box_score"].values()) == 0
+
+
+def test_minutes_played_all_players():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    for pid, stats in r["box_score"].items():
+        assert stats["min"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Chunk / step-through behaviour
+# ---------------------------------------------------------------------------
+
+def test_steps_produces_chunks():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    assert len(r["chunks"]) >= 4
+
+
+def test_chunk_count_equals_steps_for_regulation():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    if not r["went_to_ot"]:
+        assert len(r["chunks"]) == 4
+
+
+def test_final_chunk_score_matches_result():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    last = r["chunks"][-1]
+    assert last["home_score"] == r["home_score"]
+    assert last["away_score"] == r["away_score"]
+
+
+def test_chunks_elapsed_minutes_monotonically_increase():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    times = [c["elapsed_minutes"] for c in r["chunks"]]
+    assert times == sorted(times)
+
+
+def test_final_chunk_elapsed_at_least_48_minutes():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    assert r["chunks"][-1]["elapsed_minutes"] >= 48.0
+
+
+def test_chunk_events_count_matches_chunks():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    assert len(r["chunk_events"]) == len(r["chunks"])
+
+
+def test_chunk_quarter_labels_valid():
+    r = simulate_game(HOME, AWAY, seed=SEED, steps=4)
+    for chunk in r["chunks"]:
+        assert 1 <= chunk["quarter"] <= 10  # up to ~6 OT periods
+
+
+# ---------------------------------------------------------------------------
+# OT logic
+# ---------------------------------------------------------------------------
+
+def test_ot_game_went_to_ot_flag():
+    r = simulate_game(HOME, AWAY, seed=OT_SEED)
+    assert r["went_to_ot"] is True
+    assert r["ot_periods"] >= 1
+
+
+def test_ot_game_quarter_scores_extended():
+    r = simulate_game(HOME, AWAY, seed=OT_SEED)
+    assert len(r["quarter_scores"]["home"]) > 4
+    assert len(r["quarter_scores"]["away"]) > 4
+
+
+def test_ot_game_winner_decided():
+    r = simulate_game(HOME, AWAY, seed=OT_SEED)
+    assert r["home_score"] != r["away_score"]
+
+
+def test_ot_game_with_steps_has_extra_chunks():
+    r = simulate_game(HOME, AWAY, seed=OT_SEED, steps=4)
+    assert len(r["chunks"]) > 4
+
+
+def test_regulation_game_not_ot():
+    r = simulate_game(HOME, AWAY, seed=SEED)
+    assert r["went_to_ot"] is False
+    assert r["ot_periods"] == 0
+    assert len(r["quarter_scores"]["home"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# Stepthrough session store
+# ---------------------------------------------------------------------------
+
+def _make_session(**kwargs):
+    defaults = dict(
+        chunks=[{"home_score": 10, "away_score": 8, "elapsed_minutes": 12.0,
+                 "quarter": 1, "box": {}}],
+        chunk_events=[[]],
+        home_players=HOME,
+        away_players=AWAY,
+        home_team="BOS",
+        away_team="LAL",
+        season="2025-26",
+        seed=42,
+    )
+    defaults.update(kwargs)
+    return create_session(**defaults)
+
+
+def test_create_session_returns_uuid_token():
+    token = _make_session()
+    assert isinstance(token, str)
+    assert len(token) == 36
+    assert token.count("-") == 4
+
+
+def test_pop_returns_first_chunk():
+    chunks = [
+        {"home_score": 28, "away_score": 31, "elapsed_minutes": 12.0, "quarter": 1, "box": {}},
+        {"home_score": 55, "away_score": 60, "elapsed_minutes": 24.0, "quarter": 2, "box": {}},
+    ]
+    token = _make_session(chunks=chunks, chunk_events=[[], []])
+    data = pop_next_chunk(token)
+    assert data["chunk"] == chunks[0]
+    assert data["step"] == 1
+    assert data["total_steps"] == 2
+    assert data["complete"] is False
+
+
+def test_pop_advances_cursor():
+    chunks = [
+        {"home_score": 28, "elapsed_minutes": 12.0, "quarter": 1, "box": {}},
+        {"home_score": 55, "elapsed_minutes": 24.0, "quarter": 2, "box": {}},
+    ]
+    token = _make_session(chunks=chunks, chunk_events=[[], []])
+    pop_next_chunk(token)
+    data = pop_next_chunk(token)
+    assert data["step"] == 2
+    assert data["complete"] is True
+
+
+def test_pop_evicts_session_after_final_chunk():
+    token = _make_session()
+    pop_next_chunk(token)          # final chunk consumed
+    assert pop_next_chunk(token) is None
+
+
+def test_pop_returns_none_for_unknown_token():
+    assert pop_next_chunk("00000000-0000-0000-0000-000000000000") is None
+
+
+def test_pop_carries_metadata():
+    token = _make_session()
+    data = pop_next_chunk(token)
+    assert data["home_team"] == "BOS"
+    assert data["away_team"] == "LAL"
+    assert data["season"] == "2025-26"
+    assert data["seed"] == 42

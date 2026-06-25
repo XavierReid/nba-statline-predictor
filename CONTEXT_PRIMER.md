@@ -89,6 +89,42 @@ of the learning progression).
 
 ---
 
+### Build process
+
+**Before each major feature — lightweight spec pass (5 min in chat):**
+
+```
+Feature: <name>
+User story: As a user, I want to...
+Happy path: <sequence of calls/actions>
+Error cases: <what can go wrong>
+Constraints: <performance, scope, ordering>
+Reads: <tables/services>
+Writes: <tables/services>
+Adjacent requirements: <what else connects to this that might affect design?>
+Nice to haves (explicit): <things not in v1 scope but worth noting>
+Definition of done: <what does "shipped" mean for this feature>
+```
+
+This is not a full PRD — it's a checklist to front-load discovery before touching code. Requirements will still emerge mid-build; the spec pass just surfaces what we already know upfront.
+
+**When new requirements emerge mid-build, triage immediately:**
+- Blocks current feature → design/build now
+- Related but not blocking → add to RFC backlog, note in primer, finish current feature first
+- Future version → note in RFC v1.5/v2 section
+
+**Definition of done (default):**
+1. Feature works on the happy path
+2. Error cases handled
+3. Tests pass (existing + new if warranted)
+4. RFC updated with any new design decisions
+5. Git commit with clear message
+6. Primer "Today's plan" updated
+
+**Commit discipline:** commit at the end of each completed feature before starting the next. `git log` should tell the story of what was built without needing conversation context.
+
+---
+
 ### How I want you to work with me (rules of engagement)
 
 I want a pragmatic collaboration, not strict learn-by-writing. Generate code
@@ -181,11 +217,24 @@ If I ever say "be more concise" mid-session, immediately tighten further.
 - Foul tracking: 6-foul limit, foul-out rotation patching, offensive fouls
 - Season awareness: `season` is a required param throughout
 
-**Simulator — Phase 2 in progress:**
-- `app/services/game_simulator.py` — service extracted from scratch script
-- `POST /simulations/game` — standalone game endpoint, live and demoable
-- Scratch script is now a thin CLI wrapper importing from the service
-- Next: step-through (Step 3), season simulation (Steps 4–5)
+**Simulator — Phase 2, Steps 1–3 complete:**
+- `app/services/game_simulator.py` — full simulation engine
+- `POST /simulations/game` — standalone game endpoint
+- `POST /simulations/game/stepthrough` + `GET .../stepthrough/{token}/next` — step-through with time-based chunks (48/steps min per chunk), OT support (unlimited periods, new tip per OT, dynamic quarter_scores list grows beyond 4)
+- `app/services/stepthrough_store.py` — in-memory UUID token store, 1-hour TTL, lazy eviction
+- `GET /ingestion/seasons`, `POST /ingestion/seasons/{season}/seed`, `POST /ingestion/seasons/{season}/ingest` — ingestion diagnostics and triggers
+- Engine features: plus/minus, tip-off randomization (NBA Q3 rule), same-team 422, OT foul-out handling in active list, time-based chunk snapshots with dedup guard
+- 2025-26 season ingested and seeded; both seasons simulatable
+
+**Blowout calibration complete:**
+- Shot probability ranges tuned: 3PT lo/hi=0.38/0.44, mid=0.51/0.58, close=0.65/0.72
+- FT model expanded: bonus foul approximation (5.5% of poss → 2 FTs), 3PT shooting fouls (2% → 3 FTs), 2PT shooting foul rate lowered from 20% → 15%
+- Calibrated results: ~103 pts/team, 54% home win rate, 26% blowout rate (v1 ceiling — documented gap)
+- All design decisions, gaps, approximations, and NBA API data sources documented in RFC.md
+
+**Drama features — scoped for v1.5 (after season sim), POC resets between games:**
+- Clutch ratings (new ingestion: `LeagueDashPlayerClutch`), momentum/heat multiplier, within-game fatigue
+- See RFC.md Build Progression → v1.5 for full design notes
 
 ---
 
@@ -261,9 +310,18 @@ These are MyLeague's depth — beyond what's needed for a portfolio piece.
 ### Today's plan
 
 Phase 2 continuation:
-1. Step 3 — Step-through for standalone games (in-memory UUID token cache, quarter/minute granularity)
-2. Step 4 — Season simulation: POST /simulations, background task, persist to simulated_games + simulated_player_lines
-3. Step 5 — Season sim control endpoints: pause, resume, cancel, retry
+1. ~~Blowout calibration~~ — done; v1 ceiling documented
+2. **Season simulation** — spec pass complete, design locked. Build order:
+   a. Migration 0007: add `team_id` to `simulation_runs`, `personal_fouls`/`fouled_out` to `simulated_player_lines`, `ot_scores` JSON to `simulated_games`
+   b. `POST /simulations` — create SimulationRun (pending), validate team + season
+   c. `POST /simulations/{id}/start` — pending → running, enqueue background task
+   d. Background task: roster cache, per-game seed via hash, simulate + persist, poll for pause/cancel
+   e. `GET /simulations/{id}` — status + progress + (when complete) record + avg stats + per-game results
+   f. `GET /simulations/game/stepthrough/{token}/events` — cumulative events up to current cursor
+   g. `GET /simulations/{id}/games/{game_id}/events` — on-demand play-by-play with descriptions
+3. Season sim control: `POST /simulations/{id}/pause`, `/resume`, `/cancel`, `/retry`
+4. Simulator tests — OT logic, chunk boundaries, seed reproducibility (after season sim ships)
+5. v1.5 — Drama features: clutch ratings, momentum/heat, within-game fatigue
 
 ---
 

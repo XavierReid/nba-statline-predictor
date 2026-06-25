@@ -1,7 +1,7 @@
 # RFC: NBA Franchise Simulator
 
 **Status:** In Progress  
-**Last Updated:** 2026-06-23
+**Last Updated:** 2026-06-24
 
 ---
 
@@ -21,7 +21,7 @@ A backend simulation engine inspired by NBA 2K MyLEAGUE/MyNBA. Given real NBA ro
 6. Kafka producer/consumer layer for event streaming (v2 — resume claim)
 7. Multi-season play with player aging and free agency (v2)
 
-**Out of scope (v1):** trades, draft logic, salary cap, injuries, coaching, chemistry
+**Out of scope (v1):** trades, draft logic, salary cap, injuries, coaching, chemistry, drama/momentum features (see v1.5 below)
 
 ---
 
@@ -228,25 +228,112 @@ This produces a possession-indexed map of which 5 players are active at any give
 
 ### Game Simulator — Possession-Based (not stat-projection)
 
-The simulator operates at the possession level, not the player-average level. This is the critical design distinction from a stat prediction engine.
+The simulator operates at the possession level, not the player-average level. This is the critical design distinction from a stat prediction engine. Rather than asking "what will Luka average tonight?", each possession independently asks "who has the ball, what do they do, and what happens?"
 
 ```
-Team A possession:
-  ↓ select player (weighted by usage_rate)
-  ↓ select action (shoot / pass / drive — weighted by tendencies)
-  ↓ select shot type (3PT / mid / paint — weighted by three_point_rate)
-  ↓ apply defender impact (perimeter_defense or interior_defense)
-  ↓ resolve outcome (make/miss — weighted by relevant attribute)
-  ↓ rebound if miss (weighted by offensive_rebound / defensive_rebound)
-  ↓ accumulate to box score
+Each possession (200 total, ~14.4 sec each):
+  ↓ select ball handler (weighted by usage_rate)
+  ↓ check bonus foul (~5.5% of possessions → 2 FTs, possession ends)
+  ↓ check steal (best defender's steal rating × 0.034)
+  ↓ check turnover (player's turnover_rate / league_avg × 13%)
+  ↓ check offensive foul (~1.5% of possessions)
+  ↓ select shot type (three_point_rate drives 3PT%; remainder split 40/60 mid/close)
+  ↓ check block on non-3PT (best blocker's block rating × 0.04)
+  ↓ random defender selected from active lineup
+  ↓ resolve make/miss (base_prob − defense_penalty ± home_bonus)
+  ↓ check shooting foul (3PT: 2%, 2PT: 15%)
+  ↓ assign assist if made (65% on 3PT/mid, 50% on close)
+  ↓ assign rebound if missed (27% OREB, 73% DREB, weighted by individual rates)
+  ↓ accumulate to box score, update plus/minus for all active players
 ```
 
-This means:
-- Usage matters — Luka takes more shots than PJ Washington
-- Defense matters — a weak perimeter defender gives up more open threes
-- Teammates matter — high-passing players generate better shot quality for others
+**Shot probability ranges (calibrated to NBA averages):**
 
-**Do not start by sampling per-player distributions directly.** That produces a stat projection engine, not a basketball simulator.
+| Shot type | lo (0-rated) | hi (100-rated) | Avg player (~65) | Real NBA |
+|---|---|---|---|---|
+| 3PT | 0.38 | 0.44 | ~39% | 36% league avg |
+| Mid-range | 0.51 | 0.58 | ~55% | 43–45% |
+| Close/paint | 0.65 | 0.72 | ~69% | 62–65% at rim |
+
+Defense suppresses base_prob: perimeter defense × 0.06 (3PT/mid), interior defense × 0.08 (close). A 65-rated defender applies roughly a 4–5pp penalty — the difference between an elite and weak defender is ~3–4pp per shot.
+
+**Free throw model:**
+
+| Scenario | Rate | FTs awarded |
+|---|---|---|
+| Bonus foul (non-shooting, team over limit) | 5.5% of possessions | 2 FTs |
+| 2PT shooting foul | 15% of 2PT attempts | 2 FTs (missed) or 1 FT and-1 (made) |
+| 3PT shooting foul | 2% of 3PT attempts | 3 FTs (missed) or 1 FT and-1 (made) |
+
+FT probability: `lo=0.60, hi=0.95` mapped from `free_throw` rating (0–100).
+
+**Home advantage:** flat +3.0 points distributed as a per-possession make-probability boost (`HOME_ADVANTAGE / POSSESSIONS_PER_GAME`). Produces ~54% home win rate, matching NBA historical average.
+
+---
+
+### Design Decisions, Gaps, and Approximations
+
+Every design decision below trades accuracy for simplicity. These are known, deliberate, and documented — not oversights.
+
+**Fixed pace (200 possessions per game)**
+Real NBA teams range from ~96 to ~104 possessions per 48 minutes (pace). We simulate exactly 200 possessions (100 per team) regardless of matchup. A fast-breaking team against a slow half-court team produces the same possession count as two equal-pace teams.
+*Gap: pace advantages don't exist. Fast teams can't exploit a tired defense.*
+*NBA API data source for v2: `LeagueDashTeamStats` → `PACE` column.*
+
+**Shot selection is player-driven, not play-driven**
+A player's `three_point_rate` determines how often they shoot threes. There's no pick-and-roll, no off-ball movement, no transition offense. Good and bad play-callers look identical as long as their players' individual tendency rates match.
+*Gap: team offensive scheme has no effect. Ball movement quality is not modeled.*
+*NBA API data source for v2: `SynergyPlayTypes` for play-type breakdowns.*
+
+**Defense is individual, not schematic**
+The defender is selected randomly from the active lineup. There's no zone defense, no double-team, no switching. A team's defense is only as good as its individual defenders.
+*Gap: defensive schemes (Heat zone, Celtics switching) are invisible to the simulator.*
+*NBA API data source for v2: `LeagueDashPtDefend` for matchup-level defensive data.*
+
+**Best defender always contests steals; best blocker always contests blocks**
+`max()` selects the top steal/block player. In reality they may be guarding someone else on the other side of the court.
+*Gap: elite defenders have slightly outsized impact vs their real role.*
+
+**Rotation is pre-generated, not adaptive**
+Minutes are distributed from season averages before the game starts. A coach won't bench a star who picks up 2 quick fouls in Q1, won't go short rotation in a blowout, and won't adjust matchups based on what's working.
+*Gap: no foul trouble management, no hot-hand substitutions, no intentional fouling.*
+
+**No game-state awareness**
+The simulator doesn't know the score while running. A team down 20 in Q4 plays identically to a team down 3. This is the primary driver of the ~26% blowout rate in calibration vs the NBA target of ~15–20%.
+*Gap: no garbage time compression, no urgency, no rallies.*
+*v1.5 fix: momentum/heat multiplier and clutch rating modifier (last 5 min, margin ≤5).*
+
+**Home advantage is a flat probability nudge**
+Real home advantage comes from crowd noise affecting free throw concentration, travel fatigue, referee bias, and court familiarity. We approximate all of it as a single constant applied uniformly to every home-team possession.
+*Gap: home advantage doesn't vary by arena (historically loud buildings like OKC/Boston), time zone travel, or back-to-back situations.*
+
+**Bonus foul is approximated, not tracked**
+Real NBA: after 5 team fouls in a quarter, all non-shooting fouls result in 2 FTs. We approximate this as a flat 5.5% per-possession probability instead of tracking per-quarter foul counts. This means bonus fouls can happen in Q1 possession 1 and may not happen late in a quarter with 4 team fouls.
+*Gap: bonus foul timing is not correlated to actual foul accumulation.*
+*v1.5 fix: track team fouls per quarter, only apply bonus after threshold.*
+
+**Plus/minus reflects floor time, not causation**
+Every active player is credited or charged for every point scored while on the court. This is how real +/- works too — it's a known limitation of the statistic, not unique to our model.
+
+**OT lineups inherit the Q4 end-of-game lineup**
+Coaches can't rest players between OT periods or adjust their rotation for a short 5-minute period. The minute-47 lineup plays every OT period.
+*Gap: bench depth is less meaningful in OT than it should be.*
+
+---
+
+### Calibration Results (2025-26 season, 500 games)
+
+After tuning, the simulator produces outcomes within acceptable range of NBA baselines:
+
+| Metric | Simulator | NBA target | Notes |
+|---|---|---|---|
+| Avg team score | ~103 pts | ~108–113 pts | Within range; FT volume and pace approximations account for gap |
+| Home win rate | 54% | ~54% | ✓ |
+| Blowout rate (20+ margin) | ~26% | ~15–20% | v1 ceiling; requires game-state awareness to close |
+| OT rate | ~2–3% | ~5–7% | Improves with momentum/clutch features |
+| Avg margin of victory | ~14 pts | ~10–11 pts | Structural floor of possession variance model |
+
+The margin gap (~3pts) and blowout gap (~6pp) are the known, documented limitations of a stateless possession model. Both are targeted in v1.5 with momentum and clutch features.
 
 ### Simulation Lifecycle
 
@@ -375,19 +462,32 @@ If these fail the smell test, tune `SkillMetricConfig` before touching simulatio
 - [x] GameSimulator Phase 1 (scratch/03_game_simulator.py) — possession-based, rotation model with substitution variance, steal/block/foul/offensive-foul checks, foul-out rotation patching
 - [x] GameSimulator Phase 2 — extracted to app/services/game_simulator.py
 - [x] POST /simulations/game — standalone game endpoint, season-aware, reproducible by seed
+- [x] Ingestion diagnostic endpoints: GET /ingestion/seasons, POST /ingestion/seasons/{season}/seed, POST /ingestion/seasons/{season}/ingest
+- [x] Step-through: POST /simulations/game/stepthrough + GET /simulations/game/stepthrough/{token}/next; in-memory UUID token store, 1-hour TTL
+- [x] GameSimulator enhancements: plus/minus tracking, tip-off randomization (Q3 NBA rule), same-team 422 validation, time-based chunk boundaries (48/steps min), OT support (unlimited periods, new tip per OT, dynamic quarter_scores)
 
 ### Next
-- [ ] POST /simulations/game/stepthrough + GET /simulations/game/stepthrough/{token}/next
+- [ ] Blowout calibration: tune _attr_to_prob shot probability ranges to reduce blowout frequency
 - [ ] POST /simulations — season simulation (background task, persists to DB)
 - [ ] Season sim control: pause / resume / cancel / retry
 - [ ] POST /simulations/{id}/games/{game_id}/stepthrough
 - [ ] Lineup overrides: PUT /simulations/{id}/lineups
+
+### v1.5 — Simulation realism (drama features)
+All three are self-contained within `simulate_game`, reset between games (POC scope), and each pairs with a new NBA API ingestion endpoint.
+
+- [ ] **Clutch ratings** — New ingestion job: `LeagueDashPlayerClutch` (last 5 min, margin ≤5). Adds `clutch_rating` to player_attributes. Applied as a rating modifier in the last 5 minutes when margin ≤5. Note: low-sample bench players will need a fallback to overall_rating.
+- [ ] **Momentum / heat** — Per-player in-game heat multiplier (rises on consecutive makes, fades on misses/turnovers). No new data needed. Resets each game.
+- [ ] **Within-game fatigue** — Rating decay as player minutes accumulate. Resets each game. No new data needed; can use `LeagueDashPlayerBioStats` (age/weight) as a future modifier.
+
+Long-tail (v2+): across-game fatigue (back-to-backs), in-game coach adjustments, intentional foul strategy, player chemistry.
 
 ### v2
 - [ ] Kafka producer/consumer
 - [ ] Multi-season with player aging
 - [ ] Free agency
 - [ ] CLI interface
+- [ ] Expanded NBA API utilization: `LeagueDashPtStats` (speed/distance for athleticism), `PlayerGameLog` (per-game variance), `LeagueDashPlayerBioStats` (age/weight for fatigue)
 
 ---
 
@@ -402,6 +502,43 @@ If these fail the smell test, tune `SkillMetricConfig` before touching simulatio
 | Migrations | Alembic | |
 | NBA Data | nba_api 1.4.1 | Custom headers required to avoid 403s |
 | Tests | pytest | Engine logic only |
+
+---
+
+## Decision Log
+
+Key decisions with rationale — documents what we chose AND what we ruled out, so future sessions and interviewers can reconstruct the thinking.
+
+| Decision | Chose | Ruled out | Reason |
+|---|---|---|---|
+| Simulation approach | Possession-based (each possession independently resolved) | Stat-projection (sample from player averages) | Projection produces averages, not games. Possession model produces variance, runs, foul-outs — basketball, not math. |
+| Chunk boundaries | Time-based (48/steps minutes per chunk) | Possession-based (POSSESSIONS/steps per chunk) | Time-based maps to real basketball moments (Q1=12min). Possession-based produces inconsistent OT behavior. |
+| Step-through storage | In-memory UUID token store, 1hr TTL | Redis / DB-backed | 82-game season sims don't need cross-restart persistence. Redis is a deployment dependency we don't need yet. Swap is a one-file change. |
+| Per-game seed (season sim) | `hash(master_seed, game_id)` | `master_seed + game_index` | Hash avoids sequential correlation between games. Same master seed always produces same game regardless of schedule reordering. |
+| Season sim lineup source | `load_roster()` directly from player_season_stats | `lineup_players` table per sim run | `lineup_players` adds flexibility for overrides but is extra schema. Override capability deferred to v2. |
+| Simulation create vs start | Separate `POST /simulations` (create) and `POST /simulations/{id}/start` (execute) | Single endpoint that creates and starts | Separation allows inspection before execution, lineup overrides before start, cleaner conflict detection on start. Maps to job queue pattern. |
+| Play-by-play storage | Generate on demand (re-simulate from seed, Option C) | JSON column on SimulatedGame (A) or separate events table (B) | Seed is a compression key — fully describes the game. On-demand is zero storage overhead. Events table added in v2 when cross-game queries are needed. |
+| Background task runtime | FastAPI BackgroundTasks | Celery | 82 games ≈ 1-2 seconds. Celery is a deployment dependency (Redis broker) not warranted at this scale. |
+| Pause/resume mechanism | Conditional UPDATE (`WHERE status='paused'`) + re-enqueue | Task cancellation / async primitives | FastAPI BackgroundTasks are fire-and-forget — no handle to cancel. Conditional UPDATE prevents double-resume race condition at the DB level. |
+| Blowout calibration ceiling | Accept ~26% at v1, fix in v1.5 | Continue tuning lo/hi | Per-matchup data showed teams are near-equal in average scoring. Blowout rate is structural possession variance, not team quality gap. True fix requires game-state awareness (momentum/clutch). |
+| Event description generation | Inside `resolve_possession` where player objects are in memory | At API response time via DB lookup | Zero overhead — names already loaded. API-time lookup would be N+1 queries or a join per event. |
+
+---
+
+## Backlog / Parking Lot
+
+Ideas that surfaced mid-build but aren't in active scope. Review when planning the next version.
+
+- **Triggered events in step-through**: force OT, force a substitution, inject a specific play — useful for testing and "what-if" mode
+- **Pace as a simulation variable**: fast teams run more possessions, slow teams fewer. Currently fixed at 200.
+- **Notable event filtering**: filter chunk_events to "highlight" plays (clutch shots, big runs, foul-outs) for a broadcast-style text sim — raw data already captured
+- **Playoff simulation**: bracket generation, best-of-7 series logic, seeding from standings
+- **Garbage time compression**: when team up 20+ in Q4, reduce effort. Would cut blowout rate without full momentum system.
+- **Full-league season sim**: simulate all 1230 games, compute full standings. Currently team-scoped (82 games) only.
+- **Lineup overrides**: `PUT /simulations/{id}/lineup` to swap players or adjust minutes before starting
+- **Manual game result override**: user "plays" a game themselves, `POST .../games/{id}/override` replaces sim result
+- **OT intentional foul / late-game strategy**: trailing teams foul to stop clock; leading teams milk clock. Requires game-state awareness.
+- **Per-quarter foul tracking**: real bonus situation tracking instead of 5.5% approximation
 
 ---
 

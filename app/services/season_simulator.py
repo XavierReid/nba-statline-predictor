@@ -116,6 +116,14 @@ def run_season_simulation(simulation_id: int) -> None:
             _mark_failed(db, sim, "No schedule found for this team and season")
             return
 
+        # Store total_games so the status endpoint can report accurate progress
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == simulation_id)
+            .values(parameters={**(sim.parameters or {}), "total_games": len(schedule)})
+        )
+        db.commit()
+
         # Cache rosters — load each team once, reuse across all their games
         roster_cache: dict[int, Optional[list[dict]]] = {}
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.database import get_db
 from app.models.game import Game
@@ -376,24 +376,27 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
 
     team = db.get(Team, sim.team_id)
-    total_games = db.execute(
-        select(SimulatedGame).where(SimulatedGame.simulation_id == sim_id)
+    simulated_games = db.execute(
+        select(SimulatedGame)
+        .where(SimulatedGame.simulation_id == sim_id)
+        .join(Game, SimulatedGame.game_id == Game.id)
+        .order_by(Game.game_date)
     ).scalars().all()
+
+    total_games = (sim.parameters or {}).get("total_games", 82)
 
     games_summary = None
     if sim.status == "complete":
         games_summary = []
-        for sg in sorted(total_games, key=lambda g: g.game_id):
+        for sg in simulated_games:
             real_game = db.get(Game, sg.game_id)
-            home_abbr = real_game.home_team.abbreviation
-            away_abbr = real_game.away_team.abbreviation
             is_home = real_game.home_team_id == sim.team_id
             win = (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
             games_summary.append(SimulatedGameSummary(
                 game_id=sg.game_id,
                 game_date=str(real_game.game_date),
-                home_team=home_abbr,
-                away_team=away_abbr,
+                home_team=real_game.home_team.abbreviation,
+                away_team=real_game.away_team.abbreviation,
                 home_score=sg.home_score,
                 away_score=sg.away_score,
                 went_to_ot=sg.went_to_ot,
@@ -407,7 +410,7 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         seed=sim.seed,
         status=sim.status,
         games_completed=sim.games_completed,
-        total_games=len(total_games) if sim.status == "complete" else 82,
+        total_games=total_games,
         created_at=sim.created_at,
         completed_at=sim.completed_at,
         games=games_summary,
@@ -437,3 +440,90 @@ def cancel_simulation(sim_id: int, db: Session = Depends(get_db)):
     )
     db.commit()
     return {"id": sim_id, "status": "cancelled"}
+
+
+# ---------------------------------------------------------------------------
+# List + delete
+# ---------------------------------------------------------------------------
+
+class SimulationSummary(BaseModel):
+    id: int
+    team: str
+    season: str
+    status: str
+    games_completed: int
+    total_games: int
+    wins: Optional[int] = None
+    losses: Optional[int] = None
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+
+@router.get("/", response_model=list[SimulationSummary])
+def list_simulations(db: Session = Depends(get_db)):
+    """List all simulation runs, most recent first."""
+    runs = db.execute(
+        select(SimulationRun).order_by(SimulationRun.created_at.desc())
+    ).scalars().all()
+
+    summaries = []
+    for sim in runs:
+        team = db.get(Team, sim.team_id)
+        total_games = (sim.parameters or {}).get("total_games", 82)
+        wins = losses = None
+        if sim.status == "complete":
+            sim_games = db.execute(
+                select(SimulatedGame).where(SimulatedGame.simulation_id == sim.id)
+            ).scalars().all()
+            wins = sum(
+                1 for sg in sim_games
+                if _sim_game_is_win(db, sg, sim.team_id)
+            )
+            losses = len(sim_games) - wins
+        summaries.append(SimulationSummary(
+            id=sim.id,
+            team=team.abbreviation,
+            season=sim.season,
+            status=sim.status,
+            games_completed=sim.games_completed,
+            total_games=total_games,
+            wins=wins,
+            losses=losses,
+            created_at=sim.created_at,
+            completed_at=sim.completed_at,
+        ))
+    return summaries
+
+
+@router.delete("/{sim_id}", status_code=200)
+def delete_simulation(sim_id: int, db: Session = Depends(get_db)):
+    """Delete a simulation run and all its results.
+
+    Blocked if the simulation is currently running — cancel it first.
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
+    if sim.status == "running":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Simulation {sim_id} is running. Cancel it before deleting."
+        )
+
+    db.execute(
+        delete(SimulatedPlayerLine).where(
+            SimulatedPlayerLine.simulated_game_id.in_(
+                select(SimulatedGame.id).where(SimulatedGame.simulation_id == sim_id)
+            )
+        )
+    )
+    db.execute(delete(SimulatedGame).where(SimulatedGame.simulation_id == sim_id))
+    db.execute(delete(SimulationRun).where(SimulationRun.id == sim_id))
+    db.commit()
+    return {"id": sim_id, "deleted": True}
+
+
+def _sim_game_is_win(db: Session, sg: SimulatedGame, team_id: int) -> bool:
+    real_game = db.get(Game, sg.game_id)
+    is_home = real_game.home_team_id == team_id
+    return (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)

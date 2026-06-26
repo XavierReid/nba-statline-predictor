@@ -11,14 +11,16 @@ Usage:
 import argparse
 import sys
 import os
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import SessionLocal
+from app.models.game import Game
 from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.sim_config import SimConfig
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 # Representative matchups: strong vs strong, weak vs weak, mixed
 MATCHUPS = [
@@ -35,8 +37,40 @@ MATCHUPS = [
 ]
 
 
+def fetch_real_targets(db, season: str) -> Optional[dict]:
+    """Pull actual season averages from the games table for data-grounded targets.
+    Returns None if no final games exist for the season (e.g. future seasons)."""
+    from app.services.season_simulator import _season_game_prefix
+    prefix = _season_game_prefix(season)
+    rows = db.execute(
+        select(
+            func.avg((Game.home_score + Game.away_score) / 2.0).label("avg_team_score"),
+            func.avg(func.abs(Game.home_score - Game.away_score)).label("avg_margin"),
+            func.avg(case((func.abs(Game.home_score - Game.away_score) >= 20, 1), else_=0)).label("blowout_rate"),
+            func.avg(case((func.abs(Game.home_score - Game.away_score) <= 5, 1), else_=0)).label("close_rate"),
+            func.avg(case((Game.home_score > Game.away_score, 1), else_=0)).label("home_win_rate"),
+            func.count().label("total"),
+        ).where(
+            Game.id.like(f"{prefix}%"),
+            Game.status == "final",
+            Game.home_score.isnot(None),
+        )
+    ).one()
+    if not rows.total:
+        return None
+    return {
+        "avg_team_score": round(float(rows.avg_team_score), 1),
+        "avg_margin": round(float(rows.avg_margin), 1),
+        "blowout_rate": round(float(rows.blowout_rate) * 100, 1),
+        "close_rate": round(float(rows.close_rate) * 100, 1),
+        "home_win_rate": round(float(rows.home_win_rate) * 100, 1),
+        "total_games": rows.total,
+    }
+
+
 def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
     db = SessionLocal()
+    targets = fetch_real_targets(db, season)
 
     # Pre-load all rosters and team IDs
     rosters: dict = {}
@@ -121,13 +155,30 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
     active = [f for f in ("use_pace","use_clock","use_second_chance","use_fast_break","use_team_defense","use_strategic_foul") if getattr(config, f)]
     modifier_label = ", ".join(active) if active else "none (baseline)"
 
+    if targets:
+        t_margin = f"real {season}: {targets['avg_margin']}"
+        t_home = f"real {season}: {targets['home_win_rate']}%"
+        t_blowout = f"real {season}: {targets['blowout_rate']}%"
+        t_score = f"real {season}: {targets['avg_team_score']}"
+    else:
+        t_margin = "no real data (future season)"
+        t_home = "historical ~54%"
+        t_blowout = "historical ~22%"
+        t_score = "historical ~113"
+
+    avg_sim_score = sum(
+        (h + a) / 2
+        for _, _, h, a in matchup_avgs
+    ) / len(matchup_avgs) if matchup_avgs else 0
+
     print(f"\n{'='*60}")
     print(f"  Calibration: {total} games  |  Season: {season}")
     print(f"  Active modifiers: {modifier_label}")
     print(f"{'='*60}")
-    print(f"  Avg margin of victory : {avg_margin:.1f} pts  (NBA target: ~10-11)")
-    print(f"  Home win rate         : {home_wins/total*100:.1f}%  (NBA target: ~54%)")
-    print(f"  OT rate               : {ot_games/total*100:.1f}%  (NBA target: ~5-7%)")
+    print(f"  Avg team score        : {avg_sim_score:.1f} pts  ({t_score})")
+    print(f"  Avg margin of victory : {avg_margin:.1f} pts  ({t_margin})")
+    print(f"  Home win rate         : {home_wins/total*100:.1f}%  ({t_home})")
+    print(f"  OT rate               : {ot_games/total*100:.1f}%  (historical ~6%)")
     print()
     print(f"  {'Margin bucket':<26} {'Count':>6}  {'%':>6}  Bar")
     print(f"  {'-'*55}")
@@ -138,7 +189,7 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
         print(f"  {label:<26} {count:>6}  {pct:>5.1f}%  {bar}")
 
     blowout_count = sum(1 for m in abs_margins if m >= 20)
-    print(f"\n  Blowout rate (20+)    : {blowout_count/total*100:.1f}%  (NBA target: ~15-20%)")
+    print(f"\n  Blowout rate (20+)    : {blowout_count/total*100:.1f}%  ({t_blowout})")
 
     print(f"\n  {'Matchup':<12} {'Home avg':>9}  {'Away avg':>9}  {'Diff':>6}")
     print(f"  {'-'*42}")

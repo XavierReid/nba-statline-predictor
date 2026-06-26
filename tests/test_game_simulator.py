@@ -1,10 +1,13 @@
 """Tests for the possession-based game simulator.
 
 Covers: reproducibility, box score consistency, plus/minus integrity,
-chunk boundary behaviour, OT logic, and stepthrough session store.
+chunk boundary behaviour, OT logic, stepthrough session store,
+and Drama M1 possession-flow modifiers.
 """
 import pytest
-from app.services.game_simulator import simulate_game
+from unittest.mock import MagicMock
+from app.services.game_simulator import simulate_game, resolve_possession, OREB_RATE
+from app.services.sim_config import SimConfig, DRAMA_M1
 from app.services.stepthrough_store import create_session, pop_next_chunk
 
 
@@ -262,3 +265,132 @@ def test_pop_carries_metadata():
     assert data["away_team"] == "LAL"
     assert data["season"] == "2025-26"
     assert data["seed"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Drama M1 — SimConfig
+# ---------------------------------------------------------------------------
+
+def test_sim_config_defaults_all_off():
+    cfg = SimConfig()
+    assert cfg.use_pace is False
+    assert cfg.use_clock is False
+    assert cfg.use_second_chance is False
+    assert cfg.use_fast_break is False
+    assert cfg.use_team_defense is False
+    assert cfg.use_strategic_foul is False
+
+
+def test_drama_m1_preset_all_on():
+    assert DRAMA_M1.use_pace is True
+    assert DRAMA_M1.use_clock is True
+    assert DRAMA_M1.use_second_chance is True
+    assert DRAMA_M1.use_fast_break is True
+    assert DRAMA_M1.use_team_defense is True
+    assert DRAMA_M1.use_strategic_foul is True
+
+
+# ---------------------------------------------------------------------------
+# Drama M1 — clock-based simulation
+# ---------------------------------------------------------------------------
+
+def test_clock_sim_produces_valid_result():
+    cfg = SimConfig(use_clock=True)
+    r = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
+    assert r["home_score"] > 0
+    assert r["away_score"] > 0
+    assert len(r["quarter_scores"]["home"]) >= 4
+
+
+def test_clock_sim_reproducible():
+    cfg = SimConfig(use_clock=True)
+    r1 = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
+    r2 = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
+    assert r1["home_score"] == r2["home_score"]
+    assert r1["away_score"] == r2["away_score"]
+
+
+def test_clock_sim_elapsed_minutes_covers_48():
+    cfg = SimConfig(use_clock=True)
+    r = simulate_game(HOME, AWAY, seed=SEED, config=cfg, steps=4)
+    assert r["chunks"][-1]["elapsed_minutes"] >= 48.0
+
+
+# ---------------------------------------------------------------------------
+# Drama M1 — resolve_possession fast break modifier
+# ---------------------------------------------------------------------------
+
+def _rng(seed: int = 0):
+    import random
+    return random.Random(seed)
+
+
+def _make_side(id_offset: int) -> list:
+    return make_team(id_offset)
+
+
+def test_fast_break_only_on_is_fastbreak_flag():
+    """Fast break shot distribution (85% close) fires when is_fastbreak=True, not otherwise."""
+    offense = make_team(0)
+    defense = make_team(100)
+
+    shot_types_fb = []
+    shot_types_hc = []
+    for i in range(300):
+        r = resolve_possession(offense, defense, _rng(i), is_fastbreak=True)
+        shot_types_fb.append(r.get("shot_type"))
+        r2 = resolve_possession(offense, defense, _rng(i + 10000), is_fastbreak=False)
+        shot_types_hc.append(r2.get("shot_type"))
+
+    # Fast break weights: [5% three, 10% mid, 85% close]; half-court is balanced
+    close_fb = sum(1 for s in shot_types_fb if s == "close") / len(shot_types_fb)
+    close_hc = sum(1 for s in shot_types_hc if s == "close") / len(shot_types_hc)
+    assert close_fb > close_hc, (
+        f"Fast break close rate ({close_fb:.0%}) should exceed half-court ({close_hc:.0%})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drama M1 — team defense modifier
+# ---------------------------------------------------------------------------
+
+def test_team_defense_suppresses_offense_for_elite_d():
+    """Elite defense (low def_rating) should reduce opponent scoring vs bad defense.
+
+    Team defense only applies in the clock-based loop, so use_clock=True is required.
+    Both home and away get the same def_rating so the effect is symmetric — we
+    compare total scoring (home+away) to isolate the defensive suppression signal.
+    """
+    def _avg_total_score_with_def_rating(def_rating: float) -> float:
+        mock_row = MagicMock()
+        mock_row.def_rating = def_rating
+        mock_row.pace = 100.0
+
+        mock_db = MagicMock()
+        mock_db.execute.return_value.scalar_one_or_none.return_value = mock_row
+
+        cfg = SimConfig(use_team_defense=True, use_clock=True)
+        totals = []
+        for seed in range(60):
+            r = simulate_game(
+                HOME, AWAY, seed=seed, season="2025-26", config=cfg,
+                home_team_id=1, away_team_id=2, db=mock_db,
+            )
+            totals.append(r["home_score"] + r["away_score"])
+        return sum(totals) / len(totals)
+
+    elite_total = _avg_total_score_with_def_rating(106.0)   # OKC-tier defense both sides
+    bad_total = _avg_total_score_with_def_rating(122.0)     # bottom-tier defense both sides
+    assert elite_total < bad_total, (
+        f"Elite defense ({elite_total:.1f} combined) should allow fewer total points than "
+        f"bad defense ({bad_total:.1f} combined)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drama M1 — second-chance oreb constant
+# ---------------------------------------------------------------------------
+
+def test_oreb_rate_constant_is_reasonable():
+    """OREB_RATE should be in a realistic NBA range (15-25%)."""
+    assert 0.15 <= OREB_RATE <= 0.25

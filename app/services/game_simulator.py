@@ -442,7 +442,7 @@ def simulate_game(
     season: Optional[str] = None,
     steps: Optional[int] = None,
     capture_descriptions: bool = False,
-    config: Optional[object] = None,  # SimConfig — Optional to avoid circular import
+    config: Optional["SimConfig"] = None,
     home_team_id: Optional[int] = None,
     away_team_id: Optional[int] = None,
     db: Optional[object] = None,
@@ -472,7 +472,6 @@ def simulate_game(
     home_stats: Optional[dict] = None
     away_stats: Optional[dict] = None
     if db is not None and (cfg.use_pace or cfg.use_team_defense) and season:
-        from sqlalchemy import select
         if home_team_id:
             row = db.execute(select(TeamSeasonStats).where(
                 TeamSeasonStats.team_id == home_team_id,
@@ -628,7 +627,6 @@ def simulate_game(
         mean_quarter_possessions = expected_possessions / 4
         mean_poss_time_clock = QUARTER_SECONDS / mean_quarter_possessions
         current_is_home = tip_winner_is_home
-        last_poss_was_home = tip_winner_is_home
 
         for reg_q_idx in range(4):
             quarter_clock = float(QUARTER_SECONDS)

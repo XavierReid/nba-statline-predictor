@@ -40,8 +40,8 @@ MATCHUPS = [
 def fetch_real_targets(db, season: str) -> Optional[dict]:
     """Pull actual season averages from the games table for data-grounded targets.
     Returns None if no final games exist for the season (e.g. future seasons)."""
-    from app.services.season_simulator import _season_game_prefix
-    prefix = _season_game_prefix(season)
+    year = season.split("-")[0][-2:]
+    prefix = f"002{year}"
     rows = db.execute(
         select(
             func.avg((Game.home_score + Game.away_score) / 2.0).label("avg_team_score"),

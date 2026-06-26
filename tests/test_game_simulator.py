@@ -325,10 +325,6 @@ def _rng(seed: int = 0):
     return random.Random(seed)
 
 
-def _make_side(id_offset: int) -> list:
-    return make_team(id_offset)
-
-
 def test_fast_break_only_on_is_fastbreak_flag():
     """Fast break shot distribution (85% close) fires when is_fastbreak=True, not otherwise."""
     offense = make_team(0)

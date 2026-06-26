@@ -18,6 +18,7 @@ from app.models.player import Player
 from app.models.player_attributes import PlayerAttributes
 from app.models.player_tendencies import PlayerTendencies
 from app.models.player_season_stats import PlayerSeasonStats
+from app.models.team_season_stats import TeamSeasonStats
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -28,9 +29,12 @@ SECONDS_PER_POSSESSION = (GAME_MINUTES * 60) / POSSESSIONS_PER_GAME
 POSSESSIONS_PER_OT = 20         # ~10 per team per OT period
 OT_MINUTES = 5
 SECONDS_PER_OT_POSSESSION = (OT_MINUTES * 60) / POSSESSIONS_PER_OT   # 15.0
+QUARTER_SECONDS = 720           # 12 minutes per quarter
+OT_SECONDS = 300                # 5 minutes per OT period
 HOME_ADVANTAGE = 3.0            # extra points spread across home possessions
 SUB_VARIANCE = 2.0              # σ in minutes for substitution timing (Normal dist)
 LEAGUE_AVG_TOV_PER36 = 2.5     # used to normalize per-player turnover rates
+OREB_RATE = 0.22                # offensive rebound rate on missed shots (NBA avg ~22%)
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +284,8 @@ def resolve_possession(
     rng: random.Random,
     home_bonus: float = 0.0,
     name_map: Optional[dict] = None,
+    team_defense_factor: float = 1.0,
+    is_fastbreak: bool = False,
 ) -> dict:
     """Simulate one possession and return an event dict."""
     def _done(r: dict) -> dict:
@@ -328,21 +334,26 @@ def resolve_possession(
         result["fouled_by"] = ball_handler["id"]
         return _done(result)
 
-    # 4. Shot type selection
+    # 4. Shot type selection — fast break skews heavily toward close shots
     three_rate = ball_handler["three_point_rate"]
-    shot_type = rng.choices(
-        ["three", "mid", "close"],
-        weights=[three_rate, (1 - three_rate) * 0.4, (1 - three_rate) * 0.6],
-    )[0]
+    if is_fastbreak:
+        shot_type = rng.choices(
+            ["three", "mid", "close"], weights=[0.05, 0.10, 0.85]
+        )[0]
+    else:
+        shot_type = rng.choices(
+            ["three", "mid", "close"],
+            weights=[three_rate, (1 - three_rate) * 0.4, (1 - three_rate) * 0.6],
+        )[0]
     result["shot_type"] = shot_type
     result["scorer"] = ball_handler["id"]
 
-    # 5. Block check on non-three shots
-    if shot_type != "three":
+    # 5. Block check — skipped on fast breaks (defender scrambling back)
+    if shot_type != "three" and not is_fastbreak:
         best_blocker = max(defense, key=lambda p: p["block"])
         if rng.random() < (best_blocker["block"] / 100.0) * 0.04:
             result["block_by"] = best_blocker["id"]
-            if rng.random() < 0.27:
+            if rng.random() < OREB_RATE:
                 result["rebounded_by"] = rng.choices(
                     offense, weights=[p["oreb_rate"] for p in offense]
                 )[0]["id"]
@@ -366,7 +377,14 @@ def resolve_possession(
         base_prob = _attr_to_prob(ball_handler["close_shot"], lo=0.65, hi=0.72)
         defense_penalty = defender["interior_defense"] / 100.0 * 0.08
 
-    result["made"] = rng.random() < max(0.15, base_prob - defense_penalty + home_bonus / 100.0)
+    # Fast break: boost close-shot probability, reduce defender effectiveness
+    if is_fastbreak:
+        if shot_type == "close":
+            base_prob = min(base_prob + 0.08, 0.85)
+        defense_penalty *= 0.80
+
+    shot_prob = (base_prob - defense_penalty + home_bonus / 100.0) * team_defense_factor
+    result["made"] = rng.random() < max(0.15, shot_prob)
 
     ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
 
@@ -424,6 +442,10 @@ def simulate_game(
     season: Optional[str] = None,
     steps: Optional[int] = None,
     capture_descriptions: bool = False,
+    config: Optional[object] = None,  # SimConfig — Optional to avoid circular import
+    home_team_id: Optional[int] = None,
+    away_team_id: Optional[int] = None,
+    db: Optional[object] = None,
 ) -> dict:
     """Simulate one full game including any overtime periods.
 
@@ -437,11 +459,38 @@ def simulate_game(
         home_score, away_score, quarter_scores, box_score, season, chunks,
         chunk_events, went_to_ot, ot_periods
     """
+    from app.services.sim_config import SimConfig
+    cfg: SimConfig = config if config is not None else SimConfig()
+
     rng = random.Random(seed)
 
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
     name_map = {p["id"]: p["name"] for p in home_players + away_players} if capture_descriptions else None
+
+    # Load team season stats for pace/defense modifiers when needed
+    home_stats: Optional[dict] = None
+    away_stats: Optional[dict] = None
+    if db is not None and (cfg.use_pace or cfg.use_team_defense) and season:
+        from sqlalchemy import select
+        if home_team_id:
+            row = db.execute(select(TeamSeasonStats).where(
+                TeamSeasonStats.team_id == home_team_id,
+                TeamSeasonStats.season == season,
+            )).scalar_one_or_none()
+            if row:
+                home_stats = {"pace": row.pace, "def_rating": row.def_rating}
+        if away_team_id:
+            row = db.execute(select(TeamSeasonStats).where(
+                TeamSeasonStats.team_id == away_team_id,
+                TeamSeasonStats.season == season,
+            )).scalar_one_or_none()
+            if row:
+                away_stats = {"pace": row.pace, "def_rating": row.def_rating}
+
+    home_pace = (home_stats or {}).get("pace", cfg.league_avg_pace) if cfg.use_pace else cfg.league_avg_pace
+    away_pace = (away_stats or {}).get("pace", cfg.league_avg_pace) if cfg.use_pace else cfg.league_avg_pace
+    expected_possessions = round((home_pace + away_pace) / 2) * 2 if cfg.use_pace else POSSESSIONS_PER_GAME
 
     home_rotation = build_rotation(home_players, rng)
     away_rotation = build_rotation(away_players, rng)
@@ -506,7 +555,10 @@ def simulate_game(
         sec_per_poss: float,
         min_per_poss_val: float,
         current_q_idx: int,
-    ) -> Optional[int]:
+        game_clock_override: Optional[int] = None,
+        team_defense_factor: float = 1.0,
+        is_fastbreak: bool = False,
+    ) -> Tuple[Optional[int], dict]:
         nonlocal game_clock, home_total, away_total, possession_counter, q_idx
 
         game_clock += sec_per_poss
@@ -525,10 +577,14 @@ def simulate_game(
 
         offense, defense = (home_active, away_active) if is_home else (away_active, home_active)
         if not offense or not defense:
-            return None
+            return None, {}
 
-        home_bonus = HOME_ADVANTAGE / POSSESSIONS_PER_GAME if is_home else 0.0
-        event = resolve_possession(offense, defense, rng, home_bonus, name_map)
+        home_bonus = HOME_ADVANTAGE / expected_possessions if is_home else 0.0
+        event = resolve_possession(
+            offense, defense, rng, home_bonus, name_map,
+            team_defense_factor=team_defense_factor,
+            is_fastbreak=is_fastbreak,
+        )
 
         pts, fouled_out_pid = _apply_event(box, event)
 
@@ -547,10 +603,11 @@ def simulate_game(
                 box[pid]["plus_minus"] -= home_delta
 
         possession_counter += 1
+        clock_secs = game_clock_override if game_clock_override is not None else round(game_clock)
         if steps:
             current_chunk_events.append({
                 "possession": possession_counter,
-                "game_clock_seconds": round(game_clock),
+                "game_clock_seconds": clock_secs,
                 "quarter": current_q_idx + 1,
                 "is_home": is_home,
                 "pts": pts,
@@ -558,33 +615,167 @@ def simulate_game(
             })
 
         _maybe_snapshot(elapsed_minutes, current_q_idx)
-        return fouled_out_pid
+        return fouled_out_pid, event
 
     # -----------------------------------------------------------------------
     # Regulation
     # -----------------------------------------------------------------------
-    for poss_idx in range(POSSESSIONS_PER_GAME):
-        current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
-        reg_q_idx = min(3, current_minute // 12)
+    home_ids = set(home_by_id.keys())
+    away_ids = set(away_by_id.keys())
 
-        home_active_ids = home_rotation[current_minute]
-        away_active_ids = away_rotation[current_minute]
+    if cfg.use_clock:
+        # Clock-based loop — each quarter runs until the clock hits 0
+        mean_quarter_possessions = expected_possessions / 4
+        mean_poss_time_clock = QUARTER_SECONDS / mean_quarter_possessions
+        current_is_home = tip_winner_is_home
+        last_poss_was_home = tip_winner_is_home
 
-        within_half = poss_idx % 100
-        if poss_idx < 100:
-            is_home = (within_half % 2 == 0) == tip_winner_is_home
-        else:
-            is_home = (within_half % 2 == 0) != tip_winner_is_home
+        for reg_q_idx in range(4):
+            quarter_clock = float(QUARTER_SECONDS)
+            # NBA possession arrow: Q1=tip winner, Q2=tip loser, Q3=tip winner, Q4=tip loser
+            current_is_home = tip_winner_is_home if reg_q_idx % 2 == 0 else not tip_winner_is_home
 
-        fouled_out_pid = _apply_possession(
-            home_active_ids, away_active_ids, is_home,
-            SECONDS_PER_POSSESSION, min_per_poss, reg_q_idx,
-        )
-        if fouled_out_pid:
-            if fouled_out_pid in home_by_id:
-                patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
+            oreb_depth = 0
+            next_is_fastbreak = False
+
+            while quarter_clock > 0:
+
+                # Check for strategic foul before running offense for the leading team
+                if cfg.use_strategic_foul and quarter_clock <= cfg.strategic_foul_clock_threshold:
+                    lead = home_total - away_total
+                    # Trailing team is on defense; offense is the leading team
+                    trailing_is_home = lead < 0
+                    if current_is_home != trailing_is_home:
+                        # Current offense IS the leading team — trailing defense may foul
+                        margin = abs(lead)
+                        if cfg.strategic_foul_margin_min <= margin <= cfg.strategic_foul_margin_max:
+                            if rng.random() < cfg.strategic_foul_probability:
+                                # Generate intentional foul — FTs for worst FT shooter on offense
+                                offense_ids = home_ids if current_is_home else away_ids
+                                offense_on_court = [
+                                    p for p in (home_players if current_is_home else away_players)
+                                    if p["id"] in offense_ids
+                                ]
+                                target = min(offense_on_court, key=lambda p: p["free_throw"])
+                                ft_prob = _attr_to_prob(target["free_throw"], lo=0.60, hi=0.95)
+                                fta = 2
+                                ftm = sum(1 for _ in range(fta) if rng.random() < ft_prob)
+                                foul_time = max(2.0, min(8.0, rng.gauss(4.0, 1.0)))
+                                quarter_clock = max(0.0, quarter_clock - foul_time)
+                                game_clock += foul_time
+                                pts = ftm
+                                if current_is_home:
+                                    home_total += pts
+                                    quarter_scores["home"][reg_q_idx] += pts
+                                else:
+                                    away_total += pts
+                                    quarter_scores["away"][reg_q_idx] += pts
+                                possession_counter += 1
+                                foul_event = {
+                                    "scorer": target["id"], "shot_type": None, "made": False,
+                                    "assisted_by": None, "rebounded_by": None,
+                                    "turnover_by": None, "steal_by": None, "block_by": None,
+                                    "fouled_by": None, "fta": fta, "ftm": ftm,
+                                    "description": f"{target['name']} shoots {ftm}/{fta} FTs (intentional foul)" if name_map else None,
+                                }
+                                if steps:
+                                    current_chunk_events.append({
+                                        "possession": possession_counter,
+                                        "game_clock_seconds": int(quarter_clock),
+                                        "quarter": reg_q_idx + 1,
+                                        "is_home": current_is_home,
+                                        "pts": pts,
+                                        **foul_event,
+                                    })
+                                _maybe_snapshot(game_clock / 60, reg_q_idx)
+                                # After intentional foul, flip possession (offense inbounds)
+                                current_is_home = not current_is_home
+                                oreb_depth = 0
+                                next_is_fastbreak = False
+                                continue
+
+                # Sample possession time based on context
+                if next_is_fastbreak:
+                    poss_time = max(3.0, min(12.0, rng.gauss(cfg.fastbreak_time_mean, cfg.fastbreak_time_std)))
+                elif oreb_depth > 0:
+                    poss_time = max(3.0, min(14.0, rng.gauss(cfg.second_chance_time_mean, cfg.second_chance_time_std)))
+                else:
+                    poss_time = max(5.0, min(24.0, rng.gauss(mean_poss_time_clock, cfg.halfcourt_time_std)))
+                poss_time = min(poss_time, quarter_clock)
+                quarter_clock -= poss_time
+
+                current_minute = min(GAME_MINUTES - 1, reg_q_idx * 12 + int((QUARTER_SECONDS - quarter_clock) / 60))
+                home_active_ids = home_rotation[current_minute]
+                away_active_ids = away_rotation[current_minute]
+
+                team_defense_factor = 1.0
+                if cfg.use_team_defense:
+                    defending_stats = away_stats if current_is_home else home_stats
+                    if defending_stats:
+                        # Dampen to 50% of raw spread — full strength over-rewards
+                        # top/bottom defenses given our limited player rating granularity
+                        raw = defending_stats["def_rating"] / cfg.league_avg_def_rating
+                        team_defense_factor = 1.0 + (raw - 1.0) * 0.5
+
+                fouled_out_pid, event = _apply_possession(
+                    home_active_ids, away_active_ids, current_is_home,
+                    poss_time, poss_time / 60.0, reg_q_idx,
+                    game_clock_override=int(quarter_clock),
+                    team_defense_factor=team_defense_factor,
+                    is_fastbreak=next_is_fastbreak,
+                )
+                if fouled_out_pid:
+                    if fouled_out_pid in home_by_id:
+                        patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
+                    else:
+                        patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
+
+                # Second-chance: check if offense got an offensive rebound
+                next_is_fastbreak = False
+                rebounded_by = event.get("rebounded_by")
+                offense_ids = home_ids if current_is_home else away_ids
+                is_oreb = (
+                    cfg.use_second_chance
+                    and rebounded_by is not None
+                    and rebounded_by in offense_ids
+                    and event.get("shot_type") is not None
+                    and not event.get("made")
+                )
+                if is_oreb and oreb_depth < cfg.oreb_chain_cap:
+                    oreb_depth += 1
+                    # Same team keeps possession — don't flip
+                else:
+                    oreb_depth = 0
+                    current_is_home = not current_is_home
+                    # Fast break: only on steals
+                    if cfg.use_fast_break and event.get("steal_by") is not None:
+                        next_is_fastbreak = True
+
+    else:
+        # Fixed-possession loop (original behavior)
+        for poss_idx in range(expected_possessions):
+            current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
+            reg_q_idx = min(3, current_minute // 12)
+
+            home_active_ids = home_rotation[current_minute]
+            away_active_ids = away_rotation[current_minute]
+
+            half_size = expected_possessions // 2
+            within_half = poss_idx % half_size
+            if poss_idx < half_size:
+                is_home = (within_half % 2 == 0) == tip_winner_is_home
             else:
-                patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
+                is_home = (within_half % 2 == 0) != tip_winner_is_home
+
+            fouled_out_pid, _ = _apply_possession(
+                home_active_ids, away_active_ids, is_home,
+                SECONDS_PER_POSSESSION, min_per_poss, reg_q_idx,
+            )
+            if fouled_out_pid:
+                if fouled_out_pid in home_by_id:
+                    patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
+                else:
+                    patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
 
     # -----------------------------------------------------------------------
     # Overtime — loop until a winner emerges
@@ -605,7 +796,7 @@ def simulate_game(
 
         for ot_poss_idx in range(POSSESSIONS_PER_OT):
             is_home = (ot_poss_idx % 2 == 0) == ot_tip_is_home
-            fouled_out_pid = _apply_possession(
+            fouled_out_pid, _ = _apply_possession(
                 home_ot_ids, away_ot_ids, is_home,
                 SECONDS_PER_OT_POSSESSION, min_per_ot_poss, ot_q_idx,
             )

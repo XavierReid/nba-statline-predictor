@@ -117,6 +117,31 @@ def fetch_season_stats(season: str) -> list[dict]:
     return per_game
 
 
+def fetch_team_season_stats(season: str) -> list[dict]:
+    """Return pace, off_rating, def_rating, net_rating per team for a season."""
+    from nba_api.stats.endpoints import leaguedashteamstats
+
+    result = leaguedashteamstats.LeagueDashTeamStats(
+        season=season,
+        measure_type_detailed_defense='Advanced',
+        per_mode_detailed='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=60,
+    )
+    rows = result.get_normalized_dict()['LeagueDashTeamStats']
+    return [
+        {
+            'team_id': row['TEAM_ID'],
+            'pace': row['PACE'],
+            'off_rating': row['OFF_RATING'],
+            'def_rating': row['DEF_RATING'],
+            'net_rating': row['NET_RATING'],
+        }
+        for row in rows
+        if row.get('PACE') is not None
+    ]
+
+
 def fetch_box_score(game_id: int) -> list[dict]:
     """Pull per-player box scores for a single game."""
     # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2

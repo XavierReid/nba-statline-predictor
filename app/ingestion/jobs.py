@@ -15,6 +15,7 @@ from app.models.player_attributes import PlayerAttributes, PlayerAttributeOverri
 from app.models.player_season_stats import PlayerSeasonStats
 from app.models.player_tendencies import PlayerTendencies
 from app.models.team import Team
+from app.models.team_season_stats import TeamSeasonStats
 
 log = logging.getLogger(__name__)
 
@@ -241,6 +242,27 @@ def seed_player_attributes(db: Session, season: str) -> int:
     return count
 
 
+def ingest_team_season_stats(db: Session, season: str) -> int:
+    """Upsert pace, off_rating, def_rating, net_rating per team for a season."""
+    rows = nba_client.fetch_team_season_stats(season)
+    from sqlalchemy import select
+    for row in rows:
+        existing = db.execute(
+            select(TeamSeasonStats).where(
+                TeamSeasonStats.team_id == row['team_id'],
+                TeamSeasonStats.season == season,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            existing.pace = row['pace']
+            existing.off_rating = row['off_rating']
+            existing.def_rating = row['def_rating']
+            existing.net_rating = row['net_rating']
+        else:
+            db.add(TeamSeasonStats(season=season, **row))
+    return len(rows)
+
+
 def run_full_ingestion(season: str) -> dict[str, int]:
     """Top-level entrypoint called by scripts/run_ingestion.py."""
     log.info("Starting full ingestion for season=%s", season)
@@ -251,6 +273,7 @@ def run_full_ingestion(season: str) -> dict[str, int]:
         counts["players"] = ingest_active_players(db)
         counts["games"] = ingest_games_for_season(db, season)
         counts["season_stats"] = ingest_season_stats(db, season)
+        counts["team_season_stats"] = ingest_team_season_stats(db, season)
         db.commit()
         counts["attributes"] = seed_player_attributes(db, season)
         db.commit()

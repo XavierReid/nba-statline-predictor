@@ -265,7 +265,8 @@ def describe_event(event: dict, name_map: dict) -> str:
     if not event.get("made"):
         desc = f"{name(scorer)} misses a {shot}"
         if event.get("rebounded_by"):
-            desc += f" — {name(event['rebounded_by'])} rebounds"
+            reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
+            desc += f" — {name(event['rebounded_by'])} ({reb_type})"
         if event.get("fta"):
             desc += f" — shooting foul, {event['ftm']}/{event['fta']} FTs"
         return desc
@@ -295,7 +296,7 @@ def resolve_possession(
 
     result: dict = {
         "scorer": None, "shot_type": None, "made": False,
-        "assisted_by": None, "rebounded_by": None,
+        "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
     }
@@ -357,6 +358,7 @@ def resolve_possession(
                 result["rebounded_by"] = rng.choices(
                     offense, weights=[p["oreb_rate"] for p in offense]
                 )[0]["id"]
+                result["is_oreb"] = True
             else:
                 result["rebounded_by"] = rng.choices(
                     defense, weights=[p["dreb_rate"] for p in defense]
@@ -418,12 +420,13 @@ def resolve_possession(
                     passers, weights=[p["assist_rate"] for p in passers]
                 )[0]["id"]
 
-    # 10. Rebound on miss — NBA average 27% OREB, individual weighted by OREB%/DREB%
+    # 10. Rebound on miss — individual weighted by OREB%/DREB%
     if not result["made"] and result["fta"] == 0:
-        if rng.random() < 0.27:
+        if rng.random() < OREB_RATE:
             result["rebounded_by"] = rng.choices(
                 offense, weights=[p["oreb_rate"] for p in offense]
             )[0]["id"]
+            result["is_oreb"] = True
         else:
             result["rebounded_by"] = rng.choices(
                 defense, weights=[p["dreb_rate"] for p in defense]
@@ -751,6 +754,8 @@ def simulate_game(
 
     else:
         # Fixed-possession loop (original behavior)
+        # Possession flips on every non-oreb outcome; oreb keeps the same team.
+        current_is_home = tip_winner_is_home
         for poss_idx in range(expected_possessions):
             current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
             reg_q_idx = min(3, current_minute // 12)
@@ -758,15 +763,8 @@ def simulate_game(
             home_active_ids = home_rotation[current_minute]
             away_active_ids = away_rotation[current_minute]
 
-            half_size = expected_possessions // 2
-            within_half = poss_idx % half_size
-            if poss_idx < half_size:
-                is_home = (within_half % 2 == 0) == tip_winner_is_home
-            else:
-                is_home = (within_half % 2 == 0) != tip_winner_is_home
-
-            fouled_out_pid, _ = _apply_possession(
-                home_active_ids, away_active_ids, is_home,
+            fouled_out_pid, event = _apply_possession(
+                home_active_ids, away_active_ids, current_is_home,
                 SECONDS_PER_POSSESSION, min_per_poss, reg_q_idx,
             )
             if fouled_out_pid:
@@ -774,6 +772,17 @@ def simulate_game(
                     patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)
                 else:
                     patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1)
+
+            offense_ids = home_ids if current_is_home else away_ids
+            rebounded_by = event.get("rebounded_by")
+            is_oreb = (
+                rebounded_by is not None
+                and rebounded_by in offense_ids
+                and event.get("shot_type") is not None
+                and not event.get("made")
+            )
+            if not is_oreb:
+                current_is_home = not current_is_home
 
     # -----------------------------------------------------------------------
     # Overtime — loop until a winner emerges

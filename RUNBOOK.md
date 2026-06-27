@@ -308,17 +308,94 @@ curl -s -X POST http://localhost:8000/simulations/game/stepthrough \
 
 **Steps reference — pick based on how many round-trips you want:**
 
-| steps | chunk size       | round-trips | best for                       |
-|-------|------------------|-------------|--------------------------------|
-| 2     | ~100 possessions | 2           | halftime split                 |
-| 4     | ~50 possessions  | 4           | quarters (default)             |
-| 8     | ~25 possessions  | 8           | scoring runs (~6 min segments) |
-| 12    | ~17 possessions  | 12          | TV timeout segments (~4 min)   |
-| 24    | ~8 possessions   | 24          | ~2 minute segments             |
-| 48    | ~4 possessions   | 48          | minute-by-minute               |
-| 200   | 1 possession     | 200         | full play-by-play              |
+Chunks are time-based: `chunk_duration = 48 / steps` minutes of game time per step.
+OT automatically generates proportional extra chunks (e.g. steps=4 → each OT period adds 1 extra step, steps=48 → each OT adds 5 extra steps).
 
-Beyond 48 steps you're in play-by-play territory — expect ~200 requests and noticeable latency without a client batching the calls. Sessions expire after 1 hour or when the final step is consumed (`complete: true`).
+| steps | chunk duration | reg round-trips | best for                       |
+|-------|----------------|-----------------|--------------------------------|
+| 2     | 24 min         | 2               | halftime split                 |
+| 4     | 12 min         | 4               | quarters (default)             |
+| 8     | 6 min          | 8               | scoring runs                   |
+| 12    | 4 min          | 12              | TV timeout segments            |
+| 24    | 2 min          | 24              | ~2 minute segments             |
+| 48    | 1 min          | 48              | minute-by-minute               |
+| 96    | 30 sec         | 96              | half-minute intervals          |
+
+The `total_steps` in the response is the actual count after OT resolution — it will exceed `steps` if the game goes to overtime. Sessions expire after 1 hour or when the final step is consumed (`complete: true`).
+
+---
+
+## Simulation configs
+
+### Presets
+
+| Preset | Description | Use when |
+|---|---|---|
+| `baseline` (default) | All modifiers off. Fixed 200 possessions, simple alternating possession. | Isolating player/rating behavior, fast calibration baseline |
+| `drama-m1` | Pace, clock, second-chance, fast break, team defense, strategic foul. | Realistic game flow testing, M1 UAT |
+| `drama-m2` | All M1 modifiers + momentum. | Full drama pipeline testing (available after M2b ships) |
+
+### Modifier reference
+
+| Modifier | Toggle | What it does | Calibration impact |
+|---|---|---|---|
+| `use_pace` | M1 | Sets expected possessions from team pace data (vs fixed 200) | Tightens possession count to real team tempo |
+| `use_clock` | M1 | Runs a real clock per quarter (while clock > 0) vs fixed possession count | Enables all clock-dependent modifiers |
+| `use_second_chance` | M1 | Offensive rebound keeps possession (chain up to 5); compensates mean possession time to avoid inflation | Adds ~0.5 pts/team from real oreb chains |
+| `use_fast_break` | M1 | Steal → next possession is a fast break (85% close shots, +8% make prob, no block check) | More close-shot frequency after steals |
+| `use_team_defense` | M1 | Team def_rating suppresses opponent FG% (dampened 50% of raw spread) | Elite defenses allow ~3% fewer makes; weak defenses concede ~4% more |
+| `use_strategic_foul` | M1 | Trailing team fouls worst FT shooter when down 3–8, ≤120s left in Q4/OT (p=0.70) | Adds late-game FT possessions, closes margins slightly |
+| `use_momentum` | M2b | Per-team momentum from scoring runs/stops/steals decays 20%/possession; adjusts shot prob ±2.5% and TOV prob ±1.5% | Reduces blowout rate; adds realistic variance in game flow |
+
+### Using configs via API
+
+```bash
+# Named preset
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team":"BOS","away_team":"LAL","season":"2025-26","seed":42,
+       "config":{"preset":"drama-m1"}}' | jq '{home_score, away_score}'
+
+# Preset + override (disable one modifier)
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team":"BOS","away_team":"LAL","season":"2025-26","seed":42,
+       "config":{"preset":"drama-m1","overrides":{"use_second_chance":false}}}' \
+  | jq '{home_score, away_score}'
+
+# Season sim with drama-m1
+curl -s -X POST http://localhost:8000/simulations/ \
+  -H "Content-Type: application/json" \
+  -d '{"team":"NYK","season":"2025-26","seed":99,"config":{"preset":"drama-m1"}}' | jq .
+```
+
+### Calibration targets (2025-26, real data)
+
+Run `python scratch/calibrate_simulator.py --games 500 --season 2025-26 [--drama-m1]` to compare.
+
+| Metric | Real 2025-26 | Baseline | Drama M1 |
+|---|---|---|---|
+| Avg team score | 115.6 pts | ~112 | ~118.8 |
+| Avg margin | 13.3 pts | ~14.1 | ~14.4 |
+| Home win rate | 55.4% | ~51% | ~55.7% ✅ |
+| Blowout rate (20+) | 22.9% | ~27% | ~27.2% |
+| OT rate | ~6% | ~2% | ~2.4% |
+
+---
+
+## Pre-feature sim purge
+
+Run before each feature UAT to ensure test simulations reflect current code only.
+
+```bash
+python scripts/purge_sims.py            # preview what will be deleted (dry run)
+python scripts/purge_sims.py --confirm  # delete all simulation runs and results
+```
+
+Individual sim delete via API (if you want to keep some):
+```bash
+curl -s -X DELETE http://localhost:8000/simulations/12 | jq .
+```
 
 ---
 

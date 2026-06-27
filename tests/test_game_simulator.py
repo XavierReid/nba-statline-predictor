@@ -38,6 +38,7 @@ def make_player(pid: int, is_starter: bool = True) -> dict:
         "three_point_rate": 0.35,
         "perimeter_defense": 68.0,
         "interior_defense": 65.0,
+        "overall": 72,
     }
 
 
@@ -517,8 +518,7 @@ def test_drama_m2_game_runs_without_error():
     """Full game with drama-m2 should complete and produce valid scores."""
     home = [make_player(i, i < 5) for i in range(10)]
     away = [make_player(i + 10, i < 5) for i in range(10)]
-    for p in home + away:
-        p["overall"] = 75
+    # overall already set in make_player; confirm it's present
 
     mock_db = MagicMock()
     mock_db.execute.return_value.scalar_one_or_none.return_value = None

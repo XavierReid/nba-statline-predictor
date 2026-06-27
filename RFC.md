@@ -25,6 +25,52 @@ A backend simulation engine inspired by NBA 2K MyLEAGUE/MyNBA. Given real NBA ro
 
 ---
 
+## Simulation Philosophy
+
+The core principle of this simulator is a **causal chain**: context → decision → matchup → outcome. Every possession should emerge from basketball reality — who is on the floor, what the game situation is, what that player tends to do, who is defending, and how that matchup resolves. The simulator should not know that a team wins; it should simulate *why* a team wins.
+
+### What this means in practice
+
+**Outcomes emerge from possessions, not predicted box scores.**
+A player's points in a game are a result of simulated shot attempts, contested shots, and free throw resolutions — not a projection of their PPG with noise applied.
+
+**Overall ratings are never simulation inputs.**
+Overall rating is a presentation abstraction for UI, roster comparison, and player evaluation. The game engine operates on underlying attributes (shooting, defense, rebounding) and tendencies (usage, shot type selection, transition rate). "Higher overall wins" is not basketball.
+
+**Tendencies describe behavior. Attributes describe ability.**
+`three_point_rate` (tendency) determines how often a player attempts a three. `three_point` (attribute) determines how likely they are to make it. These are separate and must remain separate. A player can have great three-point shooting (attribute) but low three-point rate (tendency) — that is a real basketball profile.
+
+**Game state modifiers adjust probabilities, never ratings.**
+Fatigue, foul trouble, momentum, and clutch performance change the probability of outcomes for a specific possession. They do not change a player's underlying attribute values, and they reset between games.
+
+**Future systems should extend existing layers, not bypass them.**
+A team identity layer (TeamTendencies) should influence how possessions are set up — which shot types are selected, what tempo is run, how often transition opportunities appear — but it should feed into the same possession resolution chain, not replace it with a shortcut.
+
+### Anti-patterns to avoid
+
+```python
+# NEVER: winner determined by rating comparison
+if home_overall > away_overall:
+    win_probability += X
+
+# NEVER: box score generated from projection
+player_points = projected_ppg + random()
+
+# NEVER: simulation bypassed by aggregate
+home_score = team_offense_rating - away_defense_rating + noise()
+```
+
+### The possession flow (current → target)
+
+```
+Current:  player selection → action → attribute check → outcome
+Target:   team identity → player role → action selection → matchup → outcome
+```
+
+The current architecture covers the right half of this chain. Each milestone adds context to the left — possession variance (M3b), game situation awareness (M3c), shot quality and contest level (M3d), foul drawing behavior (M3e), team offensive identity (post-M3).
+
+---
+
 ## Architecture
 
 ```
@@ -695,11 +741,375 @@ Equal weights chosen as a defensible baseline — no single stat is privileged w
 - [ ] Calibration: run `--drama-m2` before and after M2c and compare blowout rate + avg margin
 - [ ] FoulTrouble rotation management tracked in Parking Lot
 
-#### Drama M3 — Scenarios (spec pending)
-- Named play types (isolation, pick-and-roll, transition, post-up)
-- Coaching decisions as game_state responses (timeouts, substitutions)
-- Injury scenarios as mid-game modifiers
-- Late-game shot selection shift (trailing → more 3s, leading → draw fouls)
+#### Drama M3 — Game Environment Realism (spec finalized 2026-06-27)
+
+**Philosophy:** the rating model is producing believable matchups. The next calibration gains come from making the simulation *behave* like basketball — not from adjusting ratings. Every M3 change targets game flow, variance, and possession context. No player attribute changes.
+
+**Calibration baseline (drama-m2, 500 games, 2025-26):**
+
+| Metric | Real | Current | Gap |
+|---|---|---|---|
+| Avg team score | 115.6 | 117.9 | +2.3 |
+| Avg margin | 13.3 | 15.5 | +2.2 |
+| Home win rate | 55.4% | 55.6% | ✅ |
+| Blowout rate (20+) | 22.9% | 32.0% | +9.1pp |
+| OT rate | ~6% | 0.8% | −5.2pp |
+
+**Build order:** M3a (refactor) → M3b (variance + OREB) → M3c (catch-up + garbage time) → M3d (shot quality) → M3e (foul drawing) → calibration pass.
+
+Calibration checkpoint after each group: avg score, possessions/game, avg margin, blowout rate, OT rate, player stat realism.
+
+---
+
+##### M3a — Architecture Refactor
+
+`game_simulator.py` has grown to ~971 lines with four distinct concerns colocated. Split into focused modules; no behavior change, all existing tests must pass.
+
+**Target module structure:**
+
+```
+app/services/
+  game_simulator.py      → thin orchestrator, re-exports public surface
+  roster.py              → load_roster()
+  rotation.py            → build_rotation(), patch_rotation()
+  possession.py          → resolve_possession(), _attr_to_prob(), describe_event()
+  box_score.py           → _empty_stats(), _snapshot_box(), _apply_event(), flatten_and_enrich()
+```
+
+`simulate_game()` stays in `game_simulator.py` as the top-level orchestrator, importing from the new modules. Public import paths (`from app.services.game_simulator import load_roster, simulate_game`) remain unchanged so callers (API, tests, calibration scripts) need no edits.
+
+`app/api/simulations.py` at 707 lines: split Pydantic models into `app/api/schemas/simulations.py`; route handlers stay in `app/api/simulations.py`. No route path changes.
+
+**Definition of done:**
+- [ ] `roster.py`, `rotation.py`, `possession.py`, `box_score.py` created
+- [ ] `game_simulator.py` reduced to orchestration only (~200 lines)
+- [ ] `simulations.py` schemas extracted to `app/api/schemas/simulations.py`
+- [ ] All 74 existing tests pass unchanged
+- [ ] Calibration output identical to pre-refactor baseline
+
+---
+
+##### M3b — Possession/Team Variance + Team OREB Profiles
+
+**Goal:** elite teams still have bad nights; weaker teams can overperform; possession counts reflect actual team rebounding tendencies.
+
+**Motivation:** current model produces near-expected outputs every game because player attributes feed directly into fixed probability ranges. Real game-to-game variance is much wider — player efficiency fluctuates even holding opponent quality constant.
+
+###### Per-game form factor
+
+At `simulate_game` start, draw a form factor per player from a player-specific distribution:
+
+```python
+form_factor = rng.gauss(1.0, player_variance)
+```
+
+`player_variance` is derived from player/team profile — not uniformly random:
+
+| Profile | Variance (σ) | Rationale |
+|---|---|---|
+| Elite decision-maker (passing ≥ 80, low TO rate) | 0.04 | Consistent high-IQ players; Jokić, LeBron |
+| Shooting specialist (3PT ≥ 80, low usage) | 0.10 | Hot/cold swings are real for spot-up shooters |
+| Young/high-usage player (age proxy: low overall, high usage) | 0.09 | Less developed consistency |
+| Default | 0.07 | Mid-tier players |
+
+`form_factor` is clamped to `[0.75, 1.25]` — a 25% swing max in either direction.
+
+**Application:** `form_factor` scales `shot_prob_delta` for that player's possessions only. It does not change player ratings — it is applied at possession resolution as a temporary per-game offset, treated like a modifier adjustment.
+
+**Storage:** `form_factors: Dict[int, float]` passed into `resolve_possession` (or held in game-level state). Not persisted — only relevant during one game.
+
+**Team variance:** team-level form is the average of active player form factors. Shooting-heavy teams (high avg `three_point_rate`) see higher score variance naturally from the compounding of individual form factors — no separate team-level factor needed.
+
+###### Team OREB profiles
+
+Replace flat `OREB_RATE = 0.22` constant with per-team offensive rebound rate from `TeamSeasonStats`.
+
+**Source:** `LeagueDashTeamStats` already provides `OREB_PCT` — already ingested in `team_season_stats` table.
+
+**Change:** in `simulate_game`, load `home_oreb_rate` and `away_oreb_rate` from `TeamSeasonStats`. Pass to `resolve_possession` (or access via game-level config). Use in the oreb check after a missed shot.
+
+**Fallback:** if `OREB_PCT` is null (missing team data), fall back to league constant `0.22`.
+
+**SimConfig additions:**
+```
+use_player_variance: bool = False
+use_team_oreb: bool = False
+```
+
+**Definition of done:**
+- [ ] `player_variance` derivation logic (4-tier classification) implemented in `roster.py` or `possession.py`
+- [ ] Form factors drawn per player at game start in `simulate_game`
+- [ ] Form factors passed through to `resolve_possession` and applied as `shot_prob_delta`
+- [ ] Team OREB rate loaded from `TeamSeasonStats`; `OREB_RATE` constant used only as fallback
+- [ ] Tests: elite player variance < shooting specialist variance, clamping respected, OREB rate uses team data when available
+- [ ] Calibration checkpoint: compare avg score, blowout rate, margin distribution before/after
+
+---
+
+##### M3c — Catch-Up + Garbage Time Behavior
+
+**Goal:** trailing teams change strategy in late Q4; leading teams protect; OT rate ↑, blowout rate ↓.
+
+**OT rate target after M3c:** ~3-4% (full 6% likely requires M3d shot quality improvements as well).
+
+###### CatchUpModifier
+
+New `GameStateModifier` in `app/services/modifiers/catch_up.py`.
+
+**Activation:** trailing team, Q4 or OT, clock ≤ 150s, deficit ≤ 15 pts.
+
+Trailing team adjustments:
+- `three_rate_override`: shift shot selection toward 3s. Scale with deficit and urgency:
+
+| Deficit | Clock ≤ 60s | Clock 60–150s |
+|---|---|---|
+| 1–5 pts | +0.08 | +0.04 |
+| 6–10 pts | +0.14 | +0.08 |
+| 11–15 pts | +0.20 | +0.12 |
+
+- `pace_override`: shorter possession time (more urgent). Clock ≤ 60s: `mean_poss_time × 0.75`. Clock 61–150s: `mean_poss_time × 0.85`.
+- `tov_prob_delta`: +0.02 (taking more risks = more turnovers).
+
+Leading team adjustments (same activation window, flipped role):
+- `pace_override`: longer possession time (clock management). Clock ≤ 90s: `mean_poss_time × 1.15`.
+- `shot_prob_delta`: −0.015 (conservative shot selection; accepting lower-efficiency shots to burn clock).
+- Three-rate not explicitly reduced — handled naturally by conservative shot selection skew.
+
+**Implementation note:** `three_rate_override` is a new field on `ModifierAdjustments`. Unlike `shot_prob_delta` (which modifies a shot already selected), `three_rate_override` changes which shot type gets selected. Applied in `resolve_possession` before shot type selection:
+
+```python
+effective_three_rate = min(0.60, three_rate + adj.three_rate_override)
+```
+
+`pace_override` is a multiplier applied to `poss_time` in the clock loop before calling `resolve_possession`.
+
+**ModifierAdjustments additions:**
+```python
+three_rate_override: float = 0.0   # additive shift to three_point_rate
+pace_multiplier: float = 1.0       # multiplicative on poss_time; default no-op
+```
+
+###### GarbageTimeModifier
+
+New `GameStateModifier` in `app/services/modifiers/garbage_time.py`.
+
+**Activation:** Q3 or Q4, clock ≤ 600s in the quarter (final ~10 min), margin ≥ 20 pts.
+
+**Scope — efficiency change only, not substitution.** Literal starter-sitting requires coaching/rotation logic that is out of M3 scope. Model the *effect* of garbage time (reduced effort, faster/looser play) without modeling the mechanism.
+
+Leading team:
+- `shot_prob_delta`: −0.02 (reduced effort, resting starters playing at lower intensity).
+- `defense_penalty_delta`: +0.02 (defense softens; allowing easier shots for trailing team).
+
+Trailing team:
+- `three_rate_override`: +0.08 (gambling for quick points).
+- `pace_multiplier`: 0.80 (playing faster — nothing to lose).
+- `tov_prob_delta`: +0.03 (more risk-taking = more turnovers).
+
+**Design note:** the asymmetry is intentional. The leading team softening creates the "games feel closer at the end than the score says" effect real NBA games have. Trailing team desperately shooting threes is the corresponding counter.
+
+**SimConfig additions:**
+```
+use_catch_up: bool = False
+use_garbage_time: bool = False
+catch_up_clock_threshold: int = 150
+catch_up_max_deficit: int = 15
+garbage_time_margin: int = 20
+garbage_time_clock_threshold: int = 600
+```
+
+**Definition of done:**
+- [ ] `ModifierAdjustments` expanded with `three_rate_override`, `pace_multiplier`
+- [ ] `catch_up.py`, `garbage_time.py` in `app/services/modifiers/`
+- [ ] `three_rate_override` applied in `resolve_possession` before shot type selection
+- [ ] `pace_multiplier` applied to `poss_time` in the clock loop
+- [ ] Both modifiers wired into clock loop; `DRAMA_M2` preset updated
+- [ ] Tests: catch-up activates only in correct window, three rate increases under catch-up, pace decreases for leading team, garbage time is no-op outside margin threshold
+- [ ] Calibration checkpoint: OT rate, blowout rate, avg margin — expect OT ↑ to ~3-4%, blowout ↓
+
+---
+
+##### M3d — Shot Quality Model (Sub-types, Contest Level, Positional Matchups)
+
+**Goal:** make `possession → outcome` more contextually aware. Move from three coarse shot buckets to a richer model where the same player has meaningfully different probabilities based on what shot they're taking, who's defending, and how open they are.
+
+**This is the largest architectural change in M3.** Implement after M3b and M3c are calibrated.
+
+###### Shot sub-types
+
+Replace three buckets (`three`, `mid`, `close`) with six:
+
+| Sub-type | Bucket | Base prob range | Block eligible | Primary attr |
+|---|---|---|---|---|
+| `corner_three` | three | 0.40–0.46 | No | `three_point` |
+| `above_break_three` | three | 0.36–0.42 | No | `three_point` |
+| `mid_range` | mid | 0.47–0.55 | No | `mid_range` |
+| `floater` | close | 0.48–0.55 | Partial (×0.5) | `close_shot` |
+| `layup` | close | 0.62–0.70 | Yes | `layup` |
+| `dunk` | close | 0.68–0.76 | Yes (×0.5) | `dunk` |
+
+**Selection:** `three_point_rate` still drives 3PT frequency. Within 3PT: `corner_three_rate` from `PlayerTendencies` (new field derived from player shot distribution data — or positional estimate: guards 25% corner, wings 35% corner, bigs 10% corner). Within close: `dunk_rate` from position (bigs 50% dunk, wings 20%, guards 5%); remainder split between layup and floater by position.
+
+**Player attribute additions (`PlayerAttributes`):** `layup` and `dunk` columns already exist on the model (estimated defaults) but are unused in `resolve_possession`. Wire them in.
+
+**`PlayerTendencies` addition:** `corner_three_rate: float` — derived from shot location data if available, otherwise positional estimate.
+
+###### Contest level
+
+Add a contest dimension to each shot. Before computing `shot_prob`, determine if the shot is open or contested:
+
+```
+contest_prob = defender_contest_rating / 100 × position_weight
+if rng.random() < contest_prob:
+    shot is contested
+    defense_penalty × contest_multiplier (1.0 — current behavior)
+else:
+    shot is open
+    defense_penalty × 0.2   (defender arrived late, minimal contest)
+```
+
+`position_weight` from positional matchup (see below). `contest_multiplier` varies by shot type:
+
+| Shot type | Contest multiplier |
+|---|---|
+| Dunk | 1.2 (high-risk contest, foul likely) |
+| Layup | 1.1 |
+| Floater | 0.9 (hard to contest cleanly) |
+| Mid-range | 1.0 |
+| Three (ATB) | 1.0 |
+| Corner three | 0.8 (hard to rotate to corner) |
+
+###### Positional matchups
+
+Replace random defender selection with position-aware matching.
+
+**Position groups:**
+```python
+GUARD = {"G", "G-F"}
+WING  = {"F", "F-G", "F-C"}
+BIG   = {"C", "C-F"}
+```
+
+**Matchup logic:** ball handler's position group → filter defenders to matching group → if no match, fall back to full defender pool. Select defender weighted by `perimeter_defense` (guards/wings) or `interior_defense` (bigs).
+
+**Defense attribute by shot type:**
+
+| Shot type | Defense attribute | Defender group |
+|---|---|---|
+| Any three | `perimeter_defense` | Guard/wing preferred |
+| Mid-range | `perimeter_defense` | Guard/wing preferred |
+| Floater | `interior_defense` × 0.6 + `perimeter_defense` × 0.4 | Mixed |
+| Layup | `interior_defense` | Big preferred |
+| Dunk | `interior_defense` | Big preferred |
+
+**Block check update:** block check currently uses "best blocker in defense." With positional matchups, use the *matched* defender's `block` rating instead. A PG being blocked by a random center is replaced by a PG being blocked by the defender guarding the ball handler's position.
+
+**`PlayerTendencies` addition:** `corner_three_rate: float`.
+
+**No new model migrations required** — `layup` and `dunk` already on `PlayerAttributes`. `corner_three_rate` added to `PlayerTendencies` (same migration pattern as existing tendency fields, or derived inline from position).
+
+**SimConfig additions:**
+```
+use_shot_subtypes: bool = False
+use_contest_model: bool = False
+use_positional_matchups: bool = False
+```
+
+**Definition of done:**
+- [ ] Six shot sub-types implemented in `possession.py`
+- [ ] `corner_three_rate` added to `PlayerTendencies`; seeded from position estimate
+- [ ] Contest model implemented; `contest_prob` varies by defender and position weight
+- [ ] Positional matchup selection replaces random defender
+- [ ] `layup` and `dunk` attributes wired into shot probability
+- [ ] Block check uses matched defender's block rating
+- [ ] Tests: corner three selects correct base prob range, dunk uses dunk attribute, positional matchup filters correctly, open shot reduces defense penalty, contest model is a no-op when `use_contest_model=False`
+- [ ] Calibration checkpoint: avg score (expect ↓ from more realistic shot mix), FG% by shot type vs real NBA data
+
+---
+
+##### M3e — Foul Drawing Tendency
+
+**Goal:** star players generate more FT opportunities; late-game FT volume improves OT rate.
+
+**Data source:** `fta` (free throw attempts per game) already in `PlayerSeasonStats`. Derive `foul_drawing_rate = fta / fga` — no new NBA API call needed.
+
+**Storage:** `foul_drawing_rate: float` added to `PlayerTendencies` alongside existing rates. No `PlayerAttributes` migration.
+
+**Ingestion:** computed in `seed_player_attributes()` / `compute_tendencies()` from existing `PlayerSeasonStats` fields. `fga` already stored.
+
+**Application in `resolve_possession`:**
+
+Replace flat 5.5% bonus foul rate with player-weighted check:
+
+```python
+foul_draw_prob = ball_handler["foul_drawing_rate"] × FOUL_DRAW_SCALE
+if rng.random() < foul_draw_prob:
+    # shooting foul or bonus foul
+```
+
+`FOUL_DRAW_SCALE` is a calibration constant that maps the raw FTA/FGA ratio to the correct simulation frequency. Calibrated to maintain overall FT volume close to real (league avg ~22 FTA/game/team).
+
+**Late-game escalation:** in Q4 with clock ≤ 60s and margin ≤ 3, `foul_draw_prob × 1.5` — reflects the real tendency for aggressive drives and foul hunting in final possessions.
+
+**Shot-type interaction:** foul drawing probability scales with shot type. Rim attempts (layup, dunk) draw fouls at higher rates than perimeter shots:
+
+| Shot type | Foul draw multiplier |
+|---|---|
+| Dunk | 1.4 |
+| Layup | 1.3 |
+| Floater | 1.1 |
+| Mid-range | 0.9 |
+| Three | 0.7 |
+
+(Requires M3d sub-types to be implemented first — M3e depends on M3d.)
+
+**SimConfig additions:**
+```
+use_foul_drawing: bool = False
+foul_draw_scale: float = 0.55
+```
+
+**Definition of done:**
+- [ ] `foul_drawing_rate` added to `PlayerTendencies` schema and `compute_tendencies()`
+- [ ] `seed_player_attributes` re-run to populate new field for 2025-26
+- [ ] Flat 5.5% bonus foul removed; player-specific `foul_draw_prob` implemented
+- [ ] Shot-type multipliers applied (requires M3d)
+- [ ] Late-game escalation implemented
+- [ ] Tests: high-FTA player has higher foul draw rate, low-FTA player below league avg, late-game escalation fires in correct window
+- [ ] Calibration checkpoint: FTA/game/team, OT rate (expect further ↑ from M3c baseline)
+
+---
+
+##### M3 Full Calibration Pass
+
+After all five M3 groups are built and individually checked, run a final 1000-game calibration comparison across presets.
+
+**Calibration matrix:**
+
+| Metric | Real | Baseline | Drama M2 | Drama M3 target |
+|---|---|---|---|---|
+| Avg team score | 115.6 | ~112 | 117.9 | 114–117 |
+| Avg margin | 13.3 | ~14.1 | 15.5 | 12–14 |
+| Blowout rate (20+) | 22.9% | ~27% | 32.0% | 20–24% |
+| OT rate | ~6% | ~2% | 0.8% | 4–6% |
+| Home win rate | 55.4% | ~51% | 55.6% | 54–56% |
+| FTA/game/team | ~22 | ~18 | ~18 | ~20–22 |
+| 3PA/game/team | ~35 | ~28 | ~30 | ~33–36 |
+
+**Player stat realism checks (spot-check on 2025-26 rosters):**
+- Star players (top 5 overall) should avg 22–30 pts, 5–10 reb, 4–8 ast depending on position
+- Role players should avg 8–14 pts
+- Team FG% should cluster 44–48%
+
+**Preset update:** `DRAMA_M3` = all M2 modifiers + all M3 modifiers enabled.
+
+**Definition of done:**
+- [ ] `DRAMA_M3` preset in `sim_config.py`
+- [ ] 1000-game calibration run documented
+- [ ] All calibration targets met or gap explained
+- [ ] `RUNBOOK.md` updated with M3 modifier table and new calibration results
+- [ ] `CONTEXT_PRIMER.md` updated
+- [ ] Committed
 
 ### v2
 - [ ] Kafka producer/consumer
@@ -752,11 +1162,11 @@ Ideas that surfaced mid-build but aren't in active scope. Review when planning t
 - **Pace as a simulation variable**: fast teams run more possessions, slow teams fewer. Currently fixed at 200.
 - **Notable event filtering**: filter chunk_events to "highlight" plays (clutch shots, big runs, foul-outs) for a broadcast-style text sim — raw data already captured
 - **Playoff simulation**: bracket generation, best-of-7 series logic, seeding from standings
-- **Garbage time compression**: when team up 20+ in Q4, reduce effort. Would cut blowout rate without full momentum system.
+- **Garbage time compression**: when team up 20+ in Q4, reduce effort. Would cut blowout rate without full momentum system. → Addressed in M3c `GarbageTimeModifier`.
 - **Full-league season sim**: simulate all 1230 games, compute full standings. Currently team-scoped (82 games) only.
 - **Lineup overrides**: `PUT /simulations/{id}/lineup` to swap players or adjust minutes before starting
 - **Manual game result override**: user "plays" a game themselves, `POST .../games/{id}/override` replaces sim result
-- **OT intentional foul / late-game strategy**: trailing teams foul to stop clock; leading teams milk clock. Requires game-state awareness.
+- **OT intentional foul / late-game strategy**: trailing teams foul to stop clock; leading teams milk clock. Requires game-state awareness. → Partially addressed in M3c `CatchUpModifier`. Full intentional-foul-to-stop-clock mechanic (vs current strategic foul for FT shooting) deferred.
 - **Per-quarter foul tracking**: real bonus situation tracking instead of 5.5% approximation
 - **Second-chance possessions**: offensive rebounds currently credit the box score but don't generate an additional possession — next possession always alternates. Fix: when offensive rebound is sampled, create a follow-up possession for the same team. Changes possession count and flow; natural fit alongside momentum/drama features.
 - **FoulTrouble rotation management (coaching model):** when a player picks up foul 3 or 4 early in a quarter, NBA coaches often bench them to protect foul count. Modeling this requires a `CoachingModel` layer that can patch rotations mid-game based on game state (quarter, score margin, opponent's key matchup). Explicitly deferred from M2c `FoulTroubleModifier` which only models defensive aggressiveness reduction.

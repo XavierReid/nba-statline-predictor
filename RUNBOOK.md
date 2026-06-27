@@ -333,7 +333,7 @@ The `total_steps` in the response is the actual count after OT resolution — it
 |---|---|---|
 | `baseline` (default) | All modifiers off. Fixed 200 possessions, simple alternating possession. | Isolating player/rating behavior, fast calibration baseline |
 | `drama-m1` | Pace, clock, second-chance, fast break, team defense, strategic foul. | Realistic game flow testing, M1 UAT |
-| `drama-m2` | All M1 modifiers + momentum. | Full drama pipeline testing (available after M2b ships) |
+| `drama-m2` | All M1 modifiers + momentum. | Full drama pipeline testing |
 
 ### Modifier reference
 

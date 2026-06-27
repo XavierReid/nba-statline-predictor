@@ -725,15 +725,18 @@ def simulate_game(
                                     "fouled_by": None, "fta": fta, "ftm": ftm,
                                     "description": f"{target['name']} shoots {ftm}/{fta} FTs (intentional foul)" if name_map else None,
                                 }
+                                poss_record = {
+                                    "possession": possession_counter,
+                                    "game_clock_seconds": int(quarter_clock),
+                                    "quarter": reg_q_idx + 1,
+                                    "is_home": current_is_home,
+                                    "pts": pts,
+                                    **foul_event,
+                                }
                                 if steps:
-                                    current_chunk_events.append({
-                                        "possession": possession_counter,
-                                        "game_clock_seconds": int(quarter_clock),
-                                        "quarter": reg_q_idx + 1,
-                                        "is_home": current_is_home,
-                                        "pts": pts,
-                                        **foul_event,
-                                    })
+                                    current_chunk_events.append(poss_record)
+                                elif capture_descriptions:
+                                    all_events.append(poss_record)
                                 _maybe_snapshot(game_clock / 60, reg_q_idx)
                                 # After intentional foul, flip possession (offense inbounds)
                                 current_is_home = not current_is_home

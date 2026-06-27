@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,3 +17,4 @@ class TeamSeasonStats(Base):
     off_rating: Mapped[float] = mapped_column(Float, nullable=False)
     def_rating: Mapped[float] = mapped_column(Float, nullable=False)
     net_rating: Mapped[float] = mapped_column(Float, nullable=False)
+    oreb_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

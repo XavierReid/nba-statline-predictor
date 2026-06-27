@@ -136,6 +136,7 @@ def fetch_team_season_stats(season: str) -> list[dict]:
             'off_rating': row['OFF_RATING'],
             'def_rating': row['DEF_RATING'],
             'net_rating': row['NET_RATING'],
+            'oreb_pct': row.get('OREB_PCT'),
         }
         for row in rows
         if row.get('PACE') is not None

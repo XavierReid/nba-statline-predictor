@@ -8,12 +8,17 @@ class ModifierAdjustments:
     shot_prob_delta: float = 0.0
     tov_prob_delta: float = 0.0
     defense_penalty_delta: float = 0.0  # added by defensive team's modifiers
+    three_rate_override: float = 0.0    # additive shift to three_point_rate before shot selection
+    pace_multiplier: float = 1.0        # multiplicative on poss_time; 1.0 = no change
 
     def __add__(self, other: "ModifierAdjustments") -> "ModifierAdjustments":
         return ModifierAdjustments(
             shot_prob_delta=self.shot_prob_delta + other.shot_prob_delta,
             tov_prob_delta=self.tov_prob_delta + other.tov_prob_delta,
             defense_penalty_delta=self.defense_penalty_delta + other.defense_penalty_delta,
+            three_rate_override=self.three_rate_override + other.three_rate_override,
+            # pace_multiplier compounds (1.10 × 0.85 ≠ additive); use product across modifiers
+            pace_multiplier=self.pace_multiplier * other.pace_multiplier,
         )
 
 

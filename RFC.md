@@ -1,7 +1,7 @@
 # RFC: NBA Franchise Simulator
 
 **Status:** In Progress  
-**Last Updated:** 2026-06-24
+**Last Updated:** 2026-06-27
 
 ---
 
@@ -474,13 +474,230 @@ If these fail the smell test, tune `SkillMetricConfig` before touching simulatio
 - [ ] Lineup overrides: PUT /simulations/{id}/lineups
 
 ### v1.5 — Simulation realism (drama features)
-All three are self-contained within `simulate_game`, reset between games (POC scope), and each pairs with a new NBA API ingestion endpoint.
 
-- [ ] **Clutch ratings** — New ingestion job: `LeagueDashPlayerClutch` (last 5 min, margin ≤5). Adds `clutch_rating` to player_attributes. Applied as a rating modifier in the last 5 minutes when margin ≤5. Note: low-sample bench players will need a fallback to overall_rating.
-- [ ] **Momentum / heat** — Per-player in-game heat multiplier (rises on consecutive makes, fades on misses/turnovers). No new data needed. Resets each game.
-- [ ] **Within-game fatigue** — Rating decay as player minutes accumulate. Resets each game. No new data needed; can use `LeagueDashPlayerBioStats` (age/weight) as a future modifier.
+Split into three milestones. All changes are self-contained within `simulate_game` and reset between games. Each modifier is individually toggleable via `SimConfig`.
 
-Long-tail (v2+): across-game fatigue (back-to-backs), in-game coach adjustments, intentional foul strategy, player chemistry.
+#### Drama M1 — Possession Flow (spec finalized)
+
+**What changes:** the game loop switches from a fixed possession count to a clock-based model. Each possession consumes sampled time; the quarter ends when the clock hits 0. All drama modifiers are off by default so existing behavior is preserved.
+
+**New data:** `TeamSeasonStats` table — `pace`, `off_rating`, `def_rating`, `net_rating` per team per season. Ingested from `LeagueDashTeamStats` (Advanced, PerGame).
+
+**SimConfig** (`app/services/sim_config.py`):
+```
+use_pace: bool = False           # pace-derived possession count vs fixed 200
+use_clock: bool = False          # real clock tracking vs post-hoc distribution
+use_second_chance: bool = False  # oreb extends possession chain
+use_fast_break: bool = False     # steal → transition modifier next possession
+use_team_defense: bool = False   # team def_rating suppresses opponent FG%
+use_strategic_foul: bool = False # trailing team intentionally fouls late-game
+```
+
+**Clock model:**
+- `QUARTER_SECONDS = 720`, `OT_SECONDS = 300`
+- Per quarter: `mean_poss_time = 720 / expected_possessions_this_quarter`
+- `while clock > 0`: sample possession time → decrement clock → resolve possession
+- `game_clock_seconds` on each event = actual remaining clock (not estimated)
+- Buzzer beater: if `clock < poss_time` when possession starts → `event["buzzer_beater"] = True`
+- Free throws don't consume game clock
+
+**Possession time distributions:**
+
+| Type | Mean | Std | Clamp |
+|---|---|---|---|
+| Half-court | pace-derived | 3.0s | [5, 24] |
+| Fast break | 7.0s | 1.5s | [3, 12] |
+| Second-chance (oreb) | 9.0s | 2.0s | [3, 14] |
+| Intentional foul | 4.0s | 1.0s | [2, 8] |
+
+**Possession flow changes:**
+1. **Pace** — `total_expected = round((home_pace + away_pace) / 2) * 2`; fallback to 200 if no data
+2. **Second-chance** — on miss, sample oreb; if offensive → same team possession, chain_depth += 1; cap at 5 (safety net for miscalibrated rates, not a basketball rule — P(5 consecutive oreb) < 0.1%)
+3. **Fast break** — triggers ONLY on steals (`steal_by` set); dead ball turnovers (travel, OOB, shot clock, offensive foul) do NOT trigger fast break; in `resolve_possession`: close_shot +8%, defender effectiveness ×0.80, skip block check
+4. **Team defense** — `team_defense_factor = league_avg_def_rating / defending_team.def_rating`; multiplied into `base_prob` before individual defender penalty
+5. **Strategic foul** — after each defensive possession in Q4/OT: if `margin_min(3) ≤ margin ≤ margin_max(8)` AND `clock ≤ 120s` AND `rng.random() < 0.70` → intentional foul targeting lowest `ft_rating` active player on leading team; generates foul event with `fta=2`
+
+**Calibration flags added to `calibrate_simulator.py`:**
+`--disable-pace`, `--disable-clock`, `--disable-second-chance`, `--disable-fast-break`, `--disable-team-defense`, `--disable-strategic-foul`
+
+**Definition of done:**
+- [ ] `TeamSeasonStats` ingested for 2025-26, migration applied
+- [ ] `SimConfig` dataclass in `app/services/sim_config.py`
+- [ ] `simulate_game` accepts optional `config: SimConfig` param
+- [ ] All 35 existing tests pass with default `SimConfig` (all False)
+- [ ] New tests: pace varies possession count, oreb chain inserts extra possession + caps at 5, fast break only triggers on steal, strategic foul fires in correct window only, team defense reduces shot prob for elite defenses, clock is monotonically decreasing within each quarter, buzzer beater flag fires correctly
+- [ ] Calibration shows measurable margin + blowout improvement with all modifiers enabled vs disabled
+- [ ] Committed
+
+#### Drama M2b — GameStateModifier Framework + Momentum (closed)
+
+**Philosophy:** modifiers adjust probabilities, never directly modify player ratings. Effects are temporary and reset between games.
+
+**New package:** `app/services/modifiers/`
+- `base.py`: `GameStateModifier` ABC, `GameState` dataclass, `ModifierAdjustments` dataclass
+- `momentum.py`: `MomentumModifier`
+
+**MomentumModifier:** per-team confidence float in `[-momentum_max, +momentum_max]`. Boosts from 8-pt runs (+0.010), 12-pt runs (+0.020/−0.010 opponent), made threes (+0.005), steals (+0.005), defensive stops (+0.003). Decay 20%/possession. Composure resistance (avg team rating / 100 × 0.4) dampens negative momentum. Steal probability intentionally not modified (defender skill, not offensive pressure).
+
+**SimConfig additions:** `use_momentum`, `momentum_max=0.05`, `momentum_decay_rate=0.20`
+
+**Preset:** `DRAMA_M2` = all M1 modifiers + momentum
+
+**Known calibration gap:** seed-specific momentum compounding can push individual games to ~147 pts/team avg. To revisit after M2c — fatigue expected to suppress late-run amplification.
+
+---
+
+#### Drama M2c — Fatigue, Foul Trouble, Clutch (spec finalized 2026-06-27)
+
+**Philosophy:** same as M2b — temporary probability adjustments, no permanent rating changes, all toggleable via `SimConfig`.
+
+##### Architecture changes (prerequisite for all three modifiers)
+
+**`GameState` expansion:**
+```python
+home_active_ids: List[int]       # player IDs currently on court
+away_active_ids: List[int]
+player_stats: Dict[int, Dict]    # {pid: {"min": float, "pf": int}} — snapshot per possession
+```
+
+**`ModifierAdjustments` expansion:**
+```python
+defense_penalty_delta: float = 0.0  # increases shot-contesting cost (less effective defense)
+```
+Addition to `__add__` method to sum across modifiers.
+
+**Game loop change:** call `get_adjustments` for BOTH the offensive team (current behavior) and the defensive team (new). Sum both into a single `ModifierAdjustments` before passing to `resolve_possession`. Momentum ignores `defense_penalty_delta` — no breaking change.
+
+**`resolve_possession` change:** apply `defense_penalty_delta` to `defense_penalty` (additive) before computing `shot_prob`.
+
+##### FatigueModifier
+
+Tracks per-player fatigue float in `[0.0, 1.0]` internally. Fatigue is driven by cumulative minutes played — Q4 is when it becomes visible, but a player who logs 38 min by halftime is already affected.
+
+**Fatigue curve (piecewise linear, breakpoints tunable):**
+
+| Minutes played | Fatigue |
+|---|---|
+| 0 | 0.00 |
+| 24 | 0.15 |
+| 32 | 0.45 |
+| 38 | 0.75 |
+| 40+ | 1.00 (plateau) |
+
+**Bench recovery:** players NOT in `active_ids` this possession recover `fatigue × fatigue_recovery_rate` per possession off court. Represents real in-game rest without explicit substitution tracking.
+
+**Team-level adjustment:** average fatigue deltas across active players. A unit with three tired starters drags collectively.
+
+**Effects at max fatigue (1.0):**
+- `shot_prob_delta`: `−fatigue × fatigue_max_shot_penalty` (default −0.03)
+- `tov_prob_delta`: `+fatigue × fatigue_max_tov_penalty` (default +0.02)
+- `defense_penalty_delta`: `+fatigue × fatigue_max_defense_penalty` (default +0.02) — fatigued defenders contest less effectively
+
+**SimConfig additions:**
+```
+use_fatigue: bool = False
+fatigue_onset_minutes: float = 24.0
+fatigue_max_shot_penalty: float = 0.03
+fatigue_max_tov_penalty: float = 0.02
+fatigue_max_defense_penalty: float = 0.02
+fatigue_recovery_rate: float = 0.15
+```
+
+##### FoulTroubleModifier
+
+Affects defensive aggressiveness only. Foul-troubled players hedge on contests to avoid fouling out.
+
+**v1 scope:** probability-modifier only — no rotation changes. Player stays on court but contests less aggressively.
+
+**Out of scope (deferred to coaching model):** benching players with early foul trouble, coach-driven minutes management. Tracked in Parking Lot.
+
+**Defensive aggressiveness reduction by foul count:**
+
+| Fouls | Defense penalty reduction |
+|---|---|
+| 0–2 | 0% |
+| 3 | 10% |
+| 4 | 25% |
+| 5 | 40% (foul-out handled by existing `patch_rotation`) |
+
+Applied to `defense_penalty_delta`: reduces the shot-contesting contribution of foul-troubled defenders. Uses `player_stats[pid]["pf"]` from `GameState`.
+
+Team adjustment: average reduction across active defensive players.
+
+**SimConfig additions:**
+```
+use_foul_trouble: bool = False
+foul_trouble_threshold: int = 3       # fouls at which caution begins
+foul_caution_3: float = 0.10
+foul_caution_4: float = 0.25
+foul_caution_5: float = 0.40
+```
+
+##### ClutchModifier
+
+Triggered when: `quarter >= 4` (including OT) AND `abs(home_score − away_score) <= clutch_score_margin` AND `clock_seconds <= clutch_clock_threshold`.
+
+Outside the clutch window: modifier is a no-op (zero adjustments).
+
+**Player-level clutch attribute:** `clutch_rating` (0–100), seeded from `LeagueDashPlayerClutch` (last 5 minutes, within 5 points). Derived via same percentile curve used for other attributes. See ingestion section below.
+
+**Effects (applied to ball handler for offense, best defender for defense):**
+
+At `clutch_rating` above avg (72): small positive adjustments (+shot_prob, −tov_prob, −defense_penalty).
+At `clutch_rating` below avg: opposite, but capped so a bad clutch player is impaired, not unusable.
+
+Scale: `delta = (clutch_rating − 72) / 100 × scale_factor`
+
+- `shot_prob_delta`: `delta × clutch_max_shot_delta` (default 0.01 → max ±1%)
+- `tov_prob_delta`: `−delta × clutch_max_tov_delta` (default 0.008 → max ±0.8%)
+- `defense_penalty_delta`: `−delta × clutch_max_defense_delta` (default 0.008) — better clutch defenders contest harder
+
+**Fallback if `clutch_rating` not available** (future seasons or missing data): use `(free_throw − 72) / 100 × 0.5` as a proxy — FT rate is the most reliable single-stat clutch signal.
+
+**SimConfig additions:**
+```
+use_clutch: bool = False
+clutch_score_margin: int = 5
+clutch_clock_threshold: int = 120    # seconds remaining in Q4/OT
+clutch_max_shot_delta: float = 0.01
+clutch_max_tov_delta: float = 0.008
+clutch_max_defense_delta: float = 0.008
+```
+
+##### Clutch rating ingestion
+
+**Source:** `nba_api.stats.endpoints.LeagueDashPlayerClutch`
+- Parameters: `season`, `clutch_time="Last 5 Minutes"`, `point_diff=5`, `per_mode="PerGame"`
+- Fields used: `FG_PCT`, `FT_PCT`, `TOV` (per 36 for rate), `PLUS_MINUS`
+
+**Derived rating:** weighted composite →
+`composite = 0.4 × fg_pct_percentile + 0.35 × ft_pct_percentile + 0.25 × (1 − tov_rate_percentile)`
+Mapped through `_CURVE_ANCHORS` (same rating curve used for other attributes).
+
+**Schema change:** add `clutch_rating: Mapped[int]` to `PlayerAttributes` model. Migration required.
+
+**Ingestion:** added to `seed_player_attributes()` as an additional pass after existing attribute seeding. Falls back to FT-based proxy if `LeagueDashPlayerClutch` returns < 10 clutch possessions for a player (small sample filter).
+
+**Preset update:** `DRAMA_M2` updated to include `use_fatigue=True, use_foul_trouble=True, use_clutch=True`.
+
+##### Definition of done
+
+- [ ] `clutch_rating` column on `player_attributes`, migration applied
+- [ ] `LeagueDashPlayerClutch` ingestion added to `seed_player_attributes`, re-seeded for 2025-26
+- [ ] `GameState` expanded with `home_active_ids`, `away_active_ids`, `player_stats`
+- [ ] `ModifierAdjustments` expanded with `defense_penalty_delta`; game loop calls `get_adjustments` for both teams; `resolve_possession` applies `defense_penalty_delta`
+- [ ] `FatigueModifier`, `FoulTroubleModifier`, `ClutchModifier` in `app/services/modifiers/`
+- [ ] All three modifiers wired into clock loop
+- [ ] `SimConfig` updated with all new fields; `DRAMA_M2` preset includes all M2 modifiers
+- [ ] Tests: fatigue grows with minutes, bench recovery reduces fatigue, foul-troubled defenders reduce contest effectiveness, clutch modifier is no-op outside window, clutch fires correctly in window, full M2 game smoke test
+- [ ] Calibration: run `--drama-m2` before and after M2c and compare blowout rate + avg margin
+- [ ] FoulTrouble rotation management tracked in Parking Lot
+
+#### Drama M3 — Scenarios (spec pending)
+- Named play types (isolation, pick-and-roll, transition, post-up)
+- Coaching decisions as game_state responses (timeouts, substitutions)
+- Injury scenarios as mid-game modifiers
+- Late-game shot selection shift (trailing → more 3s, leading → draw fouls)
 
 ### v2
 - [ ] Kafka producer/consumer
@@ -539,6 +756,10 @@ Ideas that surfaced mid-build but aren't in active scope. Review when planning t
 - **Manual game result override**: user "plays" a game themselves, `POST .../games/{id}/override` replaces sim result
 - **OT intentional foul / late-game strategy**: trailing teams foul to stop clock; leading teams milk clock. Requires game-state awareness.
 - **Per-quarter foul tracking**: real bonus situation tracking instead of 5.5% approximation
+- **Second-chance possessions**: offensive rebounds currently credit the box score but don't generate an additional possession — next possession always alternates. Fix: when offensive rebound is sampled, create a follow-up possession for the same team. Changes possession count and flow; natural fit alongside momentum/drama features.
+- **FoulTrouble rotation management (coaching model):** when a player picks up foul 3 or 4 early in a quarter, NBA coaches often bench them to protect foul count. Modeling this requires a `CoachingModel` layer that can patch rotations mid-game based on game state (quarter, score margin, opponent's key matchup). Explicitly deferred from M2c `FoulTroubleModifier` which only models defensive aggressiveness reduction.
+- **Season sim calibration vs real records**: add `--compare-real` mode to calibrate_simulator.py that checks simulated W-L % against actual 2025-26 standings. Requires ingesting real final standings. Useful for detecting systematic team-level bias.
+- **Incomplete schedule ingestion**: 7 teams have < 82 games in the games table for 2025-26 (ORL: 79, MEM: 80, OKC/DAL/DET/NYK/SAS: 81). Needs targeted re-ingestion pass — not a simulator bug.
 
 ---
 

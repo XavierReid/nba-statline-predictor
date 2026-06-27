@@ -58,6 +58,7 @@ class SimulateGameRequest(BaseModel):
     season: str = Field(..., description="Season string, e.g. '2024-25'")
     seed: Optional[int] = Field(None, description="RNG seed for reproducibility. Omit for a random game.")
     config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
+    include_pbp: bool = Field(False, description="Include full play-by-play in the response. No step-through overhead.")
 
 
 class StepThroughRequest(BaseModel):
@@ -95,6 +96,29 @@ class QuarterScores(BaseModel):
     away: list[int]
 
 
+class PossessionEvent(BaseModel):
+    possession: int
+    game_clock_seconds: int
+    quarter: int
+    is_home: bool
+    pts: int
+    running_home_score: Optional[int] = None
+    running_away_score: Optional[int] = None
+    description: Optional[str] = None
+    scorer: Optional[int] = None
+    shot_type: Optional[str] = None
+    made: Optional[bool] = None
+    assisted_by: Optional[int] = None
+    rebounded_by: Optional[int] = None
+    is_oreb: Optional[bool] = None
+    turnover_by: Optional[int] = None
+    steal_by: Optional[int] = None
+    block_by: Optional[int] = None
+    fouled_by: Optional[int] = None
+    fta: Optional[int] = None
+    ftm: Optional[int] = None
+
+
 class SimulateGameResponse(BaseModel):
     season: str
     seed: int
@@ -105,6 +129,7 @@ class SimulateGameResponse(BaseModel):
     quarter_scores: QuarterScores
     home_box: list[PlayerLine]
     away_box: list[PlayerLine]
+    events: Optional[list[PossessionEvent]] = None
 
 
 class StepThroughResponse(BaseModel):
@@ -227,7 +252,10 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
     home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)
     cfg = _resolve_config(req.config)
-    result = simulate_game(home_players, away_players, seed=seed, season=req.season, config=cfg)
+    result = simulate_game(
+        home_players, away_players, seed=seed, season=req.season, config=cfg,
+        capture_descriptions=req.include_pbp,
+    )
 
     return SimulateGameResponse(
         season=req.season,
@@ -242,6 +270,7 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
         ),
         home_box=_build_box(home_players, result["box_score"]),
         away_box=_build_box(away_players, result["box_score"]),
+        events=result["events"] if req.include_pbp else None,
     )
 
 
@@ -618,28 +647,6 @@ def _sim_game_is_win(db: Session, sg: SimulatedGame, team_id: int) -> bool:
 # ---------------------------------------------------------------------------
 # Play-by-play event schemas + endpoints
 # ---------------------------------------------------------------------------
-
-class PossessionEvent(BaseModel):
-    possession: int
-    quarter: int
-    game_clock_seconds: int
-    is_home: bool
-    pts: int
-    running_home_score: int
-    running_away_score: int
-    description: Optional[str]
-    scorer: Optional[int]
-    shot_type: Optional[str]
-    made: Optional[bool]
-    assisted_by: Optional[int]
-    rebounded_by: Optional[int]
-    turnover_by: Optional[int]
-    steal_by: Optional[int]
-    block_by: Optional[int]
-    fouled_by: Optional[int]
-    fta: int
-    ftm: int
-
 
 @router.get("/game/stepthrough/{token}/events", response_model=list[PossessionEvent])
 def stepthrough_events(token: str):

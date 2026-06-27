@@ -478,7 +478,13 @@ def simulate_game(
 
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
-    name_map = {p["id"]: p["name"] for p in home_players + away_players} if capture_descriptions else None
+    # Build name_map whenever descriptions are needed — independent of step-through.
+    # Step-through also needs descriptions, so OR with steps here.
+    name_map = (
+        {p["id"]: p["name"] for p in home_players + away_players}
+        if (capture_descriptions or steps)
+        else None
+    )
 
     # Load team season stats for pace/defense modifiers when needed
     home_stats: Optional[dict] = None
@@ -537,6 +543,9 @@ def simulate_game(
     chunks: list = []
     chunk_events: list = []
     current_chunk_events: list = []
+    # Flat event list — populated only when capture_descriptions=True and not
+    # step-through mode. Step-through callers get events per-chunk instead.
+    all_events: list = []
     home_total = 0
     away_total = 0
     possession_counter = 0
@@ -617,15 +626,18 @@ def simulate_game(
 
         possession_counter += 1
         clock_secs = game_clock_override if game_clock_override is not None else round(game_clock)
+        poss_record = {
+            "possession": possession_counter,
+            "game_clock_seconds": clock_secs,
+            "quarter": current_q_idx + 1,
+            "is_home": is_home,
+            "pts": pts,
+            **event,
+        }
         if steps:
-            current_chunk_events.append({
-                "possession": possession_counter,
-                "game_clock_seconds": clock_secs,
-                "quarter": current_q_idx + 1,
-                "is_home": is_home,
-                "pts": pts,
-                **event,
-            })
+            current_chunk_events.append(poss_record)
+        elif capture_descriptions:
+            all_events.append(poss_record)
 
         _maybe_snapshot(elapsed_minutes, current_q_idx)
         return fouled_out_pid, event
@@ -892,6 +904,7 @@ def simulate_game(
         "box_score": box,
         "chunks": chunks,
         "chunk_events": chunk_events,
+        "events": all_events,
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
     }

@@ -35,6 +35,7 @@ HOME_ADVANTAGE = 3.0            # extra points spread across home possessions
 SUB_VARIANCE = 2.0              # σ in minutes for substitution timing (Normal dist)
 LEAGUE_AVG_TOV_PER36 = 2.5     # used to normalize per-player turnover rates
 OREB_RATE = 0.22                # offensive rebound rate on missed shots (NBA avg ~22%)
+ELIGIBLE_MISS_RATE = 0.32       # fraction of possessions ending in a reboundable miss
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +630,15 @@ def simulate_game(
         # Clock-based loop — each quarter runs until the clock hits 0
         mean_quarter_possessions = expected_possessions / 4
         mean_poss_time_clock = QUARTER_SECONDS / mean_quarter_possessions
+        # Compensate for oreb chains consuming less clock than base possessions.
+        # Derive t_base so the weighted avg possession time stays at the pace-expected
+        # mean: (1 - oreb_frac) × t_base + oreb_frac × t_oreb = mean → solve for t_base.
+        if cfg.use_second_chance:
+            oreb_frac = OREB_RATE * ELIGIBLE_MISS_RATE
+            mean_poss_time_clock = (
+                (mean_poss_time_clock - oreb_frac * cfg.second_chance_time_mean)
+                / (1.0 - oreb_frac)
+            )
         current_is_home = tip_winner_is_home
 
         for reg_q_idx in range(4):

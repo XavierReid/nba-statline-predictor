@@ -97,7 +97,7 @@ def _persist_game(
     db.commit()
 
 
-def run_season_simulation(simulation_id: int) -> None:
+def run_season_simulation(simulation_id: int, config: Optional["SimConfig"] = None) -> None:
     """Background task: simulate all games and persist results.
 
     Opens its own DB session (background tasks run outside the request session).
@@ -148,7 +148,7 @@ def run_season_simulation(simulation_id: int) -> None:
                 continue
 
             seed = _game_seed(sim.seed, game.id)
-            result = simulate_game(home_players, away_players, seed=seed, season=sim.season)
+            result = simulate_game(home_players, away_players, seed=seed, season=sim.season, config=config)
 
             _persist_game(db, simulation_id, game, result, home_players, away_players)
 

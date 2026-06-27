@@ -15,6 +15,7 @@ from app.services.events import build_name_map, flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed
 from app.services.season_simulator import run_season_simulation
+from app.services.sim_config import SimConfig, DRAMA_M1
 from app.services.stepthrough_store import create_session, peek_events, pop_next_chunk
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
@@ -23,11 +24,38 @@ router = APIRouter(prefix="/simulations", tags=["simulations"])
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
+
+_PRESETS: dict[str, SimConfig] = {
+    "baseline": SimConfig(),
+    "drama-m1": DRAMA_M1,
+}
+
+
+class SimConfigOverrides(BaseModel):
+    """Individual SimConfig fields that can be overridden on top of a preset."""
+    use_pace: Optional[bool] = None
+    use_clock: Optional[bool] = None
+    use_second_chance: Optional[bool] = None
+    use_fast_break: Optional[bool] = None
+    use_team_defense: Optional[bool] = None
+    use_strategic_foul: Optional[bool] = None
+    oreb_chain_cap: Optional[int] = Field(None, ge=1, le=10)
+    strategic_foul_probability: Optional[float] = Field(None, ge=0.0, le=1.0)
+    momentum_max: Optional[float] = Field(None, ge=0.0, le=0.20)
+    momentum_decay_rate: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class SimConfigRequest(BaseModel):
+    preset: str = Field("baseline", description="Named preset: 'baseline' or 'drama-m1'")
+    overrides: Optional[SimConfigOverrides] = Field(None, description="Override individual fields on top of the preset")
+
+
 class SimulateGameRequest(BaseModel):
     home_team: str = Field(..., description="Team abbreviation, e.g. 'DEN'")
     away_team: str = Field(..., description="Team abbreviation, e.g. 'GSW'")
     season: str = Field(..., description="Season string, e.g. '2024-25'")
     seed: Optional[int] = Field(None, description="RNG seed for reproducibility. Omit for a random game.")
+    config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
 
 
 class StepThroughRequest(BaseModel):
@@ -36,6 +64,7 @@ class StepThroughRequest(BaseModel):
     season: str = Field(..., description="Season string, e.g. '2024-25'")
     seed: Optional[int] = Field(None, description="RNG seed for reproducibility.")
     steps: int = Field(4, ge=1, le=200, description="Number of steps to split the game into. Default 4 (quarters).")
+    config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
 
 
 class PlayerLine(BaseModel):
@@ -96,6 +125,23 @@ class StepThroughResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _resolve_config(req: Optional[SimConfigRequest]) -> SimConfig:
+    """Convert a SimConfigRequest into a SimConfig, validating the preset name."""
+    if req is None:
+        return SimConfig()
+    cfg = _PRESETS.get(req.preset)
+    if cfg is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown preset '{req.preset}'. Valid options: {list(_PRESETS.keys())}",
+        )
+    if req.overrides:
+        from dataclasses import replace
+        overrides = {k: v for k, v in req.overrides.model_dump().items() if v is not None}
+        cfg = replace(cfg, **overrides)
+    return cfg
+
+
 def _get_team(db: Session, abbr: str) -> Team:
     team = db.execute(select(Team).where(Team.abbreviation == abbr.upper())).scalar_one_or_none()
     if not team:
@@ -178,7 +224,8 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
     """
     home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)
-    result = simulate_game(home_players, away_players, seed=seed, season=req.season)
+    cfg = _resolve_config(req.config)
+    result = simulate_game(home_players, away_players, seed=seed, season=req.season, config=cfg)
 
     return SimulateGameResponse(
         season=req.season,
@@ -220,7 +267,8 @@ def start_stepthrough(req: StepThroughRequest, db: Session = Depends(get_db)):
     """
     home_players, away_players = _load_rosters(db, req.home_team, req.away_team, req.season)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)
-    result = simulate_game(home_players, away_players, seed=seed, season=req.season, steps=req.steps)
+    cfg = _resolve_config(req.config)
+    result = simulate_game(home_players, away_players, seed=seed, season=req.season, steps=req.steps, config=cfg)
 
     token = create_session(
         chunks=result["chunks"],
@@ -256,6 +304,7 @@ class CreateSimulationRequest(BaseModel):
     team: str = Field(..., description="Team abbreviation, e.g. 'BOS'")
     season: str = Field(..., description="Season string, e.g. '2025-26'")
     seed: Optional[int] = Field(None, description="Master RNG seed. Omit for random.")
+    config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
 
 
 class SimulationCreatedResponse(BaseModel):
@@ -333,8 +382,12 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
     )
 
 
+class StartSimulationRequest(BaseModel):
+    config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
+
+
 @router.post("/{sim_id}/start", response_model=SimulationCreatedResponse)
-def start_simulation(sim_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def start_simulation(sim_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), req: Optional[StartSimulationRequest] = None):
     """Start a pending simulation run.
 
     Transitions status pending → running and enqueues the background task.
@@ -360,7 +413,8 @@ def start_simulation(sim_id: int, background_tasks: BackgroundTasks, db: Session
     if result.rowcount == 0:
         raise HTTPException(status_code=409, detail="Another simulation started concurrently.")
 
-    background_tasks.add_task(run_season_simulation, sim_id)
+    cfg = _resolve_config(req.config if req else None)
+    background_tasks.add_task(run_season_simulation, sim_id, cfg)
 
     team = db.get(Team, sim.team_id)
     return SimulationCreatedResponse(

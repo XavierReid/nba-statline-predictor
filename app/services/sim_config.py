@@ -18,6 +18,9 @@ class SimConfig:
     use_team_oreb: bool = False       # per-team OREB% from TeamSeasonStats replaces flat 22% constant
     use_catch_up: bool = False        # trailing team shifts pace/shot selection in late Q4
     use_garbage_time: bool = False    # large-lead late-game intensity reduction
+    use_shot_subtypes: bool = False   # six sub-types instead of three coarse buckets
+    use_contest_model: bool = False   # separates contest probability from contest impact
+    use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
 
     # --- M3c tuning constants ---
     catch_up_clock_threshold: int = 150   # seconds remaining when catch-up activates
@@ -66,6 +69,26 @@ DRAMA_M2 = SimConfig(
 )
 
 DRAMA_M3 = SimConfig(
+    use_pace=True,
+    use_clock=True,
+    use_second_chance=True,
+    use_fast_break=True,
+    use_team_defense=True,
+    use_strategic_foul=True,
+    use_momentum=True,
+    use_fatigue=True,
+    use_foul_trouble=True,
+    use_clutch=True,
+    use_player_variance=True,
+    use_team_oreb=True,
+    use_catch_up=True,
+    use_garbage_time=True,
+    use_shot_subtypes=True,
+    use_contest_model=True,
+    use_positional_matchups=True,
+)
+
+DRAMA_M3_NO_SUBTYPES = SimConfig(
     use_pace=True,
     use_clock=True,
     use_second_chance=True,

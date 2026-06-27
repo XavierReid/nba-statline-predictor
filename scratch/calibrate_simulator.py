@@ -19,7 +19,7 @@ from app.database import SessionLocal
 from app.models.game import Game
 from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
-from app.services.sim_config import SimConfig, DRAMA_M2, DRAMA_M3
+from app.services.sim_config import SimConfig, DRAMA_M2, DRAMA_M3, DRAMA_M3_NO_SUBTYPES
 from sqlalchemy import case, func, select
 
 # Representative matchups: strong vs strong, weak vs weak, mixed
@@ -158,6 +158,7 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
         "use_fatigue","use_foul_trouble","use_clutch",
         "use_player_variance","use_team_oreb",
         "use_catch_up","use_garbage_time",
+        "use_shot_subtypes","use_contest_model","use_positional_matchups",
     )
     active = [f for f in all_toggles if getattr(config, f, False)]
     modifier_label = ", ".join(active) if active else "none (baseline)"
@@ -211,7 +212,8 @@ if __name__ == "__main__":
     parser.add_argument("--season", type=str, default="2025-26")
     parser.add_argument("--drama-m1", action="store_true", help="Enable all Drama M1 modifiers")
     parser.add_argument("--drama-m2", action="store_true", help="Enable all Drama M2 modifiers (M1 + momentum)")
-    parser.add_argument("--drama-m3", action="store_true", help="Enable all Drama M3 modifiers (M2 + variance + team OREB)")
+    parser.add_argument("--drama-m3", action="store_true", help="Enable all Drama M3 modifiers (M2 + variance + team OREB + catch-up + subtypes)")
+    parser.add_argument("--drama-m3-no-subtypes", action="store_true", help="Drama M3 without M3d sub-type flags (isolation baseline)")
     parser.add_argument("--disable-pace", action="store_true")
     parser.add_argument("--disable-clock", action="store_true")
     parser.add_argument("--disable-second-chance", action="store_true")
@@ -223,6 +225,8 @@ if __name__ == "__main__":
 
     if args.drama_m3:
         config = DRAMA_M3
+    elif args.drama_m3_no_subtypes:
+        config = DRAMA_M3_NO_SUBTYPES
     elif args.drama_m2:
         from dataclasses import replace
         config = replace(

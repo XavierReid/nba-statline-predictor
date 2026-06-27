@@ -70,6 +70,8 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             "mid_range": a.mid_range,
             "free_throw": a.free_throw,
             "close_shot": a.close_shot,
+            "layup": a.layup,
+            "dunk": a.dunk,
             "passing": a.passing,
             "steal": a.steal,
             "block": a.block,

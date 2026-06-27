@@ -185,6 +185,9 @@ def simulate_game(
             adjustments=adjustments,
             form_factors=form_factors if form_factors else None,
             offense_oreb_rate=offense_oreb,
+            use_shot_subtypes=cfg.use_shot_subtypes,
+            use_contest_model=cfg.use_contest_model,
+            use_positional_matchups=cfg.use_positional_matchups,
         )
 
         pts, fouled_out_pid = apply_event(box, event)

@@ -37,7 +37,7 @@ def apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
         if pid in box:
             shot_type = event.get("shot_type")
             if shot_type:  # bonus fouls have no shot attempt — skip FGA
-                if shot_type == "three":
+                if shot_type in ("three", "corner_three", "above_break_three"):
                     box[pid]["fg3a"] += 1
                     box[pid]["fga"] += 1
                     if event["made"]:

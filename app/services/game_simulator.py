@@ -19,6 +19,7 @@ from app.models.player_attributes import PlayerAttributes
 from app.models.player_tendencies import PlayerTendencies
 from app.models.player_season_stats import PlayerSeasonStats
 from app.models.team_season_stats import TeamSeasonStats
+from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -180,6 +181,7 @@ def _apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
             box[fouled_pid]["fouled_out"] = True
             fouled_out_pid = fouled_pid
 
+    event["pts"] = pts
     return pts, fouled_out_pid
 
 
@@ -288,6 +290,7 @@ def resolve_possession(
     name_map: Optional[dict] = None,
     team_defense_factor: float = 1.0,
     is_fastbreak: bool = False,
+    adjustments: Optional["ModifierAdjustments"] = None,
 ) -> dict:
     """Simulate one possession and return an event dict."""
     def _done(r: dict) -> dict:
@@ -326,7 +329,11 @@ def resolve_possession(
         return _done(result)
 
     # 3. Turnover — bad pass, travel, etc. (~13% at league average)
-    if rng.random() < (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13:
+    # tov_prob_delta from momentum raises/lowers unforced turnover rate;
+    # the steal check above is unchanged (defender skill, not offensive pressure).
+    _tov_delta = adjustments.tov_prob_delta if adjustments else 0.0
+    _tov_prob = max(0.02, (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 + _tov_delta)
+    if rng.random() < _tov_prob:
         result["turnover_by"] = ball_handler["id"]
         return _done(result)
 
@@ -387,7 +394,8 @@ def resolve_possession(
         defense_penalty *= 0.80
 
     shot_prob = (base_prob - defense_penalty + home_bonus / 100.0) * team_defense_factor
-    result["made"] = rng.random() < max(0.15, shot_prob)
+    _shot_delta = adjustments.shot_prob_delta if adjustments else 0.0
+    result["made"] = rng.random() < max(0.05, min(0.95, shot_prob + _shot_delta))
 
     ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
 
@@ -561,6 +569,7 @@ def simulate_game(
         game_clock_override: Optional[int] = None,
         team_defense_factor: float = 1.0,
         is_fastbreak: bool = False,
+        adjustments: Optional[ModifierAdjustments] = None,
     ) -> Tuple[Optional[int], dict]:
         nonlocal game_clock, home_total, away_total, possession_counter, q_idx
 
@@ -587,6 +596,7 @@ def simulate_game(
             offense, defense, rng, home_bonus, name_map,
             team_defense_factor=team_defense_factor,
             is_fastbreak=is_fastbreak,
+            adjustments=adjustments,
         )
 
         pts, fouled_out_pid = _apply_event(box, event)
@@ -625,6 +635,20 @@ def simulate_game(
     # -----------------------------------------------------------------------
     home_ids = set(home_by_id.keys())
     away_ids = set(away_by_id.keys())
+
+    # Build active modifier list (only populated for clock-based loop)
+    active_modifiers: list = []
+    if cfg.use_clock and cfg.use_momentum:
+        from app.services.modifiers.momentum import MomentumModifier
+        home_composure = (
+            sum(p["overall_rating"] for p in home_players) / len(home_players) / 100.0
+            if home_players else 0.75
+        )
+        away_composure = (
+            sum(p["overall_rating"] for p in away_players) / len(away_players) / 100.0
+            if away_players else 0.75
+        )
+        active_modifiers.append(MomentumModifier(cfg, home_composure, away_composure))
 
     if cfg.use_clock:
         # Clock-based loop — each quarter runs until the clock hits 0
@@ -728,13 +752,30 @@ def simulate_game(
                         raw = defending_stats["def_rating"] / cfg.league_avg_def_rating
                         team_defense_factor = 1.0 + (raw - 1.0) * 0.5
 
+                game_state = GameState(
+                    home_score=home_total,
+                    away_score=away_total,
+                    quarter=reg_q_idx + 1,
+                    clock_seconds=quarter_clock,
+                    possession_number=possession_counter,
+                )
+                poss_adjustments: Optional[ModifierAdjustments] = None
+                if active_modifiers:
+                    poss_adjustments = ModifierAdjustments()
+                    for mod in active_modifiers:
+                        poss_adjustments = poss_adjustments + mod.get_adjustments(current_is_home, game_state)
+
                 fouled_out_pid, event = _apply_possession(
                     home_active_ids, away_active_ids, current_is_home,
                     poss_time, poss_time / 60.0, reg_q_idx,
                     game_clock_override=int(quarter_clock),
                     team_defense_factor=team_defense_factor,
                     is_fastbreak=next_is_fastbreak,
+                    adjustments=poss_adjustments,
                 )
+                for mod in active_modifiers:
+                    mod.update(event, current_is_home, game_state)
+
                 if fouled_out_pid:
                     if fouled_out_pid in home_by_id:
                         patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1)

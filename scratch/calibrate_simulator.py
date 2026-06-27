@@ -19,7 +19,7 @@ from app.database import SessionLocal
 from app.models.game import Game
 from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
-from app.services.sim_config import SimConfig
+from app.services.sim_config import SimConfig, DRAMA_M2
 from sqlalchemy import case, func, select
 
 # Representative matchups: strong vs strong, weak vs weak, mixed
@@ -152,7 +152,7 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
     ]
 
     # Show which modifiers are active
-    active = [f for f in ("use_pace","use_clock","use_second_chance","use_fast_break","use_team_defense","use_strategic_foul") if getattr(config, f)]
+    active = [f for f in ("use_pace","use_clock","use_second_chance","use_fast_break","use_team_defense","use_strategic_foul","use_momentum") if getattr(config, f)]
     modifier_label = ", ".join(active) if active else "none (baseline)"
 
     if targets:
@@ -203,15 +203,29 @@ if __name__ == "__main__":
     parser.add_argument("--games", type=int, default=500)
     parser.add_argument("--season", type=str, default="2025-26")
     parser.add_argument("--drama-m1", action="store_true", help="Enable all Drama M1 modifiers")
+    parser.add_argument("--drama-m2", action="store_true", help="Enable all Drama M2 modifiers (M1 + momentum)")
     parser.add_argument("--disable-pace", action="store_true")
     parser.add_argument("--disable-clock", action="store_true")
     parser.add_argument("--disable-second-chance", action="store_true")
     parser.add_argument("--disable-fast-break", action="store_true")
     parser.add_argument("--disable-team-defense", action="store_true")
     parser.add_argument("--disable-strategic-foul", action="store_true")
+    parser.add_argument("--disable-momentum", action="store_true")
     args = parser.parse_args()
 
-    if args.drama_m1:
+    if args.drama_m2:
+        from dataclasses import replace
+        config = replace(
+            DRAMA_M2,
+            use_pace=not args.disable_pace,
+            use_clock=not args.disable_clock,
+            use_second_chance=not args.disable_second_chance,
+            use_fast_break=not args.disable_fast_break,
+            use_team_defense=not args.disable_team_defense,
+            use_strategic_foul=not args.disable_strategic_foul,
+            use_momentum=not args.disable_momentum,
+        )
+    elif args.drama_m1:
         config = SimConfig(
             use_pace=not args.disable_pace,
             use_clock=not args.disable_clock,

@@ -10,6 +10,7 @@ class SimConfig:
     use_fast_break: bool = False      # steal → transition modifier next possession
     use_team_defense: bool = False    # team def_rating suppresses opponent FG%
     use_strategic_foul: bool = False  # trailing team intentionally fouls late-game
+    use_momentum: bool = False        # per-team momentum from runs/stops/steals
 
     # --- tuning constants ---
     oreb_chain_cap: int = 5
@@ -24,6 +25,8 @@ class SimConfig:
     strategic_foul_probability: float = 0.70
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
+    momentum_max: float = 0.05
+    momentum_decay_rate: float = 0.20
 
 
 # Pre-built config with all drama M1 modifiers enabled — used by calibration script
@@ -34,4 +37,14 @@ DRAMA_M1 = SimConfig(
     use_fast_break=True,
     use_team_defense=True,
     use_strategic_foul=True,
+)
+
+DRAMA_M2 = SimConfig(
+    use_pace=True,
+    use_clock=True,
+    use_second_chance=True,
+    use_fast_break=True,
+    use_team_defense=True,
+    use_strategic_foul=True,
+    use_momentum=True,
 )

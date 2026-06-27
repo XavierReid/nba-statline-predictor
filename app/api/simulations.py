@@ -15,7 +15,7 @@ from app.services.events import build_name_map, flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed
 from app.services.season_simulator import run_season_simulation
-from app.services.sim_config import SimConfig, DRAMA_M1
+from app.services.sim_config import SimConfig, DRAMA_M1, DRAMA_M2
 from app.services.stepthrough_store import create_session, peek_events, pop_next_chunk
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
@@ -28,6 +28,7 @@ router = APIRouter(prefix="/simulations", tags=["simulations"])
 _PRESETS: dict[str, SimConfig] = {
     "baseline": SimConfig(),
     "drama-m1": DRAMA_M1,
+    "drama-m2": DRAMA_M2,
 }
 
 
@@ -39,6 +40,7 @@ class SimConfigOverrides(BaseModel):
     use_fast_break: Optional[bool] = None
     use_team_defense: Optional[bool] = None
     use_strategic_foul: Optional[bool] = None
+    use_momentum: Optional[bool] = None
     oreb_chain_cap: Optional[int] = Field(None, ge=1, le=10)
     strategic_foul_probability: Optional[float] = Field(None, ge=0.0, le=1.0)
     momentum_max: Optional[float] = Field(None, ge=0.0, le=0.20)
@@ -46,7 +48,7 @@ class SimConfigOverrides(BaseModel):
 
 
 class SimConfigRequest(BaseModel):
-    preset: str = Field("baseline", description="Named preset: 'baseline' or 'drama-m1'")
+    preset: str = Field("baseline", description="Named preset: 'baseline', 'drama-m1', or 'drama-m2'")
     overrides: Optional[SimConfigOverrides] = Field(None, description="Override individual fields on top of the preset")
 
 

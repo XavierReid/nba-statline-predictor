@@ -670,9 +670,11 @@ clutch_max_defense_delta: float = 0.008
 - Parameters: `season`, `clutch_time="Last 5 Minutes"`, `point_diff=5`, `per_mode="PerGame"`
 - Fields used: `FG_PCT`, `FT_PCT`, `TOV` (per 36 for rate), `PLUS_MINUS`
 
-**Derived rating:** weighted composite →
-`composite = 0.4 × fg_pct_percentile + 0.35 × ft_pct_percentile + 0.25 × (1 − tov_rate_percentile)`
+**Derived rating:** equal-weight composite across three clutch stats —
+`composite = (fg_pct_percentile + ft_pct_percentile + (1 − tov_rate_percentile)) / 3`
 Mapped through `_CURVE_ANCHORS` (same rating curve used for other attributes).
+
+Equal weights chosen as a defensible baseline — no single stat is privileged without empirical justification. Revisit weights against real clutch outcome data once enough simulated seasons exist to compare close-game win rates.
 
 **Schema change:** add `clutch_rating: Mapped[int]` to `PlayerAttributes` model. Migration required.
 

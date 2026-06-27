@@ -641,11 +641,11 @@ def simulate_game(
     if cfg.use_clock and cfg.use_momentum:
         from app.services.modifiers.momentum import MomentumModifier
         home_composure = (
-            sum(p["overall_rating"] for p in home_players) / len(home_players) / 100.0
+            sum(p["overall"] for p in home_players) / len(home_players) / 100.0
             if home_players else 0.75
         )
         away_composure = (
-            sum(p["overall_rating"] for p in away_players) / len(away_players) / 100.0
+            sum(p["overall"] for p in away_players) / len(away_players) / 100.0
             if away_players else 0.75
         )
         active_modifiers.append(MomentumModifier(cfg, home_composure, away_composure))

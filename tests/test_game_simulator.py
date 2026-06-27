@@ -518,7 +518,7 @@ def test_drama_m2_game_runs_without_error():
     home = [make_player(i, i < 5) for i in range(10)]
     away = [make_player(i + 10, i < 5) for i in range(10)]
     for p in home + away:
-        p["overall_rating"] = 75
+        p["overall"] = 75
 
     mock_db = MagicMock()
     mock_db.execute.return_value.scalar_one_or_none.return_value = None

@@ -372,7 +372,14 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
         )
 
     seed = req.seed if req.seed is not None else random.randint(0, 2**31)
-    sim = SimulationRun(season=req.season, team_id=team.id, seed=seed, status="pending")
+    # Store config in parameters so start/events endpoints can replay faithfully.
+    # Resolved at create time; start endpoint may override if a different config is passed.
+    from dataclasses import asdict
+    initial_cfg = _resolve_config(req.config)
+    sim = SimulationRun(
+        season=req.season, team_id=team.id, seed=seed, status="pending",
+        parameters={"sim_config": asdict(initial_cfg)},
+    )
     db.add(sim)
     db.commit()
     db.refresh(sim)
@@ -413,7 +420,18 @@ def start_simulation(sim_id: int, background_tasks: BackgroundTasks, db: Session
     if result.rowcount == 0:
         raise HTTPException(status_code=409, detail="Another simulation started concurrently.")
 
-    cfg = _resolve_config(req.config if req else None)
+    from dataclasses import asdict
+    if req and req.config:
+        cfg = _resolve_config(req.config)
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == sim_id)
+            .values(parameters={"sim_config": asdict(cfg)})
+        )
+        db.commit()
+    else:
+        stored = (sim.parameters or {}).get("sim_config")
+        cfg = SimConfig(**stored) if stored else SimConfig()
     background_tasks.add_task(run_season_simulation, sim_id, cfg)
 
     team = db.get(Team, sim.team_id)
@@ -659,11 +677,15 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
     home_players = load_roster(db, real_game.home_team_id, sim.season)
     away_players = load_roster(db, real_game.away_team_id, sim.season)
 
+    stored = (sim.parameters or {}).get("sim_config")
+    cfg = SimConfig(**stored) if stored else SimConfig()
+
     seed = _game_seed(sim.seed, game_id)
     result = simulate_game(
         home_players, away_players,
         seed=seed, season=sim.season,
         steps=200, capture_descriptions=True,
+        config=cfg,
     )
 
     home_ids = {p["id"] for p in home_players}

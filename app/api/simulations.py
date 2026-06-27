@@ -270,7 +270,10 @@ def simulate_standalone_game(req: SimulateGameRequest, db: Session = Depends(get
         ),
         home_box=_build_box(home_players, result["box_score"]),
         away_box=_build_box(away_players, result["box_score"]),
-        events=result["events"] if req.include_pbp else None,
+        events=(
+            flatten_and_enrich([result["events"]], home_player_ids=set(p["id"] for p in home_players))
+            if req.include_pbp else None
+        ),
     )
 
 

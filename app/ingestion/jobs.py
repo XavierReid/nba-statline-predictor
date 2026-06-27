@@ -239,7 +239,82 @@ def seed_player_attributes(db: Session, season: str) -> int:
             db.add(PlayerTendencies(player_id=pid, season=season, **tendencies))
 
         count += 1
+
+    # --- Clutch rating pass ---
+    # Fetch separately since it's a different endpoint with smaller sample sizes.
+    _seed_clutch_ratings(db, season, all_stats)
+
     return count
+
+
+def _seed_clutch_ratings(db: Session, season: str, all_stats: list) -> None:
+    """Derive and upsert clutch_rating for all players with sufficient clutch data.
+
+    Players below the minimum FGA volume in clutch situations keep the default (50).
+    Ratings are computed via the same percentile curve used for other attributes.
+    """
+    from sqlalchemy import select
+    from app.services.rating_engine import percentile_to_rating
+
+    try:
+        clutch_rows = nba_client.fetch_clutch_stats(season)
+    except Exception as exc:
+        log.warning("Clutch stats fetch failed for %s: %s — skipping clutch_rating", season, exc)
+        return
+
+    # Minimum volume: 1.0 FGA/clutch-game AND 15 clutch games.
+    # Both filters needed: FGA alone lets 3-game hot streaks through; GP alone
+    # lets sub-1-attempt role players through. Combined keeps ~100 meaningful performers.
+    eligible = [
+        r for r in clutch_rows
+        if (r.get('fga') or 0) >= 1.0 and (r.get('gp') or 0) >= 15
+    ]
+
+    if len(eligible) < 20:
+        log.warning("Too few eligible clutch players (%d) for %s — skipping", len(eligible), season)
+        return
+
+    # Compute equal-weight composite: (fg_pct_pct + ft_pct_pct + (1 - tov_rate_pct)) / 3
+    # tov is per-game; normalise to per-FGA to make it a rate.
+    def safe(val, default: float) -> float:
+        return float(val) if val is not None else default
+
+    fg_pcts = [safe(r['fg_pct'], 0.0) for r in eligible]
+    ft_pcts = [safe(r['ft_pct'], 0.0) for r in eligible]
+    # TOV rate = tov / (fga + 0.44 * fta) approximation; use tov / fga as proxy
+    tov_rates = [safe(r['tov'], 0.0) / max(safe(r['fga'], 1.0), 0.1) for r in eligible]
+
+    def pct_rank(values: list, val: float) -> float:
+        return sum(1 for v in values if v < val) / len(values) * 100.0
+
+    ratings: dict = {}
+    for row in eligible:
+        fg = safe(row['fg_pct'], 0.0)
+        ft = safe(row['ft_pct'], 0.0)
+        tov_r = safe(row['tov'], 0.0) / max(safe(row['fga'], 1.0), 0.1)
+
+        composite = (
+            pct_rank(fg_pcts, fg)
+            + pct_rank(ft_pcts, ft)
+            + (100.0 - pct_rank(tov_rates, tov_r))
+        ) / 3.0
+        ratings[row['player_id']] = percentile_to_rating(composite)
+
+    # Upsert into existing PlayerAttributes rows only — don't create new rows here.
+    all_pids = {s.player_id for s in all_stats}
+    for pid, rating in ratings.items():
+        if pid not in all_pids:
+            continue
+        attr = db.execute(
+            select(PlayerAttributes).where(
+                PlayerAttributes.player_id == pid,
+                PlayerAttributes.season == season,
+            )
+        ).scalar_one_or_none()
+        if attr:
+            attr.clutch_rating = rating
+
+    log.info("Seeded clutch_rating for %d players in %s", len(ratings), season)
 
 
 def ingest_team_season_stats(db: Session, season: str) -> int:

@@ -142,6 +142,39 @@ def fetch_team_season_stats(season: str) -> list[dict]:
     ]
 
 
+def fetch_clutch_stats(season: str) -> list[dict]:
+    """Return per-player clutch stats (last 5 min, within 5 pts) for a season.
+
+    Fields returned: PLAYER_ID, FG_PCT, FT_PCT, TOV (per game avg), GP (clutch games).
+    Players with fewer than 10 clutch possessions are filtered downstream.
+    """
+    from nba_api.stats.endpoints import leaguedashplayerclutch
+
+    rows = leaguedashplayerclutch.LeagueDashPlayerClutch(
+        season=season,
+        season_type_all_star='Regular Season',
+        clutch_time='Last 5 Minutes',
+        point_diff=5,
+        per_mode_detailed='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueDashPlayerClutch']
+
+    time.sleep(_RATE_LIMIT_DELAY)
+    return [
+        {
+            'player_id': row['PLAYER_ID'],
+            'fg_pct': row.get('FG_PCT'),
+            'ft_pct': row.get('FT_PCT'),
+            'tov': row.get('TOV'),         # turnovers per clutch game
+            'fga': row.get('FGA'),         # attempts per clutch game — used as volume filter
+            'gp': row.get('GP'),
+        }
+        for row in rows
+        if row.get('GP') is not None
+    ]
+
+
 def fetch_box_score(game_id: int) -> list[dict]:
     """Pull per-player box scores for a single game."""
     # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2

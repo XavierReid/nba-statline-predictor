@@ -57,6 +57,9 @@ class PlayerAttributes(Base):
     offensive_rebound: Mapped[int] = mapped_column(Integer, default=ESTIMATED_DEFAULT)
     defensive_rebound: Mapped[int] = mapped_column(Integer, default=ESTIMATED_DEFAULT)
 
+    # Clutch — derived from LeagueDashPlayerClutch (last 5 min, within 5 pts)
+    clutch_rating: Mapped[int] = mapped_column(Integer, default=ESTIMATED_DEFAULT)
+
     # Composite
     overall_rating: Mapped[int] = mapped_column(Integer, default=ESTIMATED_DEFAULT)
 

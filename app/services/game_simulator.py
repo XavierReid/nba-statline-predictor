@@ -85,6 +85,7 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             "offensive_rebound": a.offensive_rebound,
             "defensive_rebound": a.defensive_rebound,
             "overall": a.overall_rating,
+            "clutch_rating": a.clutch_rating,
             # tendencies
             "usage_rate": t.usage_rate or 0.20,
             "three_point_rate": t.three_point_rate or 0.30,
@@ -394,7 +395,7 @@ def resolve_possession(
         defense_penalty *= 0.80
 
     shot_prob = (base_prob - defense_penalty + home_bonus / 100.0) * team_defense_factor
-    _shot_delta = adjustments.shot_prob_delta if adjustments else 0.0
+    _shot_delta = (adjustments.shot_prob_delta + adjustments.defense_penalty_delta) if adjustments else 0.0
     result["made"] = rng.random() < max(0.05, min(0.95, shot_prob + _shot_delta))
 
     ft_prob = _attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
@@ -648,6 +649,23 @@ def simulate_game(
     home_ids = set(home_by_id.keys())
     away_ids = set(away_by_id.keys())
 
+    # Per-player game state (minutes, fouls, clutch_rating) for M2c modifiers
+    from app.services.modifiers.base import PlayerGameState
+    home_player_gs = {
+        p["id"]: PlayerGameState(
+            player_id=p["id"],
+            clutch_rating=p.get("clutch_rating", 50),
+        )
+        for p in home_players
+    }
+    away_player_gs = {
+        p["id"]: PlayerGameState(
+            player_id=p["id"],
+            clutch_rating=p.get("clutch_rating", 50),
+        )
+        for p in away_players
+    }
+
     # Build active modifier list (only populated for clock-based loop)
     active_modifiers: list = []
     if cfg.use_clock and cfg.use_momentum:
@@ -661,6 +679,18 @@ def simulate_game(
             if away_players else 0.75
         )
         active_modifiers.append(MomentumModifier(cfg, home_composure, away_composure))
+
+    if cfg.use_clock and cfg.use_fatigue:
+        from app.services.modifiers.fatigue import FatigueModifier
+        active_modifiers.append(FatigueModifier(cfg))
+
+    if cfg.use_clock and cfg.use_foul_trouble:
+        from app.services.modifiers.foul_trouble import FoulTroubleModifier
+        active_modifiers.append(FoulTroubleModifier(cfg))
+
+    if cfg.use_clock and cfg.use_clutch:
+        from app.services.modifiers.clutch import ClutchModifier
+        active_modifiers.append(ClutchModifier(cfg))
 
     if cfg.use_clock:
         # Clock-based loop — each quarter runs until the clock hits 0
@@ -767,12 +797,25 @@ def simulate_game(
                         raw = defending_stats["def_rating"] / cfg.league_avg_def_rating
                         team_defense_factor = 1.0 + (raw - 1.0) * 0.5
 
+                # Expose only the active players this minute to the modifier
+                active_home_gs = {
+                    pid: home_player_gs[pid]
+                    for pid in home_active_ids
+                    if pid in home_player_gs
+                }
+                active_away_gs = {
+                    pid: away_player_gs[pid]
+                    for pid in away_active_ids
+                    if pid in away_player_gs
+                }
                 game_state = GameState(
                     home_score=home_total,
                     away_score=away_total,
                     quarter=reg_q_idx + 1,
                     clock_seconds=quarter_clock,
                     possession_number=possession_counter,
+                    home_players=active_home_gs,
+                    away_players=active_away_gs,
                 )
                 poss_adjustments: Optional[ModifierAdjustments] = None
                 if active_modifiers:
@@ -790,6 +833,21 @@ def simulate_game(
                 )
                 for mod in active_modifiers:
                     mod.update(event, current_is_home, game_state)
+
+                # Update per-player minute and foul tracking for M2c modifiers
+                poss_minutes = poss_time / 60.0
+                for pid in home_active_ids:
+                    if pid in home_player_gs:
+                        home_player_gs[pid].minutes_played += poss_minutes
+                for pid in away_active_ids:
+                    if pid in away_player_gs:
+                        away_player_gs[pid].minutes_played += poss_minutes
+                foul_pid = event.get("foul_on")
+                if foul_pid is not None:
+                    if foul_pid in home_player_gs:
+                        home_player_gs[foul_pid].fouls += 1
+                    elif foul_pid in away_player_gs:
+                        away_player_gs[foul_pid].fouls += 1
 
                 if fouled_out_pid:
                     if fouled_out_pid in home_by_id:

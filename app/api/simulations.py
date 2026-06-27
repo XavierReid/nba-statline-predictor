@@ -41,6 +41,9 @@ class SimConfigOverrides(BaseModel):
     use_team_defense: Optional[bool] = None
     use_strategic_foul: Optional[bool] = None
     use_momentum: Optional[bool] = None
+    use_fatigue: Optional[bool] = None
+    use_foul_trouble: Optional[bool] = None
+    use_clutch: Optional[bool] = None
     oreb_chain_cap: Optional[int] = Field(None, ge=1, le=10)
     strategic_foul_probability: Optional[float] = Field(None, ge=0.0, le=1.0)
     momentum_max: Optional[float] = Field(None, ge=0.0, le=0.20)

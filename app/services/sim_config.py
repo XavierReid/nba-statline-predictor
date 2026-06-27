@@ -11,6 +11,9 @@ class SimConfig:
     use_team_defense: bool = False    # team def_rating suppresses opponent FG%
     use_strategic_foul: bool = False  # trailing team intentionally fouls late-game
     use_momentum: bool = False        # per-team momentum from runs/stops/steals
+    use_fatigue: bool = False         # heavy-minutes lineup efficiency decay
+    use_foul_trouble: bool = False    # defense softens when players have 4+ fouls
+    use_clutch: bool = False          # clutch_rating boosts late close-game efficiency
 
     # --- tuning constants ---
     oreb_chain_cap: int = 5
@@ -47,4 +50,7 @@ DRAMA_M2 = SimConfig(
     use_team_defense=True,
     use_strategic_foul=True,
     use_momentum=True,
+    use_fatigue=True,
+    use_foul_trouble=True,
+    use_clutch=True,
 )

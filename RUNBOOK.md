@@ -333,7 +333,7 @@ The `total_steps` in the response is the actual count after OT resolution — it
 |---|---|---|
 | `baseline` (default) | All modifiers off. Fixed 200 possessions, simple alternating possession. | Isolating player/rating behavior, fast calibration baseline |
 | `drama-m1` | Pace, clock, second-chance, fast break, team defense, strategic foul. | Realistic game flow testing, M1 UAT |
-| `drama-m2` | All M1 modifiers + momentum. | Full drama pipeline testing |
+| `drama-m2` | All M1 modifiers + momentum + fatigue + foul trouble + clutch. | Full drama pipeline testing |
 
 ### Modifier reference
 
@@ -346,6 +346,9 @@ The `total_steps` in the response is the actual count after OT resolution — it
 | `use_team_defense` | M1 | Team def_rating suppresses opponent FG% (dampened 50% of raw spread) | Elite defenses allow ~3% fewer makes; weak defenses concede ~4% more |
 | `use_strategic_foul` | M1 | Trailing team fouls worst FT shooter when down 3–8, ≤120s left in Q4/OT (p=0.70) | Adds late-game FT possessions, closes margins slightly |
 | `use_momentum` | M2b | Per-team momentum from scoring runs/stops/steals decays 20%/possession; adjusts shot prob ±2.5% and TOV prob ±1.5% | Reduces blowout rate; adds realistic variance in game flow |
+| `use_fatigue` | M2c | Heavy-minutes lineup efficiency decay (penalty scales from 28→40 min, max −4% shot prob) | Suppresses late-game scoring inflation and blowout compounding |
+| `use_foul_trouble` | M2c | Defense softens when 1–2+ players have ≥4 fouls; escalates in Q4 (max +5% shot prob for offense) | Helps offense exploit foul-trouble situations realistically |
+| `use_clutch` | M2c | Clutch rating advantage (derived from `LeagueDashPlayerClutch`) boosts shot prob ±3% and reduces TOV ±1.5% in last 2 min ≤5 pts | Improves OT rate by rewarding clutch lineups; makes close games more realistic |
 
 ### Using configs via API
 

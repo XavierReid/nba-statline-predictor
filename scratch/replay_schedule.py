@@ -37,7 +37,9 @@ def dist_stats(margins, scores):
     }
 
 
-def main(season: str, sims_per_game: int) -> None:
+def main(season: str, sims_per_game: int, signal_gain=None) -> None:
+    from dataclasses import replace
+    config = DRAMA_M3 if signal_gain is None else replace(DRAMA_M3, signal_gain=signal_gain)
     db = SessionLocal()
     year = season.split("-")[0][-2:]
     games = db.execute(
@@ -78,7 +80,7 @@ def main(season: str, sims_per_game: int) -> None:
         for k in range(sims_per_game):
             r = simulate_game(
                 rosters[g.home_team_id], rosters[g.away_team_id],
-                seed=base_seed + k, season=season, config=DRAMA_M3,
+                seed=base_seed + k, season=season, config=config,
                 home_team_id=g.home_team_id, away_team_id=g.away_team_id, db=db,
             )
             sm = r["home_score"] - r["away_score"]
@@ -149,5 +151,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=str, default="2025-26")
     parser.add_argument("--sims-per-game", type=int, default=2)
+    parser.add_argument("--signal-gain", type=float, default=None,
+                        help="Override SimConfig.signal_gain for stage B sweeps")
     args = parser.parse_args()
-    main(args.season, args.sims_per_game)
+    main(args.season, args.sims_per_game, args.signal_gain)

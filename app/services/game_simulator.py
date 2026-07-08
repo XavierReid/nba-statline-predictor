@@ -191,6 +191,7 @@ def simulate_game(
             use_positional_matchups=cfg.use_positional_matchups,
             use_foul_drawing=cfg.use_foul_drawing,
             foul_draw_scale=cfg.foul_draw_scale,
+            signal_gain=cfg.signal_gain,
             quarter=current_q_idx + 1,
             clock_seconds=quarter_clock,
             score_margin=home_total - away_total if is_home else away_total - home_total,

@@ -61,6 +61,13 @@ class SimConfig:
     # 0.0 = no compensation (measurement mode).
     fastbreak_poss_frac: float = 0.026  # measured 2026-07-07, 300 games DRAMA_M3 (2.6% of possessions)
     catch_up_clock_frac: float = 0.0026 # measured 2026-07-07: +7.4s/game saved = 0.26% of regulation clock
+    # Stage B signal gain — stretches each shot's deviation from the measured
+    # league-average make probability for its sub-type (possession.py _LEAGUE_AVG_MAKE).
+    # 1.25 chosen from the 2026-07-08 replay sweep (1.0/1.25/1.5/1.75): hits the
+    # top-10 strength-slope target (0.88) with the least amplification, leaving
+    # headroom rather than calibrating around missing late-game mechanics (gap 1.2).
+    # Sweep at 1.5 → slope 0.96, 1.75 → 1.10 (over). Scoring/home-win neutral at all gains.
+    signal_gain: float = 1.25
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05

@@ -70,7 +70,9 @@ clock ≈ 2-4s possessions for the leading team, quick-shot possessions for the 
 team), FT possessions consume near-zero clock.
 
 ### 1.3 Rich-get-richer feedback without counterweights
-**Status:** root cause identified — team strength compression (reversal of original hypothesis)
+**Status:** FIXED — Attribute Derivation v2 + signal_gain=1.25 (top-10 strength slope 0.88).
+Remaining blowout/close-game deficits are explicitly NOT stage B failures — they belong to
+gap 1.2 (see closure note at the end of this section).
 **Suspected impact:** blowout rate, avg margin
 
 **Evidence:** Margin growth by quarter is 7.4 → 10.5 → 12.3 → 14.2, which is almost
@@ -137,6 +139,39 @@ game outcomes
    rate improving toward 24.5% and blowout/scoring holding.
 
 Deliberately NOT pursued: touching stage C (usage weighting, rotations) — it tested healthy.
+
+**Closure (2026-07-08) — post-Attribute-Derivation-v2 / signal-gain baseline:**
+
+Stage A fixed: five dead attributes now derived from shot-location and defensive-matchup
+data (team-level stdev 3.6-7.4, was 0.0-1.2; basketball sanity checks pass). Alone this
+moved the top-10 net-margin slope 0.66 → 0.73.
+
+Stage B fixed with a single global `signal_gain` stretching each shot's deviation from
+measured per-sub-type league FG% anchors (scoring-neutral by construction; home_bonus and
+modifier deltas excluded). Sweep on the full schedule replay:
+
+| gain | top-10 slope | avg score | blowout% | close% |
+|---|---|---|---|---|
+| 1.0 | 0.73 | 116.3 | 25.6 | 19.1 |
+| **1.25 (adopted)** | **0.88** | 115.9 | 26.7 | 18.9 |
+| 1.5 | 0.96 | 115.7 | 27.2 | 18.2 |
+| 1.75 | 1.10 | 115.6 | 26.8 | 18.2 |
+
+The smooth, monotone slope response with scoring/home-win pinned confirms the architecture
+is sound — offense and defense are not independently miscalibrated; the system was
+transmitting quality too weakly. 1.25 adopted over higher gains deliberately: don't
+calibrate today's system around tomorrow's missing features.
+
+**Explicit note: the remaining blowout (+~3) and close-game (−~5.6) deficits are NOT
+stage B failures.** They are gap 1.2 — no late-game compression mechanics exist
+(clock-stopping fouls, urgency possessions, trailing-team strategy). Stronger team
+differentiation without compression inevitably widens margins; the original funnel
+diagnostic predicted exactly this. Do not split signal_gain into offense/defense factors
+unless post-1.2 replays expose a genuine imbalance.
+
+**Validation protocol for gap 1.2:** rerun the full replay against this baseline
+(git tag `attr-v2-baseline`). Success = strength slope stays ≥0.8 while close% rises
+toward 24.5 and blowout% falls toward 22.9 — converging for the right reasons.
 
 **Fixed along the way (found by replay):** home advantage was ~0.03 pts/game instead of
 ~3 — `possession.py` divided the already-converted probability delta by 100 again. Sim
@@ -281,3 +316,4 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | 2026-07-07 | 1.3 | Root cause identified via `scratch/replay_schedule.py`: engine compresses team strength (top-10 net-margin slope 0.66 vs ~0.8+ explainable by confounds). Original rich-get-richer hypothesis reversed. Next: attribute curves, delta magnitudes, usage dilution. |
 | 2026-07-07 | bugs | Fixed home advantage /100 units bug (was +0.03 pts/game, now ~+3; home win 50.7% → 56.6%). Fixed non-reproducible calibration seeds (`hash()` → crc32). |
 | 2026-07-08 | 1.3 | Investigation complete via A/B/C stage decomposition: Stage A major leak (5 dead attributes = interior scoring + individual defense), Stage B attenuator (~1 pt/game per full-σ), Stage C healthy (corr 0.67). Fix: Attribute Derivation v2 milestone (spec in RFC), then Stage B recalibration. |
+| 2026-07-08 | 1.3 | FIXED: Attribute Derivation v2 (shot-location + defensive-matchup data; slope 0.66→0.73) + signal_gain=1.25 (slope 0.88, scoring/home-win neutral). Baseline frozen as git tag `attr-v2-baseline`. Remaining margin-shape deficits assigned to gap 1.2, not stage B. |

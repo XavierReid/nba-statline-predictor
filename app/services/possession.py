@@ -75,6 +75,22 @@ _CONTEST_IMPACT: Dict[str, float] = {
     "three": 1.00, "mid": 1.00, "close": 1.10,
 }
 
+# Stage B signal gain — league-average make probability per sub-type, measured from
+# the engine itself (300 games DRAMA_M3, 2026-07-08, post attribute-v2). signal_gain
+# stretches each shot's deviation from these anchors, amplifying player/team
+# differentiation while holding league scoring fixed by construction. Re-measure
+# whenever base probability ranges or attribute derivation change.
+_LEAGUE_AVG_MAKE: Dict[str, float] = {
+    "corner_three":      0.410,
+    "above_break_three": 0.370,
+    "mid_range":         0.530,
+    "floater":           0.603,
+    "layup":             0.658,
+    "dunk":              0.688,
+    # coarse fallbacks (use_shot_subtypes=False) — blended from sub-type anchors
+    "three": 0.380, "mid": 0.530, "close": 0.660,
+}
+
 # Position group sets — used for matchup filtering.
 # Intentionally module-level so future matchup systems can import them.
 # M3e — foul drawing tendency constants
@@ -209,6 +225,7 @@ def resolve_possession(
     use_positional_matchups: bool = False,
     use_foul_drawing: bool = False,
     foul_draw_scale: float = 0.19,  # keep in sync with SimConfig.foul_draw_scale
+    signal_gain: float = 1.0,       # keep in sync with SimConfig.signal_gain
     quarter: int = 1,
     clock_seconds: float = 720.0,
     score_margin: int = 0,
@@ -375,10 +392,18 @@ def resolve_possession(
         contest_mult = _CONTEST_IMPACT[sub_type] if is_contested else 1.0
         defense_penalty *= contest_mult
 
+    # Stage B signal gain: stretch this shot's deviation from the league-average make
+    # probability for its sub-type. Amplifies skill/defense differentiation without
+    # moving league totals. home_bonus added AFTER the gain (already calibrated), as
+    # are modifier deltas and form factors (separately calibrated systems).
+    shot_prob = (base_prob - defense_penalty) * team_defense_factor
+    if signal_gain != 1.0:
+        anchor = _LEAGUE_AVG_MAKE[sub_type]
+        shot_prob = anchor + (shot_prob - anchor) * signal_gain
     # home_bonus arrives as a per-possession probability delta (HOME_ADVANTAGE /
     # expected_possessions), not a 0-100 rating — dividing by 100 here reduced home
     # advantage to ~0.03 pts/game (found via schedule replay: 50.7% home win vs 55.4% real).
-    shot_prob = (base_prob - defense_penalty + home_bonus) * team_defense_factor
+    shot_prob = shot_prob + home_bonus
     _shot_delta = (adjustments.shot_prob_delta + adjustments.defense_penalty_delta) if adjustments else 0.0
     # Form factor: per-game variance drawn at game start; applied as a probability offset.
     # (form_factor - 1.0) converts e.g. 1.10 → +0.10 multiplied by base_prob to stay proportional.

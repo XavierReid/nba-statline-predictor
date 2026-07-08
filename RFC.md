@@ -1151,6 +1151,7 @@ scoring (~55% of attempts) and all individual defense carry zero between-team si
 - [ ] Validation suite above passes; SIMULATION_GAPS.md 1.3 marked fixed
 
 ### v2
+- [ ] Player inspection tooling: endpoint or CLI to view a player's ratings, attributes, and tendencies side by side (with league percentile context) — makes attribute sanity checks routine instead of ad-hoc scripts (`scratch/explore_ratings.py` is a partial start)
 - [ ] Kafka producer/consumer
 - [ ] Multi-season with player aging
 - [ ] Free agency

@@ -176,6 +176,103 @@ def fetch_clutch_stats(season: str) -> list[dict]:
     ]
 
 
+def fetch_shot_locations(season: str) -> dict[int, dict]:
+    """Return {player_id: zone shooting observations} for a season.
+
+    One call covers the league. Zone columns arrive as a flat row:
+    6 leading player columns, then FGM/FGA/FG_PCT triplets in order:
+    Restricted Area, Paint (Non-RA), Mid-Range, Left Corner 3,
+    Right Corner 3, Above the Break 3, Backcourt, Corner 3.
+    """
+    from nba_api.stats.endpoints import leaguedashplayershotlocations
+
+    result = leaguedashplayershotlocations.LeagueDashPlayerShotLocations(
+        season=season,
+        season_type_all_star='Regular Season',
+        per_mode_detailed='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_dict()['resultSets']
+
+    time.sleep(_RATE_LIMIT_DELAY)
+
+    def triplet(row, zone_idx):
+        base = 6 + zone_idx * 3
+        return row[base], row[base + 1], row[base + 2]  # fgm, fga, fg_pct
+
+    out: dict[int, dict] = {}
+    for row in result['rowSet']:
+        ra_fgm, ra_fga, ra_pct = triplet(row, 0)
+        paint_fgm, paint_fga, paint_pct = triplet(row, 1)
+        _, mid_fga, mid_pct = triplet(row, 2)
+        _, corner3_fga, _ = triplet(row, 7)  # combined Corner 3 column
+        out[row[0]] = {
+            'ra_fgm': ra_fgm, 'ra_fga': ra_fga, 'ra_fg_pct': ra_pct,
+            'paint_fgm': paint_fgm, 'paint_fga': paint_fga, 'paint_fg_pct': paint_pct,
+            'mid_fga': mid_fga, 'mid_fg_pct': mid_pct,
+            'corner3_fga': corner3_fga,
+        }
+    return out
+
+
+def fetch_defense_stats(season: str) -> dict[int, dict]:
+    """Return {player_id: defensive matchup observations} for a season.
+
+    Two LeagueDashPtDefend calls (rim + threes). PLUSMINUS = defended FG%
+    minus those same shooters' season-normal FG% — negative is good defense.
+    """
+    from nba_api.stats.endpoints import leaguedashptdefend
+
+    out: dict[int, dict] = {}
+
+    rim = leaguedashptdefend.LeagueDashPtDefend(
+        season=season,
+        season_type_all_star='Regular Season',
+        defense_category='Less Than 6Ft',
+        per_mode_simple='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueDashPTDefend']
+    time.sleep(_RATE_LIMIT_DELAY)
+    for row in rim:
+        out.setdefault(row['CLOSE_DEF_PERSON_ID'], {}).update({
+            'd_lt6_fga': row.get('FGA_LT_06'),
+            'd_lt6_plusminus': row.get('PLUSMINUS'),
+        })
+
+    threes = leaguedashptdefend.LeagueDashPtDefend(
+        season=season,
+        season_type_all_star='Regular Season',
+        defense_category='3 Pointers',
+        per_mode_simple='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueDashPTDefend']
+    time.sleep(_RATE_LIMIT_DELAY)
+    for row in threes:
+        out.setdefault(row['CLOSE_DEF_PERSON_ID'], {}).update({
+            'd_fg3a': row.get('FG3A'),
+            'd_fg3_plusminus': row.get('PLUSMINUS'),
+        })
+
+    overall = leaguedashptdefend.LeagueDashPtDefend(
+        season=season,
+        season_type_all_star='Regular Season',
+        defense_category='Overall',
+        per_mode_simple='PerGame',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueDashPTDefend']
+    time.sleep(_RATE_LIMIT_DELAY)
+    for row in overall:
+        out.setdefault(row['CLOSE_DEF_PERSON_ID'], {}).update({
+            'd_fga': row.get('D_FGA'),
+            'd_plusminus': row.get('PCT_PLUSMINUS'),
+        })
+
+    return out
+
+
 def fetch_box_score(game_id: int) -> list[dict]:
     """Pull per-player box scores for a single game."""
     # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2

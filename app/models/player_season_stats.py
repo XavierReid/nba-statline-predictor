@@ -40,5 +40,24 @@ class PlayerSeasonStats(Base):
     oreb_pct: Mapped[Optional[float]] = mapped_column(Float)
     dreb_pct: Mapped[Optional[float]] = mapped_column(Float)
 
+    # Shot-location observations (LeagueDashPlayerShotLocations, per-game)
+    ra_fgm: Mapped[Optional[float]] = mapped_column(Float)      # restricted area
+    ra_fga: Mapped[Optional[float]] = mapped_column(Float)
+    ra_fg_pct: Mapped[Optional[float]] = mapped_column(Float)
+    paint_fgm: Mapped[Optional[float]] = mapped_column(Float)   # in the paint (non-RA)
+    paint_fga: Mapped[Optional[float]] = mapped_column(Float)
+    paint_fg_pct: Mapped[Optional[float]] = mapped_column(Float)
+    mid_fga: Mapped[Optional[float]] = mapped_column(Float)     # mid-range zone
+    mid_fg_pct: Mapped[Optional[float]] = mapped_column(Float)
+    corner3_fga: Mapped[Optional[float]] = mapped_column(Float)
+
+    # Defensive matchup observations (LeagueDashPtDefend, per-game)
+    d_lt6_fga: Mapped[Optional[float]] = mapped_column(Float)        # defended rim attempts
+    d_lt6_plusminus: Mapped[Optional[float]] = mapped_column(Float)  # defended FG% minus shooters' normal (rim)
+    d_fg3a: Mapped[Optional[float]] = mapped_column(Float)           # defended 3PA
+    d_fg3_plusminus: Mapped[Optional[float]] = mapped_column(Float)  # defended 3P% minus shooters' normal
+    d_fga: Mapped[Optional[float]] = mapped_column(Float)            # all defended FGA (Overall category)
+    d_plusminus: Mapped[Optional[float]] = mapped_column(Float)      # overall defended FG% minus shooters' normal
+
     def __repr__(self) -> str:
         return f"<PlayerSeasonStats player_id={self.player_id} season={self.season}>"

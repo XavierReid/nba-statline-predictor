@@ -157,6 +157,36 @@ def ingest_season_stats(db: Session, season: str) -> int:
     return count
 
 
+def ingest_shot_defense(db: Session, season: str) -> int:
+    """Upsert shot-location and defensive-matchup observations onto PlayerSeasonStats.
+
+    Requires ingest_season_stats to have run first — rows without an existing
+    PlayerSeasonStats record are skipped (player not in our universe).
+    """
+    from sqlalchemy import select
+
+    shot = nba_client.fetch_shot_locations(season)
+    defense = nba_client.fetch_defense_stats(season)
+
+    count = skipped = 0
+    all_pids = set(shot) | set(defense)
+    for pid in all_pids:
+        existing = db.execute(
+            select(PlayerSeasonStats).where(
+                PlayerSeasonStats.player_id == pid,
+                PlayerSeasonStats.season == season,
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            skipped += 1
+            continue
+        for k, v in {**shot.get(pid, {}), **defense.get(pid, {})}.items():
+            setattr(existing, k, v)
+        count += 1
+    log.info("ingest_shot_defense: %d updated, %d skipped (no season stats row)", count, skipped)
+    return count
+
+
 def seed_player_attributes(db: Session, season: str) -> int:
     """Derive PlayerAttributes and PlayerTendencies from PlayerSeasonStats."""
     from sqlalchemy import select
@@ -173,11 +203,23 @@ def seed_player_attributes(db: Session, season: str) -> int:
         log.warning("No season stats found for season=%s — run ingest_season_stats first", season)
         return 0
 
+    # v2 attributes fall back to position-adjusted defaults when a player is
+    # below the data volume gates (flat defaults would erase position identity).
+    V2_ATTRS = {"layup", "close_shot", "dunk", "interior_defense", "perimeter_defense"}
     derived_attributes = list(SKILL_CONFIGS.keys())
     ratings_by_attr = {
-        attr: compute_ratings_for_attribute(attr, all_stats, SKILL_CONFIGS[attr])
+        attr: compute_ratings_for_attribute(
+            attr, all_stats, SKILL_CONFIGS[attr],
+            default_for_ineligible=attr not in V2_ATTRS,
+        )
         for attr in derived_attributes
     }
+
+    # Dunk hybrid: 0.7 x rim-finishing percentile + 0.3 x layup rating + positional
+    # modifier. No clean NBA dunk endpoint exists; this stays data-driven via RA
+    # efficiency/volume while acknowledging dunkers != layup finishers. Evolves to
+    # play-type/tracking data without touching the simulator (RFC: Attribute v2).
+    _DUNK_POS_MOD = {"C": +5, "F": 0, "G": -5}
 
     # Aggregate season-total possessions + minutes per team for accurate usage_rate.
     # Stats are stored as per-game averages, so multiply by games_played.
@@ -195,11 +237,25 @@ def seed_player_attributes(db: Session, season: str) -> int:
     count = 0
     for stats in all_stats:
         pid = stats.player_id
-        attr_vals = {attr: ratings_by_attr[attr][pid] for attr in derived_attributes}
+        attr_vals = {
+            attr: ratings_by_attr[attr][pid]
+            for attr in derived_attributes
+            if pid in ratings_by_attr[attr]
+        }
 
         player = db.get(Player, pid)
-        pos_defaults = position_defaults(player.position if player else None)
+        position = player.position if player else None
+        pos_defaults = position_defaults(position)
         full_attrs = {**pos_defaults, **attr_vals}
+
+        # Dunk hybrid — only when the rim component was derivable
+        if pid in ratings_by_attr["dunk"] and "layup" in full_attrs:
+            pos_key = (position or "F").upper().split("-")[0]
+            full_attrs["dunk"] = max(30, min(99, round(
+                0.7 * ratings_by_attr["dunk"][pid]
+                + 0.3 * full_attrs["layup"]
+                + _DUNK_POS_MOD.get(pos_key, 0)
+            )))
 
         overrides = db.execute(
             select(PlayerAttributeOverride).where(

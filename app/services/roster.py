@@ -92,6 +92,10 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             "turnover_rate": t.turnover_rate or 2.0,
             "foul_drawing_rate": t.foul_drawing_rate,
         })
+        # Only include when real data exists — M3d sub-type selection falls back
+        # to positional defaults via .get() when the key is absent.
+        if t.corner_three_rate is not None:
+            players[-1]["corner_three_rate"] = t.corner_three_rate
         players[-1]["player_variance"] = player_variance(players[-1])
 
     for i, p in enumerate(players):

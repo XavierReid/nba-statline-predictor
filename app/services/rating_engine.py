@@ -69,6 +69,12 @@ SKILL_CONFIGS: dict[str, SkillMetricConfig] = {
     "offensive_rebound":  SkillMetricConfig(volume_normalizer=3.0),
     "defensive_rebound":  SkillMetricConfig(volume_normalizer=7.0),
     "passing":            SkillMetricConfig(volume_normalizer=8.0),
+    # v2 — shot-location / defensive-matchup attributes
+    "layup":              SkillMetricConfig(volume_normalizer=5.0, minimum_attempts=1.5),
+    "close_shot":         SkillMetricConfig(volume_normalizer=2.5, minimum_attempts=1.5),
+    "dunk":               SkillMetricConfig(volume_normalizer=7.0, minimum_attempts=1.5),
+    "interior_defense":   SkillMetricConfig(volume_normalizer=6.0, minimum_attempts=2.0),
+    "perimeter_defense":  SkillMetricConfig(volume_normalizer=5.0, minimum_attempts=2.0),
 }
 
 # Default ratings for players excluded from the percentile pool
@@ -84,6 +90,11 @@ ATTRIBUTE_DEFAULTS: dict[str, int] = {
     "offensive_rebound": ESTIMATED_DEFAULT,
     "defensive_rebound": ESTIMATED_DEFAULT,
     "passing":           ESTIMATED_DEFAULT,
+    "layup":             SHOOTING_DEFAULT,
+    "close_shot":        SHOOTING_DEFAULT,
+    "dunk":              SHOOTING_DEFAULT,
+    "interior_defense":  ESTIMATED_DEFAULT,
+    "perimeter_defense": ESTIMATED_DEFAULT,
 }
 
 # ---------------------------------------------------------------------------
@@ -210,12 +221,67 @@ def _raw_free_throw(stats) -> Optional[float]:
 
 
 def _raw_mid_range(stats) -> Optional[float]:
-    # Approximate mid-range as overall FG% volume-weighted by non-3pt attempts
+    # Prefer real mid-range zone data (shot locations); fall back to the
+    # 2PT% proxy for seasons ingested before shot-location data existed.
+    if getattr(stats, "mid_fga", None) is not None and stats.mid_fga >= 0.5:
+        return (stats.mid_fg_pct or 0) * min(1.0, stats.mid_fga / SKILL_CONFIGS["mid_range"].volume_normalizer)
     non3_attempts = (stats.fga or 0) - (stats.fg3a or 0)
     if non3_attempts < SKILL_CONFIGS["mid_range"].minimum_attempts:
         return None
     fg2_pct = ((stats.fgm or 0) - (stats.fg3m or 0)) / non3_attempts if non3_attempts > 0 else 0
     return fg2_pct * min(1.0, non3_attempts / SKILL_CONFIGS["mid_range"].volume_normalizer)
+
+
+def _raw_layup(stats) -> Optional[float]:
+    # Restricted-area finishing: efficiency x volume weight
+    if getattr(stats, "ra_fga", None) is None or stats.ra_fga < SKILL_CONFIGS["layup"].minimum_attempts:
+        return None
+    return (stats.ra_fg_pct or 0) * min(1.0, stats.ra_fga / SKILL_CONFIGS["layup"].volume_normalizer)
+
+
+def _raw_close_shot(stats) -> Optional[float]:
+    # Paint (non-RA) touch/floater game, blended 70/30 with RA finishing —
+    # pure paint-non-RA volume is thin for many players.
+    if getattr(stats, "paint_fga", None) is None:
+        return None
+    total = (stats.paint_fga or 0) + (stats.ra_fga or 0)
+    if total < SKILL_CONFIGS["close_shot"].minimum_attempts:
+        return None
+    paint_part = (stats.paint_fg_pct or 0) * min(1.0, (stats.paint_fga or 0) / SKILL_CONFIGS["close_shot"].volume_normalizer)
+    ra_part = (stats.ra_fg_pct or 0) * min(1.0, (stats.ra_fga or 0) / 5.0)
+    return 0.7 * paint_part + 0.3 * ra_part
+
+
+def _raw_dunk_rim(stats) -> Optional[float]:
+    # Rim-finishing component of the dunk hybrid: RA efficiency with a heavier
+    # volume normalizer than layup — high-volume rim finishers rank higher.
+    if getattr(stats, "ra_fga", None) is None or stats.ra_fga < SKILL_CONFIGS["dunk"].minimum_attempts:
+        return None
+    return (stats.ra_fg_pct or 0) * min(1.0, stats.ra_fga / SKILL_CONFIGS["dunk"].volume_normalizer)
+
+
+def _raw_interior_defense(stats) -> Optional[float]:
+    # PLUSMINUS is defended FG% minus shooters' normal — negative is good, so
+    # invert. Volume weight rewards defenders who are actually tested at the rim.
+    if getattr(stats, "d_lt6_fga", None) is None or stats.d_lt6_fga < SKILL_CONFIGS["interior_defense"].minimum_attempts:
+        return None
+    return -(stats.d_lt6_plusminus or 0) * min(1.0, stats.d_lt6_fga / SKILL_CONFIGS["interior_defense"].volume_normalizer)
+
+
+def _raw_perimeter_defense(stats) -> Optional[float]:
+    # Non-rim defended plus-minus: overall defended shots minus the rim component.
+    # Defended 3P% alone is luck-dominated at season samples and punishes on-ball
+    # stoppers who take the hardest assignments (e.g. Dort rated 65 under 3PT-only).
+    # Mid-range + three defense together is a larger, steadier sample.
+    if getattr(stats, "d_fga", None) is None or stats.d_fga is None:
+        return None
+    lt6_fga = stats.d_lt6_fga or 0.0
+    lt6_pm = stats.d_lt6_plusminus or 0.0
+    nonrim_fga = stats.d_fga - lt6_fga
+    if nonrim_fga < SKILL_CONFIGS["perimeter_defense"].minimum_attempts:
+        return None
+    nonrim_pm = ((stats.d_plusminus or 0) * stats.d_fga - lt6_pm * lt6_fga) / nonrim_fga
+    return -nonrim_pm * min(1.0, nonrim_fga / SKILL_CONFIGS["perimeter_defense"].volume_normalizer)
 
 
 def _raw_steal(stats) -> Optional[float]:
@@ -259,6 +325,12 @@ _RAW_SCORE_FNS = {
     "offensive_rebound": _raw_offensive_rebound,
     "defensive_rebound": _raw_defensive_rebound,
     "passing":           _raw_passing,
+    # v2 — shot-location and defensive-matchup data (Attribute Derivation v2)
+    "layup":              _raw_layup,
+    "close_shot":         _raw_close_shot,
+    "dunk":               _raw_dunk_rim,   # rim component; blended with layup in seed job
+    "interior_defense":   _raw_interior_defense,
+    "perimeter_defense":  _raw_perimeter_defense,
 }
 
 
@@ -269,8 +341,14 @@ def compute_ratings_for_attribute(
     attribute: str,
     all_stats: list,
     config: SkillMetricConfig,
+    default_for_ineligible: bool = True,
 ) -> dict[int, int]:
-    """Return {player_id: rating} for one attribute across all players."""
+    """Return {player_id: rating} for one attribute across all players.
+
+    default_for_ineligible=False omits players below the volume gates from the
+    result instead of assigning the flat default — callers can then fall back
+    to position-adjusted defaults (used by the v2 shot-location attributes).
+    """
     raw_fn = _RAW_SCORE_FNS[attribute]
     default = ATTRIBUTE_DEFAULTS[attribute]
 
@@ -296,9 +374,10 @@ def compute_ratings_for_attribute(
         percentile = (rank / len(scores)) * 100
         ratings[player_id] = percentile_to_rating(percentile)
 
-    for stats in all_stats:
-        if stats.player_id not in eligible_ids:
-            ratings[stats.player_id] = default
+    if default_for_ineligible:
+        for stats in all_stats:
+            if stats.player_id not in eligible_ids:
+                ratings[stats.player_id] = default
 
     return ratings
 
@@ -357,6 +436,11 @@ def compute_tendencies(stats, team_totals: Optional[dict] = None) -> dict:
         "rebound_rate": (stats.rebounds or 0) / max(minutes, 1) * 36,
         "turnover_rate": tov / max(minutes, 1) * 36,
         "foul_drawing_rate": round(fta / fga, 4) if fga > 0 else None,
+        "corner_three_rate": (
+            round(min(stats.corner3_fga / fg3a, 1.0), 4)
+            if getattr(stats, "corner3_fga", None) is not None and fg3a > 0.5
+            else None
+        ),
     }
 
 

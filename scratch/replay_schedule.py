@@ -37,9 +37,17 @@ def dist_stats(margins, scores):
     }
 
 
-def main(season: str, sims_per_game: int, signal_gain=None) -> None:
+def main(season: str, sims_per_game: int, signal_gain=None, overrides=None) -> None:
     from dataclasses import replace
-    config = DRAMA_M3 if signal_gain is None else replace(DRAMA_M3, signal_gain=signal_gain)
+    kwargs = {}
+    if signal_gain is not None:
+        kwargs["signal_gain"] = signal_gain
+    for item in overrides or []:
+        key, _, val = item.partition("=")
+        kwargs[key] = float(val) if "." in val else int(val)
+    config = replace(DRAMA_M3, **kwargs) if kwargs else DRAMA_M3
+    if kwargs:
+        print(f"  config overrides: {kwargs}")
     db = SessionLocal()
     year = season.split("-")[0][-2:]
     games = db.execute(
@@ -153,5 +161,7 @@ if __name__ == "__main__":
     parser.add_argument("--sims-per-game", type=int, default=2)
     parser.add_argument("--signal-gain", type=float, default=None,
                         help="Override SimConfig.signal_gain for stage B sweeps")
+    parser.add_argument("--set", action="append", default=[], dest="overrides",
+                        metavar="KEY=VALUE", help="Override any numeric SimConfig field")
     args = parser.parse_args()
-    main(args.season, args.sims_per_game, args.signal_gain)
+    main(args.season, args.sims_per_game, args.signal_gain, args.overrides)

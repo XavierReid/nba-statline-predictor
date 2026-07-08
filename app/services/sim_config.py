@@ -22,6 +22,15 @@ class SimConfig:
     use_contest_model: bool = False   # separates contest probability from contest impact
     use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
     use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
+    use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
+
+    # --- endgame window + pacing (gap 1.2; consumed via late_game.LateGameContext) ---
+    endgame_clock_window: int = 120      # seconds remaining in final period (Q4/OT)
+    endgame_margin_max: int = 8          # |margin| for the window to be active
+    endgame_urgency_time_mean: float = 9.0   # trailing offense — possessions over efficiency
+    endgame_urgency_time_std: float = 1.5
+    endgame_milk_time_mean: float = 20.0     # leading offense — time over expected points
+    endgame_milk_time_std: float = 2.0
 
     # --- M3e tuning constants ---
     # Naively 0.055 / 0.22 = 0.25 would match the old flat rate for a league-average
@@ -116,6 +125,7 @@ DRAMA_M3 = SimConfig(
     use_contest_model=True,
     use_positional_matchups=True,
     use_foul_drawing=True,
+    use_endgame_pacing=True,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

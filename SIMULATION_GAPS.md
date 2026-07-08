@@ -37,8 +37,16 @@ simulate_game
 ## Tier 1 — likely drivers of the calibration misses
 
 ### 1.1 OT is a different game engine
-**Status:** open
+**Status:** FIXED (2026-07-08)
 **Suspected impact:** OT rate (indirectly), OT realism (directly)
+
+**Fix:** quarter loop extracted into `_run_clock_period(q_idx, period_seconds, tip)`;
+OT is now another timed period (300s, new jump ball, closing lineups via the minute-47
+clamp) running identical mechanics — modifiers, strategic fouls (final-period guard
+`q_idx >= 3`), fast breaks, second chances, foul escalation, possession accounting.
+Legacy fixed-possession OT survives only for non-clock mode. Verified: real clock
+consumption in OT, strategic fouls firing in OT, schedule replay identical to
+`attr-v2-baseline` (no regulation regression).
 
 The OT loop (`game_simulator.py`, "Overtime" section) is a fixed 20-possession
 alternating loop with no clock and **no modifier adjustments at all** — no momentum,
@@ -50,7 +58,8 @@ or M3e late-game foul escalation. It is effectively the pre-M1 baseline engine f
 300-second clock. Unlocks every clock-gated feature in OT.
 
 ### 1.2 No end-game margin compression
-**Status:** confirmed (Phase 1, 300 games)
+**Status:** COMPLETE FOR DEFINED SCOPE (2026-07-08) — late-game realism delivered;
+remaining blowout excess explicitly re-assigned to gap 2.1 (see closure note below)
 **Suspected impact:** OT rate (primary hypothesis), close-game rate
 
 **Evidence:** Only 26.7% of games are within 5 entering the final 2 min (real ~40%+).
@@ -68,6 +77,29 @@ zero is thin as a result → few ties at the buzzer → low OT rate.
 **Fix direction:** context-aware possession time in the final ~2 minutes (foul-stopped
 clock ≈ 2-4s possessions for the leading team, quick-shot possessions for the trailing
 team), FT possessions consume near-zero clock.
+
+**Closure (2026-07-08):** implemented as incentive modeling, not outcome targeting —
+`late_game.py` provides a centralized `LateGameContext` (final period, ≤120s, |margin| ≤ 8)
+consumed by endgame pacing: trailing offense plays ~9s urgency possessions (possessions
+over efficiency), leading offense milks ~20s (time over expected points); strategic fouls
+intercept ~70% of leading-team possessions in-window. Catch-up pace multiplier skipped for
+endgame-paced possessions (no double-shortening). Toggle `use_endgame_pacing` (on in
+DRAMA_M3); `endgame` category added to possession accounting.
+
+**Validation vs `attr-v2-baseline`:** close% 18.9 → 20.1 (target 24.5), tie conversion of
+close-late games 9.2% → 12.2% (real ~14%), OT rate 2.7% → 3.7% (target 4-6%), strength
+slope 0.88 → 0.91, scoring/home-win pinned. Converging for the right reasons.
+
+**Negative experiment (documented to close the path):** widening the window
+(`endgame_margin_max` and `strategic_foul_margin_max` 8 → 10 → 12) does NOT move blowout%
+(26.7 flat at all widths) and slightly hurts close% and scoring. Blowout games are already
+15+ entering the final 2 minutes — their margins were built over the first 46 minutes,
+outside any compression mechanic's reach. Window stays at 8. **The remaining blowout
+excess (26.7 vs 22.9) is owned by gap 2.1 (game-state-aware rotations)**: real teams
+protect leads by changing personnel — stars sit in garbage time, bench units stabilize
+margins. The sim currently models reduced effort but not reduced talent. Residual
+early-game dispersion (Q1 margin 7.0 vs ~5.5-6) stays on the watch list: if blowouts
+remain elevated after 2.1, the variance issue is earlier in games, not a missing mechanic.
 
 ### 1.3 Rich-get-richer feedback without counterweights
 **Status:** FIXED — Attribute Derivation v2 + signal_gain=1.25 (top-10 strength slope 0.88).
@@ -254,7 +286,9 @@ OREB/fastbreak extras.
 ## Tier 2 — realism gaps, weaker link to current metrics
 
 ### 2.1 Static rotation
-**Status:** open
+**Status:** open — PROMOTED to next milestone (2026-07-08); primary calibration target:
+blowout rate 26.7% → 22.9% (schedule replay). Owns the margin excess that late-game
+compression cannot reach (see 1.2 closure).
 
 Minutes pre-assigned from season averages. Nothing responds to game state: no benching
 starters in blowouts (garbage time changes probabilities but stars still play their
@@ -317,3 +351,5 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | 2026-07-07 | bugs | Fixed home advantage /100 units bug (was +0.03 pts/game, now ~+3; home win 50.7% → 56.6%). Fixed non-reproducible calibration seeds (`hash()` → crc32). |
 | 2026-07-08 | 1.3 | Investigation complete via A/B/C stage decomposition: Stage A major leak (5 dead attributes = interior scoring + individual defense), Stage B attenuator (~1 pt/game per full-σ), Stage C healthy (corr 0.67). Fix: Attribute Derivation v2 milestone (spec in RFC), then Stage B recalibration. |
 | 2026-07-08 | 1.3 | FIXED: Attribute Derivation v2 (shot-location + defensive-matchup data; slope 0.66→0.73) + signal_gain=1.25 (slope 0.88, scoring/home-win neutral). Baseline frozen as git tag `attr-v2-baseline`. Remaining margin-shape deficits assigned to gap 1.2, not stage B. |
+| 2026-07-08 | 1.1 | FIXED: OT runs as a real timed period via `_run_clock_period` — all mechanics active in OT. No regulation regression vs baseline. |
+| 2026-07-08 | 1.2 | COMPLETE FOR SCOPE: `late_game.py` LateGameContext + incentive pacing (urgency 9s / milk 20s). Close% 18.9→20.1, tie conversion 9.2→12.2%, OT 2.7→3.7%, slope 0.91. Negative experiment: window widening (8→10→12) does not move blowouts — margin built over first 46 min. Blowout excess re-assigned to gap 2.1 (promoted, target 26.7→22.9). Residual Q1 dispersion on watch list. |

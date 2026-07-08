@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
 from app.services.box_score import apply_event, empty_stats, snapshot_box
+from app.services.late_game import build_context, possession_time_override
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
 from app.services.roster import load_roster
 from app.services.rotation import GAME_MINUTES, build_rotation, patch_rotation
@@ -291,9 +292,10 @@ def simulate_game(
     # contribution here (see CLAUDE.md guardrail 5 / SIMULATION_GAPS.md §1.4). Seed for
     # the future SimulationDiagnostics object.
     poss_acct: dict = {
-        "counts": {"halfcourt": 0, "fastbreak": 0, "second_chance": 0, "strategic_foul": 0},
-        "time": {"halfcourt": 0.0, "fastbreak": 0.0, "second_chance": 0.0, "strategic_foul": 0.0},
+        "counts": {"halfcourt": 0, "fastbreak": 0, "second_chance": 0, "strategic_foul": 0, "endgame": 0},
+        "time": {"halfcourt": 0.0, "fastbreak": 0.0, "second_chance": 0.0, "strategic_foul": 0.0, "endgame": 0.0},
         "catch_up_time_delta": 0.0,  # net clock seconds saved (+) / added (−) by pace multipliers
+        "endgame_time_delta": 0.0,   # net clock seconds saved (+) / added (−) by endgame pacing
         "pace_budget": expected_possessions,
     }
 
@@ -400,6 +402,18 @@ def simulate_game(
                 else:
                     poss_category = "halfcourt"
                     poss_time = max(5.0, min(24.0, rng.gauss(mean_poss_time_clock, cfg.halfcourt_time_std)))
+
+                # Endgame incentive pacing (gap 1.2): inside the window, possession
+                # time reflects incentives — trailing plays fast, leading milks.
+                # Uncompensated in the pace budget on purpose: like strategic fouls,
+                # extra endgame possessions are state-dependent and should emerge.
+                if cfg.use_endgame_pacing and poss_category == "halfcourt":
+                    lg_ctx = build_context(q_idx, quarter_clock, home_total, away_total, current_is_home, cfg)
+                    override = possession_time_override(lg_ctx, cfg, rng)
+                    if override is not None:
+                        poss_acct["endgame_time_delta"] += poss_time - override
+                        poss_time = override
+                        poss_category = "endgame"
                 poss_time = min(poss_time, quarter_clock)
                 quarter_clock -= poss_time
 
@@ -434,8 +448,10 @@ def simulate_game(
                         poss_adjustments = poss_adjustments + mod.get_adjustments(current_is_home, game_state)
 
                 # Apply pace_multiplier: quarter_clock was already reduced by poss_time above,
-                # so readjust the net clock consumption for the new pace.
-                if poss_adjustments and poss_adjustments.pace_multiplier != 1.0:
+                # so readjust the net clock consumption for the new pace. Endgame-paced
+                # possessions skip it — the override already encodes the pacing intent,
+                # and stacking both would double-shorten trailing possessions.
+                if poss_adjustments and poss_adjustments.pace_multiplier != 1.0 and poss_category != "endgame":
                     orig_poss_time = poss_time
                     poss_time = max(3.0, orig_poss_time * poss_adjustments.pace_multiplier)
                     quarter_clock = max(0.0, quarter_clock + orig_poss_time - poss_time)

@@ -54,6 +54,13 @@ class SimConfig:
     strategic_foul_margin_max: int = 8
     strategic_foul_clock_threshold: int = 120  # seconds remaining in quarter
     strategic_foul_probability: float = 0.70
+    # --- possession-mixture compensation (measured, not heuristic) ---
+    # Pace budgets already include short possessions; these fractions lengthen the
+    # halfcourt possession-time mean to offset them. Values come from possession
+    # accounting runs (scratch/diagnose_calibration.py), not analytic estimates.
+    # 0.0 = no compensation (measurement mode).
+    fastbreak_poss_frac: float = 0.026  # measured 2026-07-07, 300 games DRAMA_M3 (2.6% of possessions)
+    catch_up_clock_frac: float = 0.0026 # measured 2026-07-07: +7.4s/game saved = 0.26% of regulation clock
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05

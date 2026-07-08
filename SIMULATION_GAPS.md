@@ -82,6 +82,13 @@ from "momentum compounds" to "per-possession outcome dispersion too wide" —
 possibly the same possession-count inflation as 1.4 (more possessions = more
 variance accumulation), plus matchup strength gaps.
 
+**Post-1.4-fix update:** Q1 dispersion eased 7.4 → 7.0 (fewer possessions = less variance
+accumulation) but remains above the ~5.5-6 real target. Avg margin still 14.5 at 1000
+games (real 13.3). Note: blowout rate is sample-sensitive (22.6% at n=500 vs 26.5% at
+n=1000, ~2 SE apart) — use 1000+ game samples when measuring this gap. Next suspects:
+multiplicative `team_defense_factor`, per-possession outcome variance, matchup strength
+gaps in the calibration set.
+
 `team_defense_factor` multiplies the entire shot probability — a persistent edge on
 every possession all game. Momentum adds positive feedback on top. Real games have
 negative feedback the sim lacks: timeouts to stop runs, defensive keying on hot
@@ -94,7 +101,7 @@ timeout-like run-stopper, momentum cap tuning, converting team_defense_factor fr
 multiplicative to additive.
 
 ### 1.4 Possession count possibly double-counting extra possessions
-**Status:** confirmed (Phase 1, 300 games)
+**Status:** FIXED — validated at 1000 games (avg score 115.5 vs 115.6 real)
 **Suspected impact:** avg score (+4.1 unexplained with FG% and FTA both verified realistic)
 
 **Evidence:** 104.3 possessions/team/game (p50 104, range 95-115) vs ~99 real.
@@ -126,6 +133,22 @@ extra/shorter possessions on top of a budget that already includes them in real 
 **Architectural principle (adopted):** every feature that affects possession count must
 expose its contribution via possession accounting diagnostics — e.g. "pace budget 99.9,
 base +0.7, fast breaks +1.8, …" — so each new mechanic justifies the possessions it adds.
+
+**Fix implemented (2026-07-07):**
+- Generalized mixture compensation in `game_simulator.py`: halfcourt possession-time mean
+  derived as `(target − f_sc·t_sc − f_fb·t_fb) / (1 − f_sc − f_fb)`; `f_sc` from actual
+  team OREB rates per matchup, `f_fb` and catch-up clock fraction from measured constants
+  (`SimConfig.fastbreak_poss_frac=0.026`, `catch_up_clock_frac=0.0026`, provenance documented)
+- Strategic fouls deliberately uncompensated; possession accounting added
+  (`result["possession_accounting"]`: counts/time by category, catch-up delta, pace budget)
+- Accounting immediately caught a strategic-foul bug: fired in final 2 min of Q1-Q3
+  (83% of games with sequences, mean 5.7). Q4-only guard added → 35.3% of games, mean 2.8 —
+  plausible vs real NBA
+
+**Validation (1000 games):** possessions 104.3 → 101.5/team (remaining ~+2 over budget is
+legitimate strategic fouls + end-of-quarter truncation); avg score 115.5 vs 115.6 real ✓;
+blowout 22.6-26.5% across runs (sample-sensitive — see 1.3); OT 2.0% (gaps 1.2/1.1 remain).
+Side effect: Q1 margin dispersion 7.4 → 7.0, close-late pull-away 40% → 33%.
 
 `expected_possessions = round((home_pace + away_pace) / 2) * 2`, but OREB chains and
 fast breaks add possessions on top. Real pace statistics already include second-chance
@@ -199,3 +222,5 @@ is absent. Matters for stat-line realism more than team-level calibration.
 |---|---|---|
 | 2026-07-07 | — | Document created at close of M3e |
 | 2026-07-07 | Phase 1 | `scratch/diagnose_calibration.py` run (300 games): 1.4 confirmed (104.3 poss/team vs ~99), 1.2 confirmed (26.7% close-late, 7.5% tie conversion), 1.3 reframed (√t growth = no runaway feedback; Q1 dispersion 7.4 vs ~5.5-6 real is the issue) |
+| 2026-07-07 | 1.4 | FIXED: mixture compensation (measured constants) + possession accounting + strategic foul Q4-only guard (accounting caught it firing Q1-Q3). Validated at 1000 games: score 115.5 vs 115.6 ✓ |
+| 2026-07-07 | process | Adopted simulation-engineering loop: define → implement extensibly → instrument → validate vs real data → complete. Features aren't done until large-sample calibration confirms. `possession_accounting` is the seed of a first-class `SimulationDiagnostics` system. |

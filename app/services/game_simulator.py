@@ -284,15 +284,35 @@ def simulate_game(
         from app.services.modifiers.garbage_time import GarbageTimeModifier
         active_modifiers.append(GarbageTimeModifier(cfg))
 
+    # Possession accounting — every mechanic that affects possession count reports its
+    # contribution here (see CLAUDE.md guardrail 5 / SIMULATION_GAPS.md §1.4). Seed for
+    # the future SimulationDiagnostics object.
+    poss_acct: dict = {
+        "counts": {"halfcourt": 0, "fastbreak": 0, "second_chance": 0, "strategic_foul": 0},
+        "time": {"halfcourt": 0.0, "fastbreak": 0.0, "second_chance": 0.0, "strategic_foul": 0.0},
+        "catch_up_time_delta": 0.0,  # net clock seconds saved (+) / added (−) by pace multipliers
+        "pace_budget": expected_possessions,
+    }
+
     if cfg.use_clock:
         mean_quarter_possessions = expected_possessions / 4
-        mean_poss_time_clock = QUARTER_SECONDS / mean_quarter_possessions
-        if cfg.use_second_chance:
-            oreb_frac = OREB_RATE * ELIGIBLE_MISS_RATE
-            mean_poss_time_clock = (
-                (mean_poss_time_clock - oreb_frac * cfg.second_chance_time_mean)
-                / (1.0 - oreb_frac)
-            )
+        target_mean = QUARTER_SECONDS / mean_quarter_possessions
+
+        # Pace targets already include short possessions (second chances, fastbreaks) and
+        # catch-up urgency, so halfcourt possessions must run longer than the naive mean:
+        #   t_hc = (target − f_sc·t_sc − f_fb·t_fb) / (1 − f_sc − f_fb)
+        # Fractions are measured, not heuristic: f_sc from actual team OREB rates (real
+        # NBA data), f_fb and the catch-up clock fraction from possession accounting runs
+        # (see SimConfig provenance comments). Strategic fouls are deliberately NOT
+        # compensated — state-dependent, validated separately via poss_acct.
+        f_sc = ((home_oreb_rate + away_oreb_rate) / 2.0) * ELIGIBLE_MISS_RATE if cfg.use_second_chance else 0.0
+        f_fb = cfg.fastbreak_poss_frac if cfg.use_fast_break else 0.0
+        if cfg.use_catch_up:
+            target_mean *= 1.0 + cfg.catch_up_clock_frac
+        mean_poss_time_clock = (
+            (target_mean - f_sc * cfg.second_chance_time_mean - f_fb * cfg.fastbreak_time_mean)
+            / (1.0 - f_sc - f_fb)
+        )
         current_is_home = tip_winner_is_home
 
         for reg_q_idx in range(4):
@@ -302,8 +322,10 @@ def simulate_game(
             next_is_fastbreak = False
 
             while quarter_clock > 0:
-                # Strategic foul check
-                if cfg.use_strategic_foul and quarter_clock <= cfg.strategic_foul_clock_threshold:
+                # Strategic foul check — Q4 only: intentional fouling is an end-of-GAME
+                # tactic. (Accounting run caught this firing at the end of Q1-Q3 too:
+                # 83% of games had foul sequences vs ~25% real.)
+                if cfg.use_strategic_foul and reg_q_idx == 3 and quarter_clock <= cfg.strategic_foul_clock_threshold:
                     lead = home_total - away_total
                     trailing_is_home = lead < 0
                     if current_is_home != trailing_is_home:
@@ -322,6 +344,8 @@ def simulate_game(
                                 foul_time = max(2.0, min(8.0, rng.gauss(4.0, 1.0)))
                                 quarter_clock = max(0.0, quarter_clock - foul_time)
                                 game_clock += foul_time
+                                poss_acct["counts"]["strategic_foul"] += 1
+                                poss_acct["time"]["strategic_foul"] += foul_time
                                 pts = ftm
                                 if current_is_home:
                                     home_total += pts
@@ -360,10 +384,13 @@ def simulate_game(
 
                 # Sample possession time
                 if next_is_fastbreak:
+                    poss_category = "fastbreak"
                     poss_time = max(3.0, min(12.0, rng.gauss(cfg.fastbreak_time_mean, cfg.fastbreak_time_std)))
                 elif oreb_depth > 0:
+                    poss_category = "second_chance"
                     poss_time = max(3.0, min(14.0, rng.gauss(cfg.second_chance_time_mean, cfg.second_chance_time_std)))
                 else:
+                    poss_category = "halfcourt"
                     poss_time = max(5.0, min(24.0, rng.gauss(mean_poss_time_clock, cfg.halfcourt_time_std)))
                 poss_time = min(poss_time, quarter_clock)
                 quarter_clock -= poss_time
@@ -403,6 +430,9 @@ def simulate_game(
                     orig_poss_time = poss_time
                     poss_time = max(3.0, orig_poss_time * poss_adjustments.pace_multiplier)
                     quarter_clock = max(0.0, quarter_clock + orig_poss_time - poss_time)
+                    poss_acct["catch_up_time_delta"] += orig_poss_time - poss_time
+                poss_acct["counts"][poss_category] += 1
+                poss_acct["time"][poss_category] += poss_time
 
                 fouled_out_pid, event = _apply_possession(
                     home_active_ids, away_active_ids, current_is_home,
@@ -543,4 +573,5 @@ def simulate_game(
         "events": all_events,
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
+        "possession_accounting": poss_acct,
     }

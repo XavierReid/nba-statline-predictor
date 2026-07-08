@@ -39,7 +39,18 @@ A player's stat line is the accumulated result of simulated possession events. N
 context → decision → matchup → outcome → box score accumulation
 ```
 
-### 5. Future systems extend the possession chain, not bypass it
+### 5. Features that affect possession count must expose their contribution
+
+Season pace is an average over every game state and already contains fast breaks,
+second chances, and late-game fouling. Any mechanic that shortens possessions or adds
+possession chains inflates the count beyond the pace budget unless compensated or
+measured. Predictable mechanics (fast breaks, second chances) are compensated
+analytically in the possession-time budget; state-dependent mechanics (strategic
+fouls) are left to emerge but must report diagnostics (counts, durations) so their
+contribution can be validated against real data. No feature gets to silently add
+possessions — see possession accounting in SIMULATION_GAPS.md §1.4.
+
+### 6. Future systems extend the possession chain, not bypass it
 
 - A `TeamTendencies` layer should influence action selection and tempo at the front of the possession chain.
 - Player archetypes should map to the same variance/tendency parameters currently approximated by proxies.

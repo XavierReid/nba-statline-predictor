@@ -50,8 +50,13 @@ or M3e late-game foul escalation. It is effectively the pre-M1 baseline engine f
 300-second clock. Unlocks every clock-gated feature in OT.
 
 ### 1.2 No end-game margin compression
-**Status:** open
+**Status:** confirmed (Phase 1, 300 games)
 **Suspected impact:** OT rate (primary hypothesis), close-game rate
+
+**Evidence:** Only 26.7% of games are within 5 entering the final 2 min (real ~40%+).
+Of those close-late games, 40% see the margin *widen* to 6+ and only 7.5% reach a tie
+(real tie-conversion of close-late games ~13-15%). Both stages of the OT funnel are
+leaking: too few close games late, and too little convergence once close.
 
 Real close games converge in the final minute: trailing team fouls to stop the clock,
 made FTs consume zero clock, 2-for-1s, timeouts advance the ball, intentional quick 3s.
@@ -65,8 +70,17 @@ clock ≈ 2-4s possessions for the leading team, quick-shot possessions for the 
 team), FT possessions consume near-zero clock.
 
 ### 1.3 Rich-get-richer feedback without counterweights
-**Status:** open
+**Status:** investigating — reframed by Phase 1 data
 **Suspected impact:** blowout rate, avg margin
+
+**Evidence:** Margin growth by quarter is 7.4 → 10.5 → 12.3 → 14.2, which is almost
+exactly √t (random-walk) growth — so there is **no runaway positive feedback in
+aggregate**. The real problem is the starting dispersion: |margin| at end of Q1 is
+already 7.4 (real ~5.5-6). Per-quarter scoring variance between teams is too high
+from the opening tip. Lead changes 6.0/game vs real ~9-10 corroborates. Focus shifts
+from "momentum compounds" to "per-possession outcome dispersion too wide" —
+possibly the same possession-count inflation as 1.4 (more possessions = more
+variance accumulation), plus matchup strength gaps.
 
 `team_defense_factor` multiplies the entire shot probability — a persistent edge on
 every possession all game. Momentum adds positive feedback on top. Real games have
@@ -80,8 +94,38 @@ timeout-like run-stopper, momentum cap tuning, converting team_defense_factor fr
 multiplicative to additive.
 
 ### 1.4 Possession count possibly double-counting extra possessions
-**Status:** open
+**Status:** confirmed (Phase 1, 300 games)
 **Suspected impact:** avg score (+4.1 unexplained with FG% and FTA both verified realistic)
+
+**Evidence:** 104.3 possessions/team/game (p50 104, range 95-115) vs ~99 real.
++5.3 possessions × ~1.15 pts/possession ≈ +6 pts — more than the full scoring gap.
+Fixing this alone may overshoot below target; expect interaction with 1.2/1.3 fixes.
+
+**Root cause proven (toggle isolation, 100 games/variant):** The pace budget itself is
+correct — with the four possession-affecting features off, the clock loop delivers
+100.6 poss/team vs a 99.9 pace input. The inflation is entirely features layering
+extra/shorter possessions on top of a budget that already includes them in real pace:
+
+| Source | Contribution |
+|---|---|
+| strategic_foul (2-8s micro-possessions, no compensation) | +2.0 |
+| fast_break (~7s vs ~14.5s halfcourt, no compensation) | +1.8 |
+| second_chance (compensation exists but uses flat OREB_RATE, under-compensates) | +1.1 |
+| catch_up (pace multiplier shortens trailing possessions) | +0.6 |
+| base clock model | +0.7 |
+
+**Agreed fix (hybrid, per review):**
+- Fast breaks: analytically compensated — predictable, already inside historical pace
+- Second chances: analytically compensated using actual team OREB rates, not the flat constant
+- Catch-up: partially compensated (deterministic modifier)
+- Strategic fouls: NOT compensated initially — state-dependent and concentrated in close
+  games, so their possessions should emerge. Instead, instrument: intentional fouls/game,
+  possessions created, avg possession length in foul sequences, % of games with sequences.
+  Compare to real NBA; if frequency is unrealistic, fix the strategic foul model, not the pace model.
+
+**Architectural principle (adopted):** every feature that affects possession count must
+expose its contribution via possession accounting diagnostics — e.g. "pace budget 99.9,
+base +0.7, fast breaks +1.8, …" — so each new mechanic justifies the possessions it adds.
 
 `expected_possessions = round((home_pace + away_pace) / 2) * 2`, but OREB chains and
 fast breaks add possessions on top. Real pace statistics already include second-chance
@@ -154,3 +198,4 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | Date | Item | Action |
 |---|---|---|
 | 2026-07-07 | — | Document created at close of M3e |
+| 2026-07-07 | Phase 1 | `scratch/diagnose_calibration.py` run (300 games): 1.4 confirmed (104.3 poss/team vs ~99), 1.2 confirmed (26.7% close-late, 7.5% tie conversion), 1.3 reframed (√t growth = no runaway feedback; Q1 dispersion 7.4 vs ~5.5-6 real is the issue) |

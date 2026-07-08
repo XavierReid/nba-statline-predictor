@@ -428,3 +428,63 @@ print(f"Re-seeded {n} players")
 db.close()
 EOF
 ```
+
+---
+
+## Calibration & diagnostics tooling
+
+Three complementary tools, all run inside the api container
+(`docker compose run --rm api python scratch/<tool>.py`). All use
+deterministic seeds — identical config in, identical results out.
+
+### 1. calibrate_simulator.py — headline metrics
+
+```bash
+python scratch/calibrate_simulator.py --drama-m3 --games 1000
+```
+
+Fixed 10-matchup set, reports avg score / margin / home win / OT / blowout
+vs real season targets pulled from the games table. Use for quick
+before/after checks when tuning. Caveats: the matchup set over-represents
+mismatches, so distribution metrics (blowout, margin) are less trustworthy
+here than in the schedule replay. Use >=1000 games when measuring blowout
+rate (sample-sensitive).
+
+### 2. diagnose_calibration.py — mechanism-level diagnostics
+
+```bash
+python scratch/diagnose_calibration.py --games 300
+```
+
+Reports the WHY behind the headline metrics:
+
+- **[1.4/acct] possession accounting** — counts + avg duration per possession
+  category vs the pace budget. Any new mechanic that affects possessions
+  must keep "excess vs budget" explainable (CLAUDE.md guardrail 5).
+- **[sf] strategic foul sequences** — frequency and length; validate against
+  real NBA behavior, don't compensate away.
+- **[1.3] quarterly margin walk + lead changes** — dispersion shape.
+- **[1.2] the OT funnel** — close-late rate × tie conversion = OT rate.
+
+### 3. replay_schedule.py — real-schedule comparison (gold standard)
+
+```bash
+python scratch/replay_schedule.py --sims-per-game 4
+```
+
+Simulates every real final game of the season (same matchups, same home
+teams) and compares distributions directly — no matchup-composition bias.
+Also reports per-team strength calibration:
+
+- **strength slope** = regression of sim on real (win% and net margin);
+  1.0 = calibrated, <1 = engine compresses team quality.
+- Read the **top-10 tier slope** as the trustworthy signal; the bottom tier
+  is confounded by tanking/rest, which the sim deliberately doesn't model.
+
+### Measured constants workflow
+
+SimConfig constants marked "measured" (`fastbreak_poss_frac`,
+`catch_up_clock_frac`) carry provenance comments: value, date, sample,
+preset. Re-measure via diagnose_calibration.py in measurement mode (set
+the constant to 0.0) whenever the mechanics feeding them change (steal
+rates, catch-up window, possession times).

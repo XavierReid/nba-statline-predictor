@@ -375,7 +375,10 @@ def resolve_possession(
         contest_mult = _CONTEST_IMPACT[sub_type] if is_contested else 1.0
         defense_penalty *= contest_mult
 
-    shot_prob = (base_prob - defense_penalty + home_bonus / 100.0) * team_defense_factor
+    # home_bonus arrives as a per-possession probability delta (HOME_ADVANTAGE /
+    # expected_possessions), not a 0-100 rating — dividing by 100 here reduced home
+    # advantage to ~0.03 pts/game (found via schedule replay: 50.7% home win vs 55.4% real).
+    shot_prob = (base_prob - defense_penalty + home_bonus) * team_defense_factor
     _shot_delta = (adjustments.shot_prob_delta + adjustments.defense_penalty_delta) if adjustments else 0.0
     # Form factor: per-game variance drawn at game start; applied as a probability offset.
     # (form_factor - 1.0) converts e.g. 1.10 → +0.10 multiplied by base_prob to stay proportional.

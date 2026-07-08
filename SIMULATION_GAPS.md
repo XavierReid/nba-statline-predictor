@@ -70,7 +70,7 @@ clock ≈ 2-4s possessions for the leading team, quick-shot possessions for the 
 team), FT possessions consume near-zero clock.
 
 ### 1.3 Rich-get-richer feedback without counterweights
-**Status:** investigating — reframed by Phase 1 data
+**Status:** root cause identified — team strength compression (reversal of original hypothesis)
 **Suspected impact:** blowout rate, avg margin
 
 **Evidence:** Margin growth by quarter is 7.4 → 10.5 → 12.3 → 14.2, which is almost
@@ -88,6 +88,31 @@ games (real 13.3). Note: blowout rate is sample-sensitive (22.6% at n=500 vs 26.
 n=1000, ~2 SE apart) — use 1000+ game samples when measuring this gap. Next suspects:
 multiplicative `team_defense_factor`, per-possession outcome variance, matchup strength
 gaps in the calibration set.
+
+**Root cause identified (schedule replay, 1225 real games × 4 sims):** the original
+"rich-get-richer" hypothesis is REVERSED. Toggle isolation showed mirror matchups (team
+vs itself) produce Q1 dispersion 5.3 — at the real level — so per-possession noise is
+healthy; momentum contributes nothing measurable. The schedule replay then showed the
+engine **compresses team quality**: real win% spread 58 pts (OKC 79% → WAS 21%), sim
+spread 29 pts. Strength slope (sim regressed on real): win% 0.27 all / 0.57 top-10;
+net margin 0.34 all / **0.66 top-10** — below the ~0.8 threshold that tanking/rest/trade
+confounds could explain (bottom-10 slope 0.17 is confound-dominated; sim deliberately
+plays full-effort rosters). Elite teams keep only ⅓-⅔ of their real point differential
+(OKC +11.3 → +7.0, SAS +8.4 → +2.5, BOS +7.7 → +2.1).
+
+Aggregate margins look right only because excess within-game noise substitutes for the
+missing between-team signal — which is also why close games run 5.7 pts under real
+(18.8% vs 24.5%) while blowouts run slightly over.
+
+**Next investigation (in likelihood order):**
+1. Percentile-based attribute curves compressing roster quality before the engine sees it
+2. Probability deltas (defense penalties 5-8%) too small relative to per-possession noise
+3. Usage-weighted possession model diluting star impact (72% of possessions decided by role players)
+
+**Fixed along the way (found by replay):** home advantage was ~0.03 pts/game instead of
+~3 — `possession.py` divided the already-converted probability delta by 100 again. Sim
+home win 50.7% → 56.6% after fix (real 55.4%). Also fixed: `calibrate_simulator.py` used
+process-randomized `hash()` in seeds, making runs non-reproducible (now crc32).
 
 `team_defense_factor` multiplies the entire shot probability — a persistent edge on
 every possession all game. Momentum adds positive feedback on top. Real games have
@@ -224,3 +249,5 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | 2026-07-07 | Phase 1 | `scratch/diagnose_calibration.py` run (300 games): 1.4 confirmed (104.3 poss/team vs ~99), 1.2 confirmed (26.7% close-late, 7.5% tie conversion), 1.3 reframed (√t growth = no runaway feedback; Q1 dispersion 7.4 vs ~5.5-6 real is the issue) |
 | 2026-07-07 | 1.4 | FIXED: mixture compensation (measured constants) + possession accounting + strategic foul Q4-only guard (accounting caught it firing Q1-Q3). Validated at 1000 games: score 115.5 vs 115.6 ✓ |
 | 2026-07-07 | process | Adopted simulation-engineering loop: define → implement extensibly → instrument → validate vs real data → complete. Features aren't done until large-sample calibration confirms. `possession_accounting` is the seed of a first-class `SimulationDiagnostics` system. |
+| 2026-07-07 | 1.3 | Root cause identified via `scratch/replay_schedule.py`: engine compresses team strength (top-10 net-margin slope 0.66 vs ~0.8+ explainable by confounds). Original rich-get-richer hypothesis reversed. Next: attribute curves, delta magnitudes, usage dilution. |
+| 2026-07-07 | bugs | Fixed home advantage /100 units bug (was +0.03 pts/game, now ~+3; home win 50.7% → 56.6%). Fixed non-reproducible calibration seeds (`hash()` → crc32). |

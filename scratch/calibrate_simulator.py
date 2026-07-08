@@ -11,6 +11,7 @@ Usage:
 import argparse
 import sys
 import os
+import zlib
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -107,8 +108,11 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
 
         matchup_home_scores = []
         matchup_away_scores = []
+        # crc32 is deterministic across processes; hash() is randomized per process
+        # (PYTHONHASHSEED) and made calibration runs non-reproducible.
+        matchup_hash = zlib.crc32(f"{home_abbr}:{away_abbr}".encode()) % 100000
         for i in range(games_per_matchup):
-            seed = games_played + i * 1000 + hash(home_abbr) % 10000
+            seed = matchup_hash * 1000 + i
             result = simulate_game(
                 home_players, away_players, seed=seed, season=season,
                 config=config,

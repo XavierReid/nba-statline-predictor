@@ -49,7 +49,7 @@ def make_team(id_offset: int) -> list:
 HOME = make_team(0)
 AWAY = make_team(100)
 SEED = 42
-OT_SEED = 29   # verified: produces 1 OT period with HOME/AWAY above
+OT_SEED = 6    # verified: produces OT with HOME/AWAY above (re-found after home-bonus fix)
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,8 @@ class SimConfigOverrides(BaseModel):
     use_shot_subtypes: Optional[bool] = None
     use_contest_model: Optional[bool] = None
     use_positional_matchups: Optional[bool] = None
+    use_foul_drawing: Optional[bool] = None
+    foul_draw_scale: Optional[float] = Field(None, ge=0.1, le=2.0)
     oreb_chain_cap: Optional[int] = Field(None, ge=1, le=10)
     strategic_foul_probability: Optional[float] = Field(None, ge=0.0, le=1.0)
     momentum_max: Optional[float] = Field(None, ge=0.0, le=0.20)

@@ -155,6 +155,7 @@ def simulate_game(
         team_defense_factor: float = 1.0,
         is_fastbreak: bool = False,
         adjustments: Optional[ModifierAdjustments] = None,
+        quarter_clock: float = 720.0,
     ):
         nonlocal game_clock, home_total, away_total, possession_counter, q_idx
 
@@ -188,6 +189,17 @@ def simulate_game(
             use_shot_subtypes=cfg.use_shot_subtypes,
             use_contest_model=cfg.use_contest_model,
             use_positional_matchups=cfg.use_positional_matchups,
+            use_foul_drawing=cfg.use_foul_drawing,
+            foul_draw_scale=cfg.foul_draw_scale,
+            quarter=current_q_idx + 1,
+            clock_seconds=quarter_clock,
+            score_margin=home_total - away_total if is_home else away_total - home_total,
+            foul_draw_late_zone1_clock=cfg.foul_draw_late_zone1_clock,
+            foul_draw_late_zone1_margin=cfg.foul_draw_late_zone1_margin,
+            foul_draw_late_zone1_mult=cfg.foul_draw_late_zone1_mult,
+            foul_draw_late_zone2_clock=cfg.foul_draw_late_zone2_clock,
+            foul_draw_late_zone2_margin=cfg.foul_draw_late_zone2_margin,
+            foul_draw_late_zone2_mult=cfg.foul_draw_late_zone2_mult,
         )
 
         pts, fouled_out_pid = apply_event(box, event)
@@ -399,6 +411,7 @@ def simulate_game(
                     team_defense_factor=team_defense_factor,
                     is_fastbreak=next_is_fastbreak,
                     adjustments=poss_adjustments,
+                    quarter_clock=quarter_clock,
                 )
                 for mod in active_modifiers:
                     mod.update(event, current_is_home, game_state)

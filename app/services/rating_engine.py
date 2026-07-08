@@ -356,6 +356,7 @@ def compute_tendencies(stats, team_totals: Optional[dict] = None) -> dict:
         "dreb_rate": round(dreb_rate, 4),
         "rebound_rate": (stats.rebounds or 0) / max(minutes, 1) * 36,
         "turnover_rate": tov / max(minutes, 1) * 36,
+        "foul_drawing_rate": round(fta / fga, 4) if fga > 0 else None,
     }
 
 

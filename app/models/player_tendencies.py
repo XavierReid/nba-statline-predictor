@@ -22,6 +22,7 @@ class PlayerTendencies(Base):
     dreb_rate: Mapped[Optional[float]] = mapped_column(Float)        # defensive rebound % (NBA Advanced)
     rebound_rate: Mapped[Optional[float]] = mapped_column(Float)     # REB per 36 min (fallback)
     turnover_rate: Mapped[Optional[float]] = mapped_column(Float)    # TOV per possession used
+    foul_drawing_rate: Mapped[Optional[float]] = mapped_column(Float)  # FTA / FGA — foul drawing tendency
 
     def __repr__(self) -> str:
         return f"<PlayerTendencies player_id={self.player_id} season={self.season}>"

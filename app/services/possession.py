@@ -77,6 +77,31 @@ _CONTEST_IMPACT: Dict[str, float] = {
 
 # Position group sets — used for matchup filtering.
 # Intentionally module-level so future matchup systems can import them.
+# M3e — foul drawing tendency constants
+# Shot-type multipliers on the player's bonus foul draw probability.
+# Interior attacks create more pre-shot contact than perimeter catches-and-shoots.
+# Values estimated from positional foul-drawing patterns; not derived from shot-zone FTA charts.
+_FOUL_DRAW_MULT: Dict[str, float] = {
+    "dunk":              1.5,
+    "layup":             1.3,
+    "floater":           1.1,
+    "mid_range":         0.9,
+    "above_break_three": 0.75,
+    "corner_three":      0.65,
+    # coarse fallbacks (use_shot_subtypes=False)
+    "close": 1.3,
+    "mid":   0.9,
+    "three": 0.75,
+}
+
+# League-average foul drawing rate (FTA/FGA) — used as the floor for players without history.
+# NBA 2024-25: ~0.22 FTA per FGA league-wide.
+_LEAGUE_AVG_FOUL_DRAW_RATE: float = 0.22
+
+# Cap on foul_drawing_rate — low-FGA players produce absurd FTA/FGA ratios (seeded max 1.92).
+# Elite real foul drawers (Giannis, Embiid) sit near 0.55; 0.60 leaves headroom without outliers.
+_FOUL_DRAW_RATE_CAP: float = 0.60
+
 _GUARD_POSITIONS = frozenset({"G", "G-F"})
 _WING_POSITIONS  = frozenset({"F", "F-G", "F-C"})
 
@@ -182,6 +207,17 @@ def resolve_possession(
     use_shot_subtypes: bool = False,
     use_contest_model: bool = False,
     use_positional_matchups: bool = False,
+    use_foul_drawing: bool = False,
+    foul_draw_scale: float = 0.19,  # keep in sync with SimConfig.foul_draw_scale
+    quarter: int = 1,
+    clock_seconds: float = 720.0,
+    score_margin: int = 0,
+    foul_draw_late_zone1_clock: int = 120,
+    foul_draw_late_zone1_margin: int = 8,
+    foul_draw_late_zone1_mult: float = 1.3,
+    foul_draw_late_zone2_clock: int = 60,
+    foul_draw_late_zone2_margin: int = 5,
+    foul_draw_late_zone2_mult: float = 1.8,
 ) -> dict:
     """Simulate one possession and return an event dict."""
     def _done(r: dict) -> dict:
@@ -201,8 +237,28 @@ def resolve_possession(
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 
-    # 1b. Bonus foul — approximates non-shooting fouls when team is over the foul limit
-    if rng.random() < 0.055:
+    # 1b. Bonus foul — non-shooting foul when team is over the foul limit.
+    # With use_foul_drawing: player-specific rate (FTA/FGA × foul_draw_scale), floored at the
+    # league average so players with no FTA history still generate some fouls.
+    # Late-game escalation applied here since it captures heightened defensive pressure
+    # regardless of shot type. Sub-type multiplier is applied at the shooting foul checks
+    # (steps 8a/8b) where shot type is known and conceptually cleaner.
+    # Without use_foul_drawing: flat 5.5% pre-M3e behavior.
+    if not use_foul_drawing:
+        base_foul_prob = 0.055
+    else:
+        raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
+        raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
+        base_foul_prob = max(raw_rate * foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * foul_draw_scale)
+        in_late_game = quarter >= 4 and clock_seconds <= foul_draw_late_zone1_clock
+        if in_late_game:
+            margin = abs(score_margin)
+            if margin <= foul_draw_late_zone2_margin and clock_seconds <= foul_draw_late_zone2_clock:
+                base_foul_prob *= foul_draw_late_zone2_mult
+            elif margin <= foul_draw_late_zone1_margin:
+                base_foul_prob *= foul_draw_late_zone1_mult
+
+    if rng.random() < base_foul_prob:
         result["scorer"] = ball_handler["id"]
         result["fouled_by"] = rng.choice(defense)["id"]
         ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
@@ -332,8 +388,9 @@ def resolve_possession(
 
     ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
 
-    # 8a. 3PT shooting foul (~2% of 3PT attempts)
-    if coarse_type == "three" and rng.random() < 0.02:
+    # 8a. 3PT shooting foul — base 2% scaled by sub-type multiplier (corner threes draw fewer).
+    shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if use_foul_drawing else 1.0
+    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
@@ -342,8 +399,10 @@ def resolve_possession(
             result["fta"] = 3
             result["ftm"] = sum(1 for _ in range(3) if rng.random() < ft_prob)
 
-    # 8b. 2PT shooting foul (~15% of non-3PT attempts)
-    elif coarse_type != "three" and rng.random() < 0.15:
+    # 8b. 2PT shooting foul — base scaled by sub-type multiplier (dunks/layups draw more).
+    # Base drops 0.15 → 0.13 under foul drawing because the multiplier averages ~1.16 over
+    # the simulated shot mix; 0.13 × 1.16 ≈ 0.15 keeps total 2PT foul volume unchanged.
+    elif coarse_type != "three" and rng.random() < (0.13 if use_foul_drawing else 0.15) * shoot_foul_mult:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1

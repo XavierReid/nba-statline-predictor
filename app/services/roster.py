@@ -90,6 +90,7 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             "dreb_rate": t.dreb_rate or 0.10,
             "rebound_rate": t.rebound_rate or 5.0,
             "turnover_rate": t.turnover_rate or 2.0,
+            "foul_drawing_rate": t.foul_drawing_rate,
         })
         players[-1]["player_variance"] = player_variance(players[-1])
 

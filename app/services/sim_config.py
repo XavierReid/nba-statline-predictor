@@ -21,6 +21,21 @@ class SimConfig:
     use_shot_subtypes: bool = False   # six sub-types instead of three coarse buckets
     use_contest_model: bool = False   # separates contest probability from contest impact
     use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
+    use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
+
+    # --- M3e tuning constants ---
+    # Naively 0.055 / 0.22 = 0.25 would match the old flat rate for a league-average
+    # foul drawer, but bonus fouls are drawn per ball-handler selection, which is
+    # usage-weighted — and high-usage stars also have above-average FTA/FGA. 0.19
+    # compensates for that correlation (measured: FTA/team/gm 21.6 baseline) so total
+    # bonus foul volume stays at pre-M3e levels while distribution shifts to stars.
+    foul_draw_scale: float = 0.19
+    foul_draw_late_zone1_clock: int = 120   # seconds: heightened intensity window
+    foul_draw_late_zone1_margin: int = 8    # max margin for zone 1
+    foul_draw_late_zone1_mult: float = 1.3
+    foul_draw_late_zone2_clock: int = 60    # seconds: active fouling window
+    foul_draw_late_zone2_margin: int = 5    # max margin for zone 2
+    foul_draw_late_zone2_mult: float = 1.8
 
     # --- M3c tuning constants ---
     catch_up_clock_threshold: int = 150   # seconds remaining when catch-up activates
@@ -86,6 +101,7 @@ DRAMA_M3 = SimConfig(
     use_shot_subtypes=True,
     use_contest_model=True,
     use_positional_matchups=True,
+    use_foul_drawing=True,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

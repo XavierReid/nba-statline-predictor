@@ -1070,13 +1070,13 @@ foul_draw_scale: float = 0.55
 ```
 
 **Definition of done:**
-- [ ] `foul_drawing_rate` added to `PlayerTendencies` schema and `compute_tendencies()`
-- [ ] `seed_player_attributes` re-run to populate new field for 2025-26
-- [ ] Flat 5.5% bonus foul removed; player-specific `foul_draw_prob` implemented
-- [ ] Shot-type multipliers applied (requires M3d)
-- [ ] Late-game escalation implemented
-- [ ] Tests: high-FTA player has higher foul draw rate, low-FTA player below league avg, late-game escalation fires in correct window
-- [ ] Calibration checkpoint: FTA/game/team, OT rate (expect further ↑ from M3c baseline)
+- [x] `foul_drawing_rate` added to `PlayerTendencies` schema and `compute_tendencies()` (migration `529b31a8f50f`)
+- [x] `seed_player_attributes` re-run for 2025-26 — 525 players; rate capped at 0.60 in-engine (low-FGA outliers reached 1.92)
+- [x] Flat 5.5% bonus foul replaced by player-specific rate with league-avg floor (0.22) — flat rate preserved when `use_foul_drawing=False`
+- [x] Shot-type multipliers on shooting fouls (dunk 1.5× … corner_three 0.65×); 2PT base normalized 0.15 → 0.13 to hold total foul volume
+- [x] Late-game escalation: two zones (≤120s/≤8 pts → 1.3×; ≤60s/≤5 pts → 1.8×) — **regulation only**: OT fixed-possession loop has no real clock, so escalation is dead in OT; queued for post-M3 calibration diagnostic
+- [x] Tests: 19 in `test_m3e.py` — rate differentiation, floor/cap, escalation windows, no-op when disabled
+- [x] Calibration checkpoint: FTA/team/game 21.9 (baseline 21.6, real ~21.8); OT rate 1.2% (was 0.4%, target ~6% — remaining gap is the OT clock issue)
 
 ---
 

@@ -285,6 +285,8 @@ def simulate_game(
         from app.services.modifiers.garbage_time import GarbageTimeModifier
         active_modifiers.append(GarbageTimeModifier(cfg))
 
+    ot_period = 0
+
     # Possession accounting — every mechanic that affects possession count reports its
     # contribution here (see CLAUDE.md guardrail 5 / SIMULATION_GAPS.md §1.4). Seed for
     # the future SimulationDiagnostics object.
@@ -314,19 +316,24 @@ def simulate_game(
             (target_mean - f_sc * cfg.second_chance_time_mean - f_fb * cfg.fastbreak_time_mean)
             / (1.0 - f_sc - f_fb)
         )
-        current_is_home = tip_winner_is_home
+        def _run_clock_period(q_idx: int, period_seconds: float, period_tip_is_home: bool) -> None:
+            """One timed period (regulation quarter or OT) — identical mechanics either way.
 
-        for reg_q_idx in range(4):
-            quarter_clock = float(QUARTER_SECONDS)
-            current_is_home = tip_winner_is_home if reg_q_idx % 2 == 0 else not tip_winner_is_home
+            OT is not a separate simulation path: it is another timed period with
+            different initial conditions (length, jump ball, closing lineups via the
+            minute clamp). Every possession-level mechanic applies in any period.
+            """
+            nonlocal home_total, away_total, possession_counter, game_clock
+            quarter_clock = float(period_seconds)
+            current_is_home = period_tip_is_home
             oreb_depth = 0
             next_is_fastbreak = False
 
             while quarter_clock > 0:
-                # Strategic foul check — Q4 only: intentional fouling is an end-of-GAME
-                # tactic. (Accounting run caught this firing at the end of Q1-Q3 too:
-                # 83% of games had foul sequences vs ~25% real.)
-                if cfg.use_strategic_foul and reg_q_idx == 3 and quarter_clock <= cfg.strategic_foul_clock_threshold:
+                # Strategic foul check — final period only (Q4 or any OT): intentional
+                # fouling is an end-of-GAME tactic. (Accounting run caught this firing
+                # at the end of Q1-Q3 too: 83% of games had foul sequences vs ~25% real.)
+                if cfg.use_strategic_foul and q_idx >= 3 and quarter_clock <= cfg.strategic_foul_clock_threshold:
                     lead = home_total - away_total
                     trailing_is_home = lead < 0
                     if current_is_home != trailing_is_home:
@@ -350,10 +357,10 @@ def simulate_game(
                                 pts = ftm
                                 if current_is_home:
                                     home_total += pts
-                                    quarter_scores["home"][reg_q_idx] += pts
+                                    quarter_scores["home"][q_idx] += pts
                                 else:
                                     away_total += pts
-                                    quarter_scores["away"][reg_q_idx] += pts
+                                    quarter_scores["away"][q_idx] += pts
                                 possession_counter += 1
                                 foul_event = {
                                     "scorer": target["id"], "shot_type": None, "made": False,
@@ -368,7 +375,7 @@ def simulate_game(
                                 poss_record = {
                                     "possession": possession_counter,
                                     "game_clock_seconds": int(quarter_clock),
-                                    "quarter": reg_q_idx + 1,
+                                    "quarter": q_idx + 1,
                                     "is_home": current_is_home,
                                     "pts": pts,
                                     **foul_event,
@@ -377,7 +384,7 @@ def simulate_game(
                                     current_chunk_events.append(poss_record)
                                 elif capture_descriptions:
                                     all_events.append(poss_record)
-                                _maybe_snapshot(game_clock / 60, reg_q_idx)
+                                _maybe_snapshot(game_clock / 60, q_idx)
                                 current_is_home = not current_is_home
                                 oreb_depth = 0
                                 next_is_fastbreak = False
@@ -396,7 +403,8 @@ def simulate_game(
                 poss_time = min(poss_time, quarter_clock)
                 quarter_clock -= poss_time
 
-                current_minute = min(GAME_MINUTES - 1, reg_q_idx * 12 + int((QUARTER_SECONDS - quarter_clock) / 60))
+                # OT (q_idx >= 4) clamps to minute 47 — closing lineups stay on the floor
+                current_minute = min(GAME_MINUTES - 1, q_idx * 12 + int((period_seconds - quarter_clock) / 60))
                 home_active_ids = home_rotation[current_minute]
                 away_active_ids = away_rotation[current_minute]
 
@@ -412,7 +420,7 @@ def simulate_game(
                 game_state = GameState(
                     home_score=home_total,
                     away_score=away_total,
-                    quarter=reg_q_idx + 1,
+                    quarter=q_idx + 1,
                     clock_seconds=quarter_clock,
                     possession_number=possession_counter,
                     home_players=active_home_gs,
@@ -437,7 +445,7 @@ def simulate_game(
 
                 fouled_out_pid, event = _apply_possession(
                     home_active_ids, away_active_ids, current_is_home,
-                    poss_time, poss_time / 60.0, reg_q_idx,
+                    poss_time, poss_time / 60.0, q_idx,
                     game_clock_override=int(quarter_clock),
                     team_defense_factor=team_defense_factor,
                     is_fastbreak=next_is_fastbreak,
@@ -485,6 +493,19 @@ def simulate_game(
                     if cfg.use_fast_break and event.get("steal_by") is not None:
                         next_is_fastbreak = True
 
+        for reg_q in range(4):
+            _run_clock_period(
+                reg_q, QUARTER_SECONDS,
+                tip_winner_is_home if reg_q % 2 == 0 else not tip_winner_is_home,
+            )
+
+        # OT: another timed period — new jump ball, 300s, closing lineups
+        while home_total == away_total:
+            ot_period += 1
+            quarter_scores["home"].append(0)
+            quarter_scores["away"].append(0)
+            _run_clock_period(3 + ot_period, OT_SECONDS, rng.random() < 0.5)
+
     else:
         # Fixed-possession loop (original behavior)
         current_is_home = tip_winner_is_home
@@ -517,12 +538,12 @@ def simulate_game(
                 current_is_home = not current_is_home
 
     # -----------------------------------------------------------------------
-    # Overtime
+    # Overtime — legacy fixed-possession loop (non-clock mode only; clock mode
+    # runs OT as a real timed period above)
     # -----------------------------------------------------------------------
-    ot_period = 0
     min_per_ot_poss = OT_MINUTES / POSSESSIONS_PER_OT
 
-    while home_total == away_total:
+    while not cfg.use_clock and home_total == away_total:
         ot_period += 1
         ot_tip_is_home = rng.random() < 0.5
         ot_q_idx = 3 + ot_period

@@ -1111,6 +1111,45 @@ After all five M3 groups are built and individually checked, run a final 1000-ga
 - [ ] `CONTEXT_PRIMER.md` updated
 - [ ] Committed
 
+#### Attribute Derivation v2 — Interior Finishing + Individual Defense (spec sketch, 2026-07-08)
+
+**Motivation (from SIMULATION_GAPS.md gap 1.3):** the engine compresses team strength
+(schedule-replay top-10 net-margin slope 0.66 vs real). Root cause: `close_shot`, `layup`,
+`dunk`, `perimeter_defense`, `interior_defense` are position-adjusted constants — interior
+scoring (~55% of attempts) and all individual defense carry zero between-team signal.
+
+**Scope:**
+
+1. *Interior finishing* — ingest NBA shooting-split data (FG% by distance: restricted area,
+   paint non-RA; e.g. `PlayerDashboardByShootingSplits` or shot-zone aggregation). Derive
+   `close_shot`, `layup`, `dunk` via the existing `SkillMetricConfig` percentile pipeline
+   (efficiency × volume weight, minimum-attempt gates).
+2. *Individual defense* — preferred: `LeagueDashPtDefend` (defended FG% at rim / overall,
+   vs shooter avg). Fallback interim proxy: blend of team `def_rating`, position, and
+   steal/block ratings — weaker but no new API dependency. Decide after checking endpoint
+   availability/rate limits.
+3. *Stage B recalibration (follows, same milestone):* re-tune `attr_to_prob` spans and
+   defense penalty factors against measured targets — strength slope and FG%-vs-defender-quality —
+   per the measured-constants workflow. Do NOT hand-tune.
+
+**Explicitly out of scope:** stage C changes (usage weighting, rotations — tested healthy);
+`passing` outcome effects (currently assist-routing only; revisit with creation model, gap 2.4).
+
+**Validation (engineering loop):**
+- Attribute spread check: team-level stdev of new attributes comparable to live ones (3.5-5.5)
+- Schedule replay: top-10 net-margin strength slope ≥ 0.8
+- Close-game rate improves toward 24.5%; avg score 114-117 and blowout 20-24% hold
+- Star interior scorers (Giannis, Zion) show elite close/dunk ratings; elite defenders
+  (Wemby, Draymond, JJJ) show elite defense ratings — spot-check
+- Re-run possession accounting: shot-mix and FG%-by-subtype stay in band
+
+**DoD:**
+- [ ] Shooting-split ingestion job + `PlayerSeasonStats` (or new table) columns
+- [ ] `close_shot`/`layup`/`dunk` in `SKILL_CONFIGS`, derived not estimated
+- [ ] Defense data source decision documented; `perimeter_defense`/`interior_defense` derived
+- [ ] Stage B constants recalibrated with provenance
+- [ ] Validation suite above passes; SIMULATION_GAPS.md 1.3 marked fixed
+
 ### v2
 - [ ] Kafka producer/consumer
 - [ ] Multi-season with player aging

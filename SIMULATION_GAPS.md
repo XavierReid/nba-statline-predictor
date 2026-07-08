@@ -104,10 +104,39 @@ Aggregate margins look right only because excess within-game noise substitutes f
 missing between-team signal — which is also why close games run 5.7 pts under real
 (18.8% vs 24.5%) while blowouts run slightly over.
 
-**Next investigation (in likelihood order):**
-1. Percentile-based attribute curves compressing roster quality before the engine sees it
-2. Probability deltas (defense penalties 5-8%) too small relative to per-possession noise
-3. Usage-weighted possession model diluting star impact (72% of possessions decided by role players)
+**Investigation complete — three-stage decomposition of the signal chain:**
+
+```
+real player stats
+   │
+   ▼  Stage A: rating derivation (rating_engine.py)
+attributes 0-100
+   │
+   ▼  Stage B: probability mapping (possession.py)
+per-possession probabilities
+   │
+   ▼  Stage C: aggregation (game loop)
+game outcomes
+```
+
+| Stage | Verdict | Evidence |
+|---|---|---|
+| A — rating derivation | **MAJOR LEAK** | `close_shot`, `layup`, `dunk`, `perimeter_defense`, `interior_defense` are position-adjusted constants, never derived from data. Team-level stdev: dunk 0.00, close_shot/layup 0.59, perim_def 0.70, int_def 1.19 — vs 3.5-5.7 for data-derived attributes. Interior shots are ~55% of attempts and ALL individual defense runs through the dead attributes. |
+| B — probability mapping | **ATTENUATOR** | +1σ (team-level) in every live attribute ≈ +1.0 pts/game through the possession model (three_point 0.34, FT 0.28, steal 0.22, mid 0.13, block 0.03, passing 0.00 — assist routing only). Team def_rating factor adds ~1.4/σ. Real team separation ≈ 5.5 pts/game per σ. |
+| C — aggregation | **HEALTHY** | Sim net margin correlates 0.67 with the live-attribute composite — the game loop transmits what it's given; residual is def_rating/OREB/pace inputs + sampling noise. |
+
+**Fix plan (ordered — A before B, C untouched):**
+1. **Attribute derivation v2 (new milestone):** derive interior finishing from NBA shooting-split
+   data (FG% by distance); derive individual defense from defensive matchup data
+   (`LeagueDashPtDefend` defended FG%) or an interim proxy (team def_rating × position ×
+   steals/blocks). Same percentile-curve pipeline as existing derived attributes.
+2. **Stage B recalibration (after A):** widen `attr_to_prob` spans / defense penalty factors
+   against measured targets (strength slope, FG% vs defender quality) — measured constants,
+   not hand-set. Must trade off against dispersion: wider deltas push blowout rate up.
+   Validation loop: schedule replay strength slope ≥ 0.8 (top-10 net margin) with close-game
+   rate improving toward 24.5% and blowout/scoring holding.
+
+Deliberately NOT pursued: touching stage C (usage weighting, rotations) — it tested healthy.
 
 **Fixed along the way (found by replay):** home advantage was ~0.03 pts/game instead of
 ~3 — `possession.py` divided the already-converted probability delta by 100 again. Sim
@@ -251,3 +280,4 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | 2026-07-07 | process | Adopted simulation-engineering loop: define → implement extensibly → instrument → validate vs real data → complete. Features aren't done until large-sample calibration confirms. `possession_accounting` is the seed of a first-class `SimulationDiagnostics` system. |
 | 2026-07-07 | 1.3 | Root cause identified via `scratch/replay_schedule.py`: engine compresses team strength (top-10 net-margin slope 0.66 vs ~0.8+ explainable by confounds). Original rich-get-richer hypothesis reversed. Next: attribute curves, delta magnitudes, usage dilution. |
 | 2026-07-07 | bugs | Fixed home advantage /100 units bug (was +0.03 pts/game, now ~+3; home win 50.7% → 56.6%). Fixed non-reproducible calibration seeds (`hash()` → crc32). |
+| 2026-07-08 | 1.3 | Investigation complete via A/B/C stage decomposition: Stage A major leak (5 dead attributes = interior scoring + individual defense), Stage B attenuator (~1 pt/game per full-σ), Stage C healthy (corr 0.67). Fix: Attribute Derivation v2 milestone (spec in RFC), then Stage B recalibration. |

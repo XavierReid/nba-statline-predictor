@@ -126,20 +126,50 @@ To look up a different player, edit the `lookups` list near the bottom of
 ## Game simulator (scratch CLI)
 
 ```bash
-# Default: DEN vs GSW, seed 42, season 2024-25
+# Default: DEN vs GSW, seed 42, season 2024-25, preset drama-m3
 python scratch/03_game_simulator.py
 
-# Custom matchup: HOME AWAY SEED SEASON
-python scratch/03_game_simulator.py MIL IND 42 2024-25
-python scratch/03_game_simulator.py BOS LAL 99 2024-25
+# Custom matchup: HOME AWAY SEED SEASON [PRESET]
+python scratch/03_game_simulator.py MIL IND 42 2025-26
+python scratch/03_game_simulator.py BOS LAL 99 2025-26 baseline
 
-# Same seed = identical result every time (reproducibility check)
-python scratch/03_game_simulator.py DEN GSW 1 2024-25
-python scratch/03_game_simulator.py DEN GSW 1 2024-25
+# Same seed + preset = identical result every time (reproducibility check)
+python scratch/03_game_simulator.py DEN GSW 1 2025-26
+python scratch/03_game_simulator.py DEN GSW 1 2025-26
+
+# Full play-by-play (possession log with clock, running score, descriptions)
+python scratch/03_game_simulator.py BOS LAL 42 2025-26 --pbp
 ```
 
 Output includes: score by quarter, full box score with PTS/REB/AST/STL/BLK/TOV/PF/FG/3PT/FT.
-Players who foul out are annotated with `(FO)`.
+Players who foul out are annotated with `(FO)`. Home and away must be different
+teams (mirror matchups are valid only inside diagnostics scripts — the box score
+would merge both sides).
+
+### Viewing play-by-play via the API
+
+```bash
+# One-shot game with full play-by-play: set include_pbp and read `events`
+curl -s -X POST http://localhost:8000/simulations/game \
+  -H "Content-Type: application/json" \
+  -d '{"home_team":"BOS","away_team":"LAL","season":"2025-26","seed":42,
+       "config":{"preset":"drama-m3"},"include_pbp":true}' \
+  | python3 -c "
+import sys, json
+r = json.load(sys.stdin)
+for e in r['events']:
+    q, c = e['quarter'], e['game_clock_seconds']
+    print(f\"Q{q} {c//60}:{c%60:02d} {r['home_team'] if e['is_home'] else r['away_team']:<4}\"
+          f\" {e['running_home_score']}-{e['running_away_score']}  {e['description']}\")"
+
+# Step-through sessions: events for chunks revealed so far
+curl -s http://localhost:8000/simulations/game/stepthrough/{token}/events
+```
+
+Each event carries: possession number, quarter, clock, running score, scorer,
+shot sub-type (corner_three / above_break_three / mid_range / floater / layup /
+dunk), assist/rebound/steal/block/foul attribution, FTs, and a human-readable
+`description`.
 
 ---
 

@@ -235,6 +235,7 @@ def simulate_game(
             "quarter": current_q_idx + 1,
             "is_home": is_home,
             "pts": pts,
+            "is_fastbreak": is_fastbreak,
             **event,
         }
         if steps:

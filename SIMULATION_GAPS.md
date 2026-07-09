@@ -4,6 +4,45 @@ Structural review of the game engine vs real NBA basketball, written at the clos
 (M3a–M3e complete). This is the working document for the post-M3 calibration diagnostic:
 each gap gets a status that moves through `open → investigating → confirmed/dismissed → fixed`.
 
+## MEASURED CALIBRATION TARGETS (source of truth — 2026-07-08)
+
+All memory-based references are RETIRED. These are measured from ingested real data:
+final scores (`games`), quarter line scores (`ingest_line_scores`, 1,190 games 2024-25),
+and league shooting totals. Re-measure when a new season is ingested.
+
+**Season-level (2024-25 measured / 2025-26 measured):**
+
+| Metric | 2024-25 | 2025-26 |
+|---|---|---|
+| Avg team score | 113.8 | 115.6 |
+| Avg |margin| | 12.71 | 13.3 |
+| Blowout (20+) | 20.9% | 22.9% |
+| Close (≤5) | 25.2% | 24.5% |
+| League FT% | 0.780 | 0.783 |
+
+**Quarter dynamics (2024-25 line scores; retired memory values in strikethrough spirit):**
+
+| Target | Measured | Previously assumed |
+|---|---|---|
+| Q1 \|margin\| (σ) | **6.88 (8.61)** | ~5.5-6 (WRONG) |
+| Q2 / Q3 \|margin\| | 9.21 / 11.58 | — |
+| End-of-regulation \|margin\| | 12.39 | — |
+| Per-team quarter scoring σ | 6.09 | — |
+| Regulation ties (OT rate) | **4.8%** | ~6% (WRONG) |
+| Within 5 entering Q4 | 30.4% | — |
+| …of those: tie / widen 6+ | 8.0% / **44.8%** | ~14% / ~40% ("40% pull-away" was real, not a bug) |
+
+**Q4 transition deltas (entering bucket → Q4 |margin| change) — the Q4 calibration target:**
+
+| Entering Q4 | Real Δ\|m\| |
+|---|---|
+| 0-5 | +3.35 |
+| 6-10 | +1.16 |
+| 11-20 | **−1.12** (real compression) |
+| 21+ | **−0.84** (real compression) |
+
+---
+
 **Calibration state at time of writing (DRAMA_M3, 500 games):**
 
 | Metric | Real 2025-26 | Sim | Gap |
@@ -364,6 +403,35 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | Legacy non-clock path (`use_clock=False`) bypasses all clock-gated features | design | accepted by design |
 
 ---
+
+## Gap 3.1 — Q4 objective shift (identified 2026-07-08; the last calibration gap)
+
+**Status:** diagnosed — design pending
+**Owns:** blowout excess, close-game deficit, tie/OT deficit (all remaining calibration gaps)
+
+**Evidence trail:**
+1. Real line scores (1,190 games) show sim Q1-Q3 dispersion ≈ real basketball
+   (Q1 6.88/8.61 real vs 7.10/8.62 sim). The "early-game dispersion" hypothesis is dead —
+   it was an artifact of a wrong memory-based target.
+2. Real Q4 compression is margin-proportional and monotone (+3.35/+1.16/−1.12/−0.84 by
+   entering bucket); sim is non-monotone and wrong at both ends (+5.26/+1.43/−0.09/+1.75).
+3. Toggle tests EXONERATE garbage rotation, lineup quality, team defense, and the
+   garbage-time modifier — none moves the bucket deltas materially.
+4. Possession decomposition: in close Q4 games the sim's LEADING side is more efficient
+   (1.136 vs 1.079 PPP) — the catch-up modifier nets out as a trailer penalty (+2% TOV,
+   lower-efficiency shot mix) while the leader pays no clock-priority cost until 20+.
+
+**Root cause (behavioral, not mechanical):** both teams keep maximizing expected points
+per possession all through Q4. Real teams switch objectives as win probability shifts:
+the leader maximizes win probability by valuing clock over efficiency (late-clock
+possessions, conservative selection, fewer transition attempts); the trailer maximizes
+possession count and variance. Frame as OBJECTIVES, not buffs/nerfs — decisions emerge
+from what each team is optimizing.
+
+**Pre-implementation requirement:** behavioral decomposition of leader vs trailer within
+each Q4 bucket (possession length, shot profile, TOV, OREB, foul rate, transition
+frequency, PPP) so the missing basketball decision is identified before any code.
+Calibration target: the measured transition deltas above.
 
 ## Change log
 

@@ -47,6 +47,17 @@ def main(n_games: int) -> None:
     pace_budgets = []
     sf_games = 0                # games with >=1 strategic foul
     sf_counts = []              # strategic fouls per game (when >0)
+    # gap 2.1 — rotation behavior
+    star_min_blowout = []       # avg top-3-hierarchy minutes in 20+ margin games
+    star_min_close = []         # ... in <=10 margin games
+    bench_pts_blowout = []      # bench (6-10) scoring share in 20+ games
+    gr_entries = gr_poss = gr_margin_sum = 0
+    gr_games = 0                # games where garbage rotation activated
+    gr_mismatch_poss = gr_mismatch_delta = 0
+    lq_sched_sum = lq_sched_n = lq_garb_sum = lq_garb_n = 0
+    lq_min, lq_max = 1.0, 1.0
+    star_min_blowout_winner = []  # leading-team stars in 20+ games
+    star_min_blowout_loser = []   # trailing-team stars in 20+ games
     margin_enter_final2 = []    # 1.2 — |margin| when clock first <= 120s in Q4
     final_margins = []          # 1.2 — |final margin| (regulation end, pre-OT)
     close_late_outcomes = Counter()  # 1.2 — for games within 5 entering final 2 min
@@ -78,6 +89,42 @@ def main(n_games: int) -> None:
             if n_sf:
                 sf_games += 1
                 sf_counts.append(n_sf)
+
+            gr = acct.get("garbage_rotation", {})
+            gr_entries += gr.get("entries", 0)
+            gr_poss += gr.get("possessions", 0)
+            gr_margin_sum += gr.get("entry_margin_sum", 0)
+            gr_mismatch_poss += gr.get("mismatch_poss", 0)
+            gr_mismatch_delta += gr.get("mismatch_margin_delta", 0)
+            if gr.get("entries", 0):
+                gr_games += 1
+
+            lq = acct.get("lineup_defense", {})
+            lq_sched_sum += lq.get("scheduled_sum", 0.0); lq_sched_n += lq.get("scheduled_n", 0)
+            lq_garb_sum += lq.get("garbage_sum", 0.0); lq_garb_n += lq.get("garbage_n", 0)
+            lq_min = min(lq_min, lq.get("min", 1.0)); lq_max = max(lq_max, lq.get("max", 1.0))
+
+            # rotation behavior: top-3 hierarchy minutes + bench scoring by margin bucket
+            final_margin = abs(r["quarter_scores"]["home"][3] + sum(r["quarter_scores"]["home"][:3])
+                               - r["quarter_scores"]["away"][3] - sum(r["quarter_scores"]["away"][:3]))
+            final_margin = abs(sum(r["quarter_scores"]["home"]) - sum(r["quarter_scores"]["away"]))
+            box = r["box_score"]
+            star_ids = [p["id"] for p in rosters[h][:3]] + [p["id"] for p in rosters[a][:3]]
+            bench_ids = [p["id"] for p in rosters[h][5:]] + [p["id"] for p in rosters[a][5:]]
+            star_min = sum(box[pid]["min"] for pid in star_ids if pid in box) / 6
+            total_pts = sum(v["pts"] for v in box.values()) or 1
+            bench_share = sum(box[pid]["pts"] for pid in bench_ids if pid in box) / total_pts
+            if final_margin >= 20:
+                star_min_blowout.append(star_min)
+                bench_pts_blowout.append(bench_share)
+                home_won = sum(r["quarter_scores"]["home"]) > sum(r["quarter_scores"]["away"])
+                winner, loser = (h, a) if home_won else (a, h)
+                star_min_blowout_winner.append(
+                    sum(box[p["id"]]["min"] for p in rosters[winner][:3] if p["id"] in box) / 3)
+                star_min_blowout_loser.append(
+                    sum(box[p["id"]]["min"] for p in rosters[loser][:3] if p["id"] in box) / 3)
+            elif final_margin <= 10:
+                star_min_close.append(star_min)
 
             # 1.4 possessions: count events per side (regulation only, quarter <= 4)
             reg_events = [e for e in events if e["quarter"] <= 4]
@@ -158,6 +205,28 @@ def main(n_games: int) -> None:
     if sf_counts:
         print(f"      fouls per game when present: {stats(sf_counts)}")
         print(f"      avg foul possession length: {acct_time['strategic_foul']/max(acct_counts['strategic_foul'],1):.1f}s")
+
+    print(f"\n[rot] Rotation behavior (gap 2.1):")
+    if star_min_blowout and star_min_close:
+        print(f"      top-3 hierarchy minutes: {sum(star_min_blowout)/len(star_min_blowout):.1f} in 20+ games"
+              f" vs {sum(star_min_close)/len(star_min_close):.1f} in <=10 games")
+    if bench_pts_blowout:
+        print(f"      bench (6-10) scoring share in 20+ games: {sum(bench_pts_blowout)/len(bench_pts_blowout)*100:.1f}%")
+    print(f"      garbage rotation: {gr_games}/{total} games ({gr_games/total*100:.1f}%),"
+          f" {gr_entries} entries, avg entry margin {gr_margin_sum/max(gr_entries,1):.1f},"
+          f" avg {gr_poss/max(gr_games,1):.1f} poss/activated game")
+    if star_min_blowout_winner:
+        print(f"      blowout star minutes: winner {sum(star_min_blowout_winner)/len(star_min_blowout_winner):.1f}"
+              f" vs loser {sum(star_min_blowout_loser)/len(star_min_blowout_loser):.1f}"
+              f" (real: loser stars play MORE — they fight longer)")
+    print(f"      mismatch window (leader bench vs trailer starters):"
+          f" {gr_mismatch_poss/max(gr_games,1):.1f} poss/activated game,"
+          f" margin delta {gr_mismatch_delta/max(gr_games,1):+.1f} pts/activated game")
+    if lq_sched_n:
+        print(f"      lineup defense factor: scheduled avg {lq_sched_sum/lq_sched_n:.3f}"
+              f" | garbage avg {lq_garb_sum/max(lq_garb_n,1):.3f}"
+              f" | range {lq_min:.3f}-{lq_max:.3f}"
+              f"  (want: scheduled ~1.000, garbage meaningfully above)")
 
     print(f"\n[1.3] Avg |margin| at end of each quarter (does it keep widening?):")
     for qi in range(4):

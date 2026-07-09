@@ -13,7 +13,9 @@ from sqlalchemy import select
 from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
 from app.services.box_score import apply_event, empty_stats, snapshot_box
-from app.services.late_game import build_context, possession_time_override
+from app.services.late_game import build_context, possession_time_override, should_concede
+from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
+from app.services.rotation import MODE_GARBAGE, MODE_SCHEDULED, resolve_lineup
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
 from app.services.roster import load_roster
 from app.services.rotation import GAME_MINUTES, build_rotation, patch_rotation
@@ -112,6 +114,8 @@ def simulate_game(
 
     home_rotation = build_rotation(home_players, rng)
     away_rotation = build_rotation(away_players, rng)
+    home_def_baseline = rotation_baseline(home_players)
+    away_def_baseline = rotation_baseline(away_players)
     tip_winner_is_home = rng.random() < 0.5
 
     box: dict = {pid: empty_stats() for pid in list(home_by_id) + list(away_by_id)}
@@ -287,6 +291,9 @@ def simulate_game(
         active_modifiers.append(GarbageTimeModifier(cfg))
 
     ot_period = 0
+    # Per-team concession state (hysteresis lives in late_game.should_concede)
+    home_conceded = False
+    away_conceded = False
 
     # Possession accounting — every mechanic that affects possession count reports its
     # contribution here (see CLAUDE.md guardrail 5 / SIMULATION_GAPS.md §1.4). Seed for
@@ -296,6 +303,15 @@ def simulate_game(
         "time": {"halfcourt": 0.0, "fastbreak": 0.0, "second_chance": 0.0, "strategic_foul": 0.0, "endgame": 0.0},
         "catch_up_time_delta": 0.0,  # net clock seconds saved (+) / added (−) by pace multipliers
         "endgame_time_delta": 0.0,   # net clock seconds saved (+) / added (−) by endgame pacing
+        "garbage_rotation": {
+            "entries": 0, "possessions": 0, "entry_margin_sum": 0,
+            "mismatch_poss": 0, "mismatch_margin_delta": 0,  # leader-bench vs trailer-starters window
+        },
+        "lineup_defense": {
+            "scheduled_sum": 0.0, "scheduled_n": 0,
+            "garbage_sum": 0.0, "garbage_n": 0,
+            "min": 1.0, "max": 1.0,
+        },
         "pace_budget": expected_possessions,
     }
 
@@ -325,7 +341,7 @@ def simulate_game(
             different initial conditions (length, jump ball, closing lineups via the
             minute clamp). Every possession-level mechanic applies in any period.
             """
-            nonlocal home_total, away_total, possession_counter, game_clock
+            nonlocal home_total, away_total, possession_counter, game_clock, home_conceded, away_conceded
             quarter_clock = float(period_seconds)
             current_is_home = period_tip_is_home
             oreb_depth = 0
@@ -419,8 +435,31 @@ def simulate_game(
 
                 # OT (q_idx >= 4) clamps to minute 47 — closing lineups stay on the floor
                 current_minute = min(GAME_MINUTES - 1, q_idx * 12 + int((period_seconds - quarter_clock) / 60))
-                home_active_ids = home_rotation[current_minute]
-                away_active_ids = away_rotation[current_minute]
+
+                # Rotation mode: reactive to game state, schedule as baseline. Each
+                # team decides independently whether to concede (asymmetric
+                # incentives — see late_game.should_concede).
+                if cfg.use_garbage_rotation:
+                    margin_abs = abs(home_total - away_total)
+                    home_leads = home_total >= away_total
+                    was_any = home_conceded or away_conceded
+                    home_conceded = should_concede(
+                        home_leads, margin_abs, quarter_clock, q_idx, cfg, home_conceded)
+                    away_conceded = should_concede(
+                        not home_leads, margin_abs, quarter_clock, q_idx, cfg, away_conceded)
+                    if (home_conceded or away_conceded) and not was_any:
+                        poss_acct["garbage_rotation"]["entries"] += 1
+                        poss_acct["garbage_rotation"]["entry_margin_sum"] += margin_abs
+                    if home_conceded or away_conceded:
+                        poss_acct["garbage_rotation"]["possessions"] += 1
+                home_active_ids = resolve_lineup(
+                    home_rotation, current_minute, home_by_min, box,
+                    MODE_GARBAGE if home_conceded else MODE_SCHEDULED)
+                away_active_ids = resolve_lineup(
+                    away_rotation, current_minute, away_by_min, box,
+                    MODE_GARBAGE if away_conceded else MODE_SCHEDULED)
+                in_mismatch = home_conceded != away_conceded
+                pre_poss_margin = abs(home_total - away_total)
 
                 team_defense_factor = 1.0
                 if cfg.use_team_defense:
@@ -428,6 +467,25 @@ def simulate_game(
                     if defending_stats:
                         raw = defending_stats["def_rating"] / cfg.league_avg_def_rating
                         team_defense_factor = 1.0 + (raw - 1.0) * 0.5
+
+                # Lineup quality: season def_rating describes the normal rotation;
+                # the factor below moves with the five actually defending.
+                if cfg.use_lineup_quality:
+                    if current_is_home:
+                        def_lineup = [away_by_id[pid] for pid in away_active_ids if pid in away_by_id]
+                        def_baseline = away_def_baseline
+                        def_mode = MODE_GARBAGE if away_conceded else MODE_SCHEDULED
+                    else:
+                        def_lineup = [home_by_id[pid] for pid in home_active_ids if pid in home_by_id]
+                        def_baseline = home_def_baseline
+                        def_mode = MODE_GARBAGE if home_conceded else MODE_SCHEDULED
+                    lq = compute_lineup_quality(def_lineup, def_baseline)
+                    team_defense_factor *= lq["defense"]
+                    acc = poss_acct["lineup_defense"]
+                    acc[f"{def_mode}_sum"] += lq["defense"]
+                    acc[f"{def_mode}_n"] += 1
+                    acc["min"] = min(acc["min"], lq["defense"])
+                    acc["max"] = max(acc["max"], lq["defense"])
 
                 active_home_gs = {pid: home_player_gs[pid] for pid in home_active_ids if pid in home_player_gs}
                 active_away_gs = {pid: away_player_gs[pid] for pid in away_active_ids if pid in away_player_gs}
@@ -470,6 +528,12 @@ def simulate_game(
                 )
                 for mod in active_modifiers:
                     mod.update(event, current_is_home, game_state)
+
+                if in_mismatch:
+                    poss_acct["garbage_rotation"]["mismatch_poss"] += 1
+                    poss_acct["garbage_rotation"]["mismatch_margin_delta"] += (
+                        abs(home_total - away_total) - pre_poss_margin
+                    )
 
                 poss_minutes = poss_time / 60.0
                 for pid in home_active_ids:

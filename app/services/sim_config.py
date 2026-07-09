@@ -23,6 +23,8 @@ class SimConfig:
     use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
     use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
     use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
+    use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
+    use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
 
     # --- endgame window + pacing (gap 1.2; consumed via late_game.LateGameContext) ---
     endgame_clock_window: int = 120      # seconds remaining in final period (Q4/OT)
@@ -51,6 +53,10 @@ class SimConfig:
     catch_up_max_deficit: int = 15        # max pts down for catch-up to trigger
     garbage_time_margin: int = 20         # min lead for garbage time to activate
     garbage_time_clock_threshold: int = 600  # seconds remaining in quarter when GT activates
+    garbage_exit_margin: int = 12         # hysteresis: starters return only below this margin
+    concede_trailing_margin: int = 28     # trailing team holds starters until deficit is hopeless
+    concede_trailing_clock: int = 240     # ... or a 20+ deficit with little clock remaining
+    q3_concede_margin_bonus: int = 5      # Q3 concession needs margins this much larger than Q4
 
     # --- tuning constants ---
     oreb_chain_cap: int = 5
@@ -126,6 +132,8 @@ DRAMA_M3 = SimConfig(
     use_positional_matchups=True,
     use_foul_drawing=True,
     use_endgame_pacing=True,
+    use_garbage_rotation=True,
+    use_lineup_quality=True,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

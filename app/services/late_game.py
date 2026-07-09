@@ -53,6 +53,74 @@ def build_context(
     )
 
 
+def should_concede(
+    is_leading: bool,
+    margin_abs: int,
+    clock_seconds: float,
+    q_idx: int,
+    cfg,
+    currently_conceded: bool,
+) -> bool:
+    """Per-team rotation concession decision — incentives are asymmetric.
+
+    The leading team's game is decided; resting stars is pure upside, so it
+    concedes at garbage_time_margin. The trailing team still values win
+    probability — it holds its starters until the deficit is hopeless (bigger
+    margin, or big margin with little clock). The window where the leader's
+    bench faces the trailer's starters is where margins compress organically.
+
+    Threshold-based today; the (team, game-state) signature is the decision
+    layer — win probability, playoff context, back-to-backs, coaching
+    tendencies can move in here without touching the rotation engine.
+    """
+    if q_idx < 2:
+        return False
+    if currently_conceded:
+        return margin_abs >= cfg.garbage_exit_margin  # hysteresis, both sides
+
+    if q_idx == 2:
+        # Q3: only truly decided games — thresholds scaled up, no clock gate
+        # (a 25-pt Q3 lead is when real coaches start emptying the bench)
+        lead_margin = cfg.garbage_time_margin + cfg.q3_concede_margin_bonus
+        trail_margin = cfg.concede_trailing_margin + cfg.q3_concede_margin_bonus
+        return margin_abs >= (lead_margin if is_leading else trail_margin)
+
+    # Q4/OT
+    if clock_seconds > cfg.garbage_time_clock_threshold:
+        return False
+    if is_leading:
+        return margin_abs >= cfg.garbage_time_margin
+    return margin_abs >= cfg.concede_trailing_margin or (
+        margin_abs >= cfg.garbage_time_margin
+        and clock_seconds <= cfg.concede_trailing_clock
+    )
+
+
+def garbage_time_state(
+    q_idx: int,
+    clock_seconds: float,
+    home_total: int,
+    away_total: int,
+    cfg,
+    currently_active: bool,
+) -> bool:
+    """Is the game in a garbage-time state? Single definition shared by the
+    GarbageTimeModifier (behavior) and the rotation resolver (personnel).
+
+    Hysteresis: enter at margin >= garbage_time_margin (a 20-pt Q4 lead is
+    decided), exit only if the margin collapses below garbage_exit_margin
+    (coaches don't panic when 21 becomes 18; they do at 11 with time left).
+    Threshold-based today; the signature takes full game state so this can
+    become a win-probability evaluation without changing callers.
+    """
+    if q_idx < 3:
+        return False
+    margin = abs(home_total - away_total)
+    if currently_active:
+        return margin >= cfg.garbage_exit_margin
+    return clock_seconds <= cfg.garbage_time_clock_threshold and margin >= cfg.garbage_time_margin
+
+
 def possession_time_override(
     ctx: LateGameContext, cfg, rng: random.Random
 ) -> Optional[float]:

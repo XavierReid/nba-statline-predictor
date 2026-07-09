@@ -71,3 +71,101 @@ class TestConfig:
 
     def test_default_off(self):
         assert SimConfig().use_endgame_pacing is False
+
+    def test_drama_m3_enables_garbage_rotation(self):
+        assert DRAMA_M3.use_garbage_rotation is True
+
+    def test_garbage_rotation_default_off(self):
+        assert SimConfig().use_garbage_rotation is False
+
+
+# ---------------------------------------------------------------------------
+# Garbage-time state (gap 2.1)
+# ---------------------------------------------------------------------------
+
+from app.services.late_game import garbage_time_state
+from app.services.rotation import MODE_GARBAGE, MODE_SCHEDULED, resolve_lineup
+
+
+class TestGarbageTimeState:
+    def test_enters_on_big_q4_lead(self):
+        assert garbage_time_state(3, 500.0, 110, 88, CFG, False) is True
+
+    def test_no_entry_before_q4(self):
+        assert garbage_time_state(2, 500.0, 110, 88, CFG, False) is False
+
+    def test_no_entry_early_in_q4(self):
+        assert garbage_time_state(3, 700.0, 110, 88, CFG, False) is False
+
+    def test_no_entry_below_margin(self):
+        assert garbage_time_state(3, 500.0, 110, 92, CFG, False) is False
+
+    def test_hysteresis_stays_active_at_18(self):
+        # entered at 22, lead cut to 18 — starters do NOT return
+        assert garbage_time_state(3, 300.0, 106, 88, CFG, True) is True
+
+    def test_hysteresis_exits_below_exit_margin(self):
+        # lead collapses to 11 — starters return
+        assert garbage_time_state(3, 200.0, 99, 88, CFG, True) is False
+
+    def test_entry_margin_higher_than_exit_margin(self):
+        # the hysteresis band exists: 15-pt margin neither enters nor exits
+        assert garbage_time_state(3, 400.0, 103, 88, CFG, False) is False
+        assert garbage_time_state(3, 400.0, 103, 88, CFG, True) is True
+
+
+from app.services.late_game import should_concede
+
+
+class TestShouldConcede:
+    def test_leader_concedes_at_garbage_margin(self):
+        assert should_concede(True, 21, 500.0, 3, CFG, False) is True
+
+    def test_trailer_holds_at_garbage_margin(self):
+        # down 21 with 8+ minutes — still fighting
+        assert should_concede(False, 21, 500.0, 3, CFG, False) is False
+
+    def test_trailer_concedes_at_hopeless_margin(self):
+        assert should_concede(False, 29, 500.0, 3, CFG, False) is True
+
+    def test_trailer_concedes_late_with_big_deficit(self):
+        assert should_concede(False, 22, 200.0, 3, CFG, False) is True
+
+    def test_no_concession_before_q3(self):
+        assert should_concede(True, 30, 500.0, 1, CFG, False) is False
+
+    def test_q3_concession_needs_bigger_margin(self):
+        # leader: Q4 threshold 20, Q3 threshold 25
+        assert should_concede(True, 22, 500.0, 2, CFG, False) is False
+        assert should_concede(True, 26, 500.0, 2, CFG, False) is True
+        # trailer: Q3 threshold 33
+        assert should_concede(False, 30, 500.0, 2, CFG, False) is False
+        assert should_concede(False, 34, 500.0, 2, CFG, False) is True
+
+    def test_hysteresis_applies_to_conceded_team(self):
+        assert should_concede(True, 15, 300.0, 3, CFG, True) is True
+        assert should_concede(True, 11, 300.0, 3, CFG, True) is False
+
+
+class TestResolveLineup:
+    def _team(self):
+        # rotation hierarchy: p1 (most minutes) .. p10 (fewest)
+        players_by_min = [{"id": i} for i in range(1, 11)]
+        box = {i: {"fouled_out": False} for i in range(1, 11)}
+        rotation = [[1, 2, 3, 4, 5]] * 48
+        return rotation, players_by_min, box
+
+    def test_scheduled_mode_uses_rotation_slot(self):
+        rotation, by_min, box = self._team()
+        assert resolve_lineup(rotation, 10, by_min, box, MODE_SCHEDULED) == [1, 2, 3, 4, 5]
+
+    def test_garbage_mode_empties_bench_by_hierarchy(self):
+        rotation, by_min, box = self._team()
+        assert resolve_lineup(rotation, 45, by_min, box, MODE_GARBAGE) == [6, 7, 8, 9, 10]
+
+    def test_garbage_mode_backfills_on_foulouts(self):
+        rotation, by_min, box = self._team()
+        box[9]["fouled_out"] = True
+        box[10]["fouled_out"] = True
+        # bench short two — backfill up the hierarchy with p4, p5
+        assert resolve_lineup(rotation, 45, by_min, box, MODE_GARBAGE) == [4, 5, 6, 7, 8]

@@ -44,6 +44,37 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
     return [list(s) for s in slots]
 
 
+# Rotation modes — the resolver picks a mode from game state, and the lineup is
+# the output of that mode. Future behaviors (closing lineups, foul-trouble subs,
+# injury overrides) become additional modes, not special cases in the game loop.
+MODE_SCHEDULED = "scheduled"
+MODE_GARBAGE = "garbage"
+
+
+def resolve_lineup(
+    rotation: list,
+    minute: int,
+    players_by_min: list,
+    box: dict,
+    mode: str,
+) -> list:
+    """Answer "who should be on the floor?" for the current rotation mode.
+
+    MODE_SCHEDULED: the pre-built minute schedule, exactly as before.
+    MODE_GARBAGE: empty the bench according to the coach's rotation — the five
+    players deepest in the planned rotation hierarchy (players_by_min order),
+    skipping foul-outs and backfilling up the hierarchy if the bench is short.
+    Deterministic: hierarchy order, not accumulated in-game minutes.
+    """
+    if mode == MODE_SCHEDULED:
+        return rotation[minute]
+
+    eligible = [p["id"] for p in players_by_min if not box[p["id"]]["fouled_out"]]
+    # deepest five in the rotation hierarchy; backfill happens naturally by
+    # taking the last five eligible ids
+    return eligible[-5:] if len(eligible) >= 5 else eligible
+
+
 def patch_rotation(
     rotation: list,
     fouled_out_id: int,

@@ -286,9 +286,35 @@ OREB/fastbreak extras.
 ## Tier 2 — realism gaps, weaker link to current metrics
 
 ### 2.1 Static rotation
-**Status:** open — PROMOTED to next milestone (2026-07-08); primary calibration target:
-blowout rate 26.7% → 22.9% (schedule replay). Owns the margin excess that late-game
-compression cannot reach (see 1.2 closure).
+**Status:** COMPLETE FOR DEFINED SCOPE (2026-07-08) — garbage-time rotations + lineup quality
+**Was:** open — promoted with primary target blowout 26.7% → 22.9%.
+
+**Built (three iterations, each measured):**
+1. *Symmetric benching* (rotation modes + `resolve_lineup`, hierarchy-based bench five,
+   hysteresis 20-enter/12-exit): star minutes became realistic but margins froze at entry
+   value — **negative result: symmetric benching preserves margins** (bench-vs-bench is
+   neutral). Blowout unchanged.
+2. *Asymmetric concession* (`late_game.should_concede` decision layer — leader concedes
+   at 20, trailer holds until 28 or ≤4 min; Q3 extension at +5 margins): mismatch window
+   25 poss/game, loser stars now outplay winner stars in blowouts (28.1 vs 27.5 min ✓),
+   but mismatch margin delta stayed ~0 — the engine's starter/bench gap per possession
+   was too small to compress.
+3. *Lineup quality* (`lineup_quality.py` — defense factor from the five on the floor vs
+   minutes-weighted rotation baseline; generic `compute_lineup_quality` interface for
+   future offense/rebounding/spacing dimensions): instrumentation verified transmission
+   (scheduled 0.999, range 0.937-1.067) and revealed **the real starter/bench gap is
+   offensive, not defensive** — garbage lineups average just 1.007 on defense because
+   benches carry defense-first role players. Mismatch delta finally negative (−0.2) but weak.
+
+**Calibration outcome:** blowout 26.7 → 26.3 (directionally right, within noise);
+top-10 slope 1.03 (lineup defense added differentiation — flag: signal_gain may warrant
+a small reduction at the final calibration pass); close 19.9; scoring/home-win held.
+
+**Verdict per the pre-registered protocol:** rotation behavior is now realistic and
+blowouts did NOT come down materially → **the residual blowout/close excess is a genuine
+early/mid-game dispersion issue** (Q1 |margin| 7.0 vs ~5.5-6 real), not a missing
+late-game or rotation mechanic. Promote the watch-list dispersion item to the next
+calibration investigation (after the cleanup/documentation phase).
 
 Minutes pre-assigned from season averages. Nothing responds to game state: no benching
 starters in blowouts (garbage time changes probabilities but stars still play their
@@ -353,3 +379,4 @@ is absent. Matters for stat-line realism more than team-level calibration.
 | 2026-07-08 | 1.3 | FIXED: Attribute Derivation v2 (shot-location + defensive-matchup data; slope 0.66→0.73) + signal_gain=1.25 (slope 0.88, scoring/home-win neutral). Baseline frozen as git tag `attr-v2-baseline`. Remaining margin-shape deficits assigned to gap 1.2, not stage B. |
 | 2026-07-08 | 1.1 | FIXED: OT runs as a real timed period via `_run_clock_period` — all mechanics active in OT. No regulation regression vs baseline. |
 | 2026-07-08 | 1.2 | COMPLETE FOR SCOPE: `late_game.py` LateGameContext + incentive pacing (urgency 9s / milk 20s). Close% 18.9→20.1, tie conversion 9.2→12.2%, OT 2.7→3.7%, slope 0.91. Negative experiment: window widening (8→10→12) does not move blowouts — margin built over first 46 min. Blowout excess re-assigned to gap 2.1 (promoted, target 26.7→22.9). Residual Q1 dispersion on watch list. |
+| 2026-07-08 | 2.1 | COMPLETE FOR SCOPE: rotation modes + asymmetric `should_concede` decision layer (Q3-extended) + `lineup_quality.py`. Behavior verified (star minutes, loser-fights-longer, mismatch window 25 poss). Two documented negative results: symmetric benching preserves margins; defensive starter/bench gap is genuinely small (real gap is offensive). Blowout 26.7→26.3 only → residual excess is early-game dispersion (watch-list item promoted). Next phase: cleanup/docs, then dispersion investigation. |

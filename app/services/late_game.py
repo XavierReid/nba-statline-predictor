@@ -96,31 +96,6 @@ def should_concede(
     )
 
 
-def garbage_time_state(
-    q_idx: int,
-    clock_seconds: float,
-    home_total: int,
-    away_total: int,
-    cfg,
-    currently_active: bool,
-) -> bool:
-    """Is the game in a garbage-time state? Single definition shared by the
-    GarbageTimeModifier (behavior) and the rotation resolver (personnel).
-
-    Hysteresis: enter at margin >= garbage_time_margin (a 20-pt Q4 lead is
-    decided), exit only if the margin collapses below garbage_exit_margin
-    (coaches don't panic when 21 becomes 18; they do at 11 with time left).
-    Threshold-based today; the signature takes full game state so this can
-    become a win-probability evaluation without changing callers.
-    """
-    if q_idx < 3:
-        return False
-    margin = abs(home_total - away_total)
-    if currently_active:
-        return margin >= cfg.garbage_exit_margin
-    return clock_seconds <= cfg.garbage_time_clock_threshold and margin >= cfg.garbage_time_margin
-
-
 def possession_time_override(
     ctx: LateGameContext, cfg, rng: random.Random
 ) -> Optional[float]:

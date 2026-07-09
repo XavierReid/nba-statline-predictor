@@ -80,38 +80,10 @@ class TestConfig:
 
 
 # ---------------------------------------------------------------------------
-# Garbage-time state (gap 2.1)
+# Garbage-time rotation (gap 2.1)
 # ---------------------------------------------------------------------------
 
-from app.services.late_game import garbage_time_state
 from app.services.rotation import MODE_GARBAGE, MODE_SCHEDULED, resolve_lineup
-
-
-class TestGarbageTimeState:
-    def test_enters_on_big_q4_lead(self):
-        assert garbage_time_state(3, 500.0, 110, 88, CFG, False) is True
-
-    def test_no_entry_before_q4(self):
-        assert garbage_time_state(2, 500.0, 110, 88, CFG, False) is False
-
-    def test_no_entry_early_in_q4(self):
-        assert garbage_time_state(3, 700.0, 110, 88, CFG, False) is False
-
-    def test_no_entry_below_margin(self):
-        assert garbage_time_state(3, 500.0, 110, 92, CFG, False) is False
-
-    def test_hysteresis_stays_active_at_18(self):
-        # entered at 22, lead cut to 18 — starters do NOT return
-        assert garbage_time_state(3, 300.0, 106, 88, CFG, True) is True
-
-    def test_hysteresis_exits_below_exit_margin(self):
-        # lead collapses to 11 — starters return
-        assert garbage_time_state(3, 200.0, 99, 88, CFG, True) is False
-
-    def test_entry_margin_higher_than_exit_margin(self):
-        # the hysteresis band exists: 15-pt margin neither enters nor exits
-        assert garbage_time_state(3, 400.0, 103, 88, CFG, False) is False
-        assert garbage_time_state(3, 400.0, 103, 88, CFG, True) is True
 
 
 from app.services.late_game import should_concede

@@ -3,8 +3,12 @@
 Pipeline:
     PlayerSeasonStats -> raw_score() -> percentile -> rating (0-100)
 
-Estimated attributes (physical, close_shot, etc.) cannot be derived from
-box scores and stay at their defaults until overridden.
+This module is the single translation layer from observations ("what
+happened", PlayerSeasonStats) into simulation abilities ("how good is this
+player", PlayerAttributes). Since Attribute Derivation v2 most attributes are
+data-derived, including interior finishing (shot-location zones) and
+individual defense (defensive-matchup plus-minus). Only physical estimates
+(speed, strength, ball_handle, ...) remain position-adjusted defaults.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -152,7 +156,8 @@ _OVERALL_GROUPS = [
     (["passing"],                                0.12, 0.12, 0.15),
     (["steal", "block"],                         0.18, 0.15, 0.12),
     (["offensive_rebound", "defensive_rebound"], 0.35, 0.20, 0.08),
-    # --- estimated (position-adjusted defaults; real data replaces these in v2) ---
+    # --- derived since Attribute v2 (shot-location + defensive-matchup data);
+    # ball_handle remains position-estimated ---
     (["close_shot", "layup", "dunk"],            0.15, 0.12, 0.05),
     (["ball_handle"],                            0.03, 0.08, 0.17),
     (["perimeter_defense"],                      0.00, 0.08, 0.10),

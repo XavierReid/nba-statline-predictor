@@ -1111,6 +1111,29 @@ After all five M3 groups are built and individually checked, run a final 1000-ga
 - [ ] `CONTEXT_PRIMER.md` updated
 - [ ] Committed
 
+#### Post-M3 Calibration Diagnostic Arc (2026-07-07 → 2026-07-08) — COMPLETE
+
+Full evidence trail in SIMULATION_GAPS.md; architecture in ARCHITECTURE.md. Summary:
+
+| Gap | Finding | Fix | Status |
+|---|---|---|---|
+| 1.4 Possession inflation | Pace budget correct; features added uncompensated short possessions; strategic fouls fired Q1-Q3 | Mixture compensation (measured constants) + possession accounting + Q4 guard | ✅ scoring exact (115.5 vs 115.6) |
+| 1.3 Margin dispersion | Hypothesis REVERSED: engine compressed team strength (5 dead attributes; stage B attenuation) | Attribute Derivation v2 + `signal_gain=1.25` | ✅ top-10 strength slope 0.88-1.03 |
+| 1.1 OT engine | OT was a separate no-modifier path | `_run_clock_period` — OT is a real timed period | ✅ |
+| 1.2 Late-game compression | No clock-stopping/urgency behavior; only 26.7% close entering final 2 min | `LateGameContext` + incentive pacing | ✅ scope met: OT 2.7→3.7%, tie conversion 9.2→12.2% |
+| 2.1 Static rotation | Stars played full minutes in blowouts | Rotation modes + asymmetric `should_concede` + `lineup_quality.py` | ✅ scope met; behavior realistic |
+
+Key negative results (documented so we don't revisit): widening late-game windows does
+NOT reduce blowouts (margins are built over the first 46 minutes); symmetric benching
+preserves margins; the real starter/bench gap is offensive, not defensive.
+
+**Open calibration items:** blowout 26.3% vs 22.9% and close 19.9% vs 24.5% — owned by
+residual early-game dispersion (Q1 |margin| 7.0 vs ~5.5-6 real), next investigation after
+the cleanup/documentation phase. OT rate 3.7% vs ~6% — expected to improve alongside.
+Also flagged: `signal_gain` may reduce slightly now that lineup quality adds differentiation
+(slope 1.03); legacy non-clock path is a removal candidate once frozen-tag comparisons
+replace the `baseline` preset use case.
+
 #### Attribute Derivation v2 — Interior Finishing + Individual Defense (spec sketch, 2026-07-08)
 
 **Motivation (from SIMULATION_GAPS.md gap 1.3):** the engine compresses team strength
@@ -1144,11 +1167,11 @@ scoring (~55% of attempts) and all individual defense carry zero between-team si
 - Re-run possession accounting: shot-mix and FG%-by-subtype stay in band
 
 **DoD:**
-- [ ] Shooting-split ingestion job + `PlayerSeasonStats` (or new table) columns
-- [ ] `close_shot`/`layup`/`dunk` in `SKILL_CONFIGS`, derived not estimated
-- [ ] Defense data source decision documented; `perimeter_defense`/`interior_defense` derived
-- [ ] Stage B constants recalibrated with provenance
-- [ ] Validation suite above passes; SIMULATION_GAPS.md 1.3 marked fixed
+- [x] Shooting-split ingestion job + `PlayerSeasonStats` columns (migrations a430c45fbf57, 3593e9dc9c82)
+- [x] `close_shot`/`layup`/`dunk` in `SKILL_CONFIGS`, derived not estimated (dunk = 0.7 rim + 0.3 layup hybrid)
+- [x] Defense: `LeagueDashPtDefend`; perimeter uses NON-RIM defended plus-minus (3PT-only was luck-dominated)
+- [x] Stage B recalibrated via single `signal_gain=1.25` (sweep documented, scoring-neutral by construction)
+- [x] Validation passed: team stdev 3.6-7.4 (was 0.0-1.2), sanity checks (Jokić/Giannis/Clingan #1s, Trae 55 perim D), top-10 slope 0.88; SIMULATION_GAPS.md 1.3 FIXED; baseline tag `attr-v2-baseline`
 
 ### v2
 - [ ] Player inspection tooling: endpoint or CLI to view a player's ratings, attributes, and tendencies side by side (with league percentile context) — makes attribute sanity checks routine instead of ad-hoc scripts (`scratch/explore_ratings.py` is a partial start)

@@ -105,8 +105,6 @@ def main(n_games: int) -> None:
             lq_min = min(lq_min, lq.get("min", 1.0)); lq_max = max(lq_max, lq.get("max", 1.0))
 
             # rotation behavior: top-3 hierarchy minutes + bench scoring by margin bucket
-            final_margin = abs(r["quarter_scores"]["home"][3] + sum(r["quarter_scores"]["home"][:3])
-                               - r["quarter_scores"]["away"][3] - sum(r["quarter_scores"]["away"][:3]))
             final_margin = abs(sum(r["quarter_scores"]["home"]) - sum(r["quarter_scores"]["away"]))
             box = r["box_score"]
             star_ids = [p["id"] for p in rosters[h][:3]] + [p["id"] for p in rosters[a][:3]]

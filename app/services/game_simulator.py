@@ -13,12 +13,15 @@ from sqlalchemy import select
 from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
 from app.services.box_score import apply_event, empty_stats, snapshot_box
+from app.services.diagnostics import SimulationDiagnostics
 from app.services.late_game import build_context, possession_time_override, should_concede
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
-from app.services.rotation import MODE_GARBAGE, MODE_SCHEDULED, resolve_lineup
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
 from app.services.roster import load_roster
-from app.services.rotation import GAME_MINUTES, build_rotation, patch_rotation
+from app.services.rotation import (
+    GAME_MINUTES, MODE_GARBAGE, MODE_SCHEDULED,
+    build_rotation, patch_rotation, resolve_lineup,
+)
 
 # Re-export so existing callers (API, tests, scratch scripts) need no changes.
 __all__ = ["load_roster", "simulate_game", "describe_event"]
@@ -295,25 +298,9 @@ def simulate_game(
     home_conceded = False
     away_conceded = False
 
-    # Possession accounting — every mechanic that affects possession count reports its
-    # contribution here (see CLAUDE.md guardrail 5 / SIMULATION_GAPS.md §1.4). Seed for
-    # the future SimulationDiagnostics object.
-    poss_acct: dict = {
-        "counts": {"halfcourt": 0, "fastbreak": 0, "second_chance": 0, "strategic_foul": 0, "endgame": 0},
-        "time": {"halfcourt": 0.0, "fastbreak": 0.0, "second_chance": 0.0, "strategic_foul": 0.0, "endgame": 0.0},
-        "catch_up_time_delta": 0.0,  # net clock seconds saved (+) / added (−) by pace multipliers
-        "endgame_time_delta": 0.0,   # net clock seconds saved (+) / added (−) by endgame pacing
-        "garbage_rotation": {
-            "entries": 0, "possessions": 0, "entry_margin_sum": 0,
-            "mismatch_poss": 0, "mismatch_margin_delta": 0,  # leader-bench vs trailer-starters window
-        },
-        "lineup_defense": {
-            "scheduled_sum": 0.0, "scheduled_n": 0,
-            "garbage_sum": 0.0, "garbage_n": 0,
-            "min": 1.0, "max": 1.0,
-        },
-        "pace_budget": expected_possessions,
-    }
+    # Possession accounting — every mechanic that affects possession count reports
+    # its contribution (CLAUDE.md guardrail 5). See app/services/diagnostics.py.
+    diag = SimulationDiagnostics(pace_budget=expected_possessions)
 
     if cfg.use_clock:
         mean_quarter_possessions = expected_possessions / 4
@@ -325,7 +312,7 @@ def simulate_game(
         # Fractions are measured, not heuristic: f_sc from actual team OREB rates (real
         # NBA data), f_fb and the catch-up clock fraction from possession accounting runs
         # (see SimConfig provenance comments). Strategic fouls are deliberately NOT
-        # compensated — state-dependent, validated separately via poss_acct.
+        # compensated — state-dependent, validated separately via SimulationDiagnostics.
         f_sc = ((home_oreb_rate + away_oreb_rate) / 2.0) * ELIGIBLE_MISS_RATE if cfg.use_second_chance else 0.0
         f_fb = cfg.fastbreak_poss_frac if cfg.use_fast_break else 0.0
         if cfg.use_catch_up:
@@ -370,8 +357,7 @@ def simulate_game(
                                 foul_time = max(2.0, min(8.0, rng.gauss(4.0, 1.0)))
                                 quarter_clock = max(0.0, quarter_clock - foul_time)
                                 game_clock += foul_time
-                                poss_acct["counts"]["strategic_foul"] += 1
-                                poss_acct["time"]["strategic_foul"] += foul_time
+                                diag.record_possession("strategic_foul", foul_time)
                                 pts = ftm
                                 if current_is_home:
                                     home_total += pts
@@ -427,7 +413,7 @@ def simulate_game(
                     lg_ctx = build_context(q_idx, quarter_clock, home_total, away_total, current_is_home, cfg)
                     override = possession_time_override(lg_ctx, cfg, rng)
                     if override is not None:
-                        poss_acct["endgame_time_delta"] += poss_time - override
+                        diag.endgame_time_delta += poss_time - override
                         poss_time = override
                         poss_category = "endgame"
                 poss_time = min(poss_time, quarter_clock)
@@ -448,10 +434,9 @@ def simulate_game(
                     away_conceded = should_concede(
                         not home_leads, margin_abs, quarter_clock, q_idx, cfg, away_conceded)
                     if (home_conceded or away_conceded) and not was_any:
-                        poss_acct["garbage_rotation"]["entries"] += 1
-                        poss_acct["garbage_rotation"]["entry_margin_sum"] += margin_abs
+                        diag.record_garbage_entry(margin_abs)
                     if home_conceded or away_conceded:
-                        poss_acct["garbage_rotation"]["possessions"] += 1
+                        diag.record_garbage_possession()
                 home_active_ids = resolve_lineup(
                     home_rotation, current_minute, home_by_min, box,
                     MODE_GARBAGE if home_conceded else MODE_SCHEDULED)
@@ -481,11 +466,7 @@ def simulate_game(
                         def_mode = MODE_GARBAGE if home_conceded else MODE_SCHEDULED
                     lq = compute_lineup_quality(def_lineup, def_baseline)
                     team_defense_factor *= lq["defense"]
-                    acc = poss_acct["lineup_defense"]
-                    acc[f"{def_mode}_sum"] += lq["defense"]
-                    acc[f"{def_mode}_n"] += 1
-                    acc["min"] = min(acc["min"], lq["defense"])
-                    acc["max"] = max(acc["max"], lq["defense"])
+                    diag.record_lineup_defense(def_mode, lq["defense"])
 
                 active_home_gs = {pid: home_player_gs[pid] for pid in home_active_ids if pid in home_player_gs}
                 active_away_gs = {pid: away_player_gs[pid] for pid in away_active_ids if pid in away_player_gs}
@@ -513,9 +494,8 @@ def simulate_game(
                     orig_poss_time = poss_time
                     poss_time = max(3.0, orig_poss_time * poss_adjustments.pace_multiplier)
                     quarter_clock = max(0.0, quarter_clock + orig_poss_time - poss_time)
-                    poss_acct["catch_up_time_delta"] += orig_poss_time - poss_time
-                poss_acct["counts"][poss_category] += 1
-                poss_acct["time"][poss_category] += poss_time
+                    diag.catch_up_time_delta += orig_poss_time - poss_time
+                diag.record_possession(poss_category, poss_time)
 
                 fouled_out_pid, event = _apply_possession(
                     home_active_ids, away_active_ids, current_is_home,
@@ -530,10 +510,7 @@ def simulate_game(
                     mod.update(event, current_is_home, game_state)
 
                 if in_mismatch:
-                    poss_acct["garbage_rotation"]["mismatch_poss"] += 1
-                    poss_acct["garbage_rotation"]["mismatch_margin_delta"] += (
-                        abs(home_total - away_total) - pre_poss_margin
-                    )
+                    diag.record_mismatch(abs(home_total - away_total) - pre_poss_margin)
 
                 poss_minutes = poss_time / 60.0
                 for pid in home_active_ids:
@@ -587,7 +564,11 @@ def simulate_game(
             _run_clock_period(3 + ot_period, OT_SECONDS, rng.random() < 0.5)
 
     else:
-        # Fixed-possession loop (original behavior)
+        # Fixed-possession loop (original behavior).
+        # REMOVAL CANDIDATE: this legacy path (and its OT loop below) exists so the
+        # `baseline` preset can demo the pre-drama engine. Once a frozen-tag
+        # comparison workflow (e.g. checking out `attr-v2-baseline`) replaces that
+        # use case, delete both and make use_clock unconditional.
         current_is_home = tip_winner_is_home
         for poss_idx in range(expected_possessions):
             current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
@@ -619,7 +600,8 @@ def simulate_game(
 
     # -----------------------------------------------------------------------
     # Overtime — legacy fixed-possession loop (non-clock mode only; clock mode
-    # runs OT as a real timed period above)
+    # runs OT as a real timed period above). REMOVAL CANDIDATE — see note on the
+    # fixed-possession loop.
     # -----------------------------------------------------------------------
     min_per_ot_poss = OT_MINUTES / POSSESSIONS_PER_OT
 
@@ -675,5 +657,5 @@ def simulate_game(
         "events": all_events,
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
-        "possession_accounting": poss_acct,
+        "possession_accounting": diag.as_dict(),
     }

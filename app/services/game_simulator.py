@@ -349,9 +349,9 @@ def simulate_game(
                                     p for p in (home_players if current_is_home else away_players)
                                     if p["id"] in (home_ids if current_is_home else away_ids)
                                 ]
-                                target = min(offense_on_court, key=lambda p: p["free_throw"])
-                                from app.services.possession import attr_to_prob
-                                ft_prob = attr_to_prob(target["free_throw"], lo=0.60, hi=0.95)
+                                from app.services.possession import _free_throw_prob
+                                target = min(offense_on_court, key=_free_throw_prob)
+                                ft_prob = _free_throw_prob(target)
                                 fta = 2
                                 ftm = sum(1 for _ in range(fta) if rng.random() < ft_prob)
                                 foul_time = max(2.0, min(8.0, rng.gauss(4.0, 1.0)))

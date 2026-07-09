@@ -163,6 +163,13 @@ def attr_to_prob(rating: int, lo: float = 0.25, hi: float = 0.75) -> float:
     return lo + (rating / 100.0) * (hi - lo)
 
 
+def _free_throw_prob(player: dict) -> float:
+    """Observed FT% (shrunk, from roster load) with a rating fallback for
+    synthetic rosters that carry no ft_prob."""
+    p = player.get("ft_prob")
+    return p if p is not None else attr_to_prob(player["free_throw"], lo=0.60, hi=0.95)
+
+
 def describe_event(event: dict, name_map: dict) -> str:
     """Return a human-readable description of a possession event."""
     def name(pid: Optional[int]) -> str:
@@ -278,7 +285,7 @@ def resolve_possession(
     if rng.random() < base_foul_prob:
         result["scorer"] = ball_handler["id"]
         result["fouled_by"] = rng.choice(defense)["id"]
-        ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+        ft_prob = _free_throw_prob(ball_handler)
         result["fta"] = 2
         result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
         return _done(result)
@@ -414,7 +421,7 @@ def resolve_possession(
     )
     result["made"] = rng.random() < max(0.05, min(0.95, shot_prob + _shot_delta + _form_delta))
 
-    ft_prob = attr_to_prob(ball_handler["free_throw"], lo=0.60, hi=0.95)
+    ft_prob = _free_throw_prob(ball_handler)
 
     # 8a. 3PT shooting foul — base 2% scaled by sub-type multiplier (corner threes draw fewer).
     shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if use_foul_drawing else 1.0

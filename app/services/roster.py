@@ -1,4 +1,10 @@
 """Roster loading — fetch and normalize a team's top-10 players for simulation."""
+
+# League FT% — measured from ingested totals (2024-25: 0.780, 2025-26: 0.783).
+# Used as the empirical-Bayes prior for per-player FT probability and the
+# fallback for players without FT history.
+LEAGUE_FT_PCT = 0.78
+_FT_SHRINK_PRIOR_ATTEMPTS = 20.0  # low-volume shooters shrink toward league average
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -92,6 +98,15 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
             "turnover_rate": t.turnover_rate or 2.0,
             "foul_drawing_rate": t.foul_drawing_rate,
         })
+        # FT probability straight from observation — FT% is one of the few skills
+        # where the observation IS the probability. The old rating round-trip
+        # (real FT% -> percentile rating -> attr_to_prob 0.60-0.95) ran the league
+        # at ~0.85 vs 0.78 real. Shrinkage keeps 2-for-2 bench players honest.
+        fta_total = (s.fta or 0) * (s.games_played or 0)
+        ftm_total = (s.ftm or 0) * (s.games_played or 0)
+        players[-1]["ft_prob"] = round(
+            (ftm_total + LEAGUE_FT_PCT * _FT_SHRINK_PRIOR_ATTEMPTS)
+            / (fta_total + _FT_SHRINK_PRIOR_ATTEMPTS), 4)
         # Only include when real data exists — M3d sub-type selection falls back
         # to positional defaults via .get() when the key is absent.
         if t.corner_three_rate is not None:

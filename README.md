@@ -1,6 +1,6 @@
 # NBA Franchise Simulator
 
-A backend simulation engine that simulates NBA seasons at box-score level — think MyLeague in NBA 2K, but as a REST API. Given real team rosters and schedules, it simulates every game, produces per-player stat lines, computes standings, and generates a playoff bracket.
+A possession-based NBA simulation engine — think MyLeague in NBA 2K, but as a REST API. Real rosters and season data become player attributes; game outcomes emerge from ~200 simulated possessions per game (never from projected box scores), producing per-player stat lines, play-by-play, standings, and a calibration suite that validates the engine against real NBA distributions.
 
 This is a personal portfolio project demonstrating clean backend engineering: schema design, data ingestion pipelines, simulation logic, and REST API design over a domain I find genuinely interesting.
 
@@ -23,7 +23,7 @@ This is a personal portfolio project demonstrating clean backend engineering: sc
 ```
 
 - **Ingestion** — pulls real teams, rosters, and schedules from `nba_api`. Idempotent, upsert-based.
-- **Simulator** — given two rosters, simulates a box-score-level game result. Season simulator loops the real schedule through the game simulator.
+- **Simulator** — possession-based game engine: attributes → per-possession probabilities → emergent box scores. Game-state modifiers (momentum, fatigue, clutch, garbage time), late-game incentive modeling, and state-aware rotations, all behind config toggles. Season simulator loops the real schedule through the game engine.
 - **REST API** — kick off simulations, query standings, browse results.
 
 **v2 (planned):** Kafka producer/consumer for real-time simulation event streaming.
@@ -86,13 +86,12 @@ app/
 ├── api/           route handlers
 ├── ingestion/     nba_api client + ingestion jobs
 ├── models/        SQLAlchemy ORM models
-├── schemas/       Pydantic response models
-├── services/      game simulator, season simulator
+├── services/      game engine, rating engine, late-game logic, diagnostics
 ├── config.py
 ├── database.py
 └── main.py
 alembic/           migrations
-scratch/           Phase 1 throwaway scripts
+scratch/           calibration tooling + exploration scripts
 scripts/           CLI entrypoints
 ```
 
@@ -103,15 +102,17 @@ scripts/           CLI entrypoints
 - [x] Scaffold (FastAPI, Postgres, Alembic, Docker)
 - [x] Ingestion: teams, players, schedule (2024-25)
 - [x] Ingestion: season stats + player attribute/tendency seeding
-- [x] Rating engine: percentile-based, position-adjusted, position-specific overall weights
-- [ ] Game simulator (possession-based, box-score level)
-- [ ] Season simulator + persistence
-- [ ] REST API: run simulations, query standings
+- [x] Rating engine: percentile-based; interior finishing + individual defense derived from shot-location and defensive-matchup data (Attribute v2)
+- [x] Game simulator: possession-based with clock, rotations, OT, game-state modifiers, late-game engine
+- [x] Season simulator + persistence
+- [x] REST API: run simulations, step-through, query results
+- [x] Calibration suite: schedule replay vs real 2025-26 distributions (scoring exact, strength slope ~1.0)
 - [ ] **v2**: Kafka event streaming layer
 - [ ] **v2**: multi-season with player aging, free agency
 
-See [`RFC.md`](RFC.md) for architecture and design decisions.  
-See [`RUNBOOK.md`](RUNBOOK.md) for commands, queries, and scripts.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the end-to-end walkthrough.  
+See [`RUNBOOK.md`](RUNBOOK.md) for commands, queries, and calibration tooling.  
+See [`RFC.md`](RFC.md) for specs and design history, and [`SIMULATION_GAPS.md`](SIMULATION_GAPS.md) for the calibration evidence trail.
 
 ---
 

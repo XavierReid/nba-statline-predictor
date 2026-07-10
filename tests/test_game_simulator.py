@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from app.services.game_simulator import simulate_game, resolve_possession, OREB_RATE
 from app.services.possession_context import make_context
 from app.services.sim_config import SimConfig, DRAMA_M1, DRAMA_M2
-from app.services.modifiers.base import GameState, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, ModifierAdjustments
 from app.services.modifiers.momentum import MomentumModifier
 from app.services.stepthrough_store import create_session, pop_next_chunk
 
@@ -401,7 +401,7 @@ def test_oreb_rate_constant_is_reasonable():
 # ---------------------------------------------------------------------------
 
 def _gs(home=100, away=100, q=3, clock=300.0, poss=50):
-    return GameState(home_score=home, away_score=away, quarter=q,
+    return GameSnapshot(home_score=home, away_score=away, quarter=q,
                      clock_seconds=clock, possession_number=poss)
 
 

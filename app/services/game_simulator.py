@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats
-from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
+from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
 from app.services.box_score import apply_event, empty_stats, snapshot_box
 from app.services.diagnostics import SimulationDiagnostics
+from app.services.game_state import GameState
 from app.services.late_game import (
     build_context, derive_objective, objective_adjustments,
     possession_time_override, should_concede,
@@ -135,19 +136,14 @@ def simulate_game(
     chunk_events: list = []
     current_chunk_events: list = []
     all_events: list = []
-    home_total = 0
-    away_total = 0
-    possession_counter = 0
-    q_idx = 0
-    quarter_scores: dict = {"home": [0, 0, 0, 0], "away": [0, 0, 0, 0]}
-    game_clock = 0.0
+    gs = GameState()   # persistent, authoritative game state (roadmap stage B)
     min_per_poss = GAME_MINUTES / POSSESSIONS_PER_GAME
 
     def _maybe_snapshot(elapsed_minutes: float, current_q_idx: int) -> None:
         while chunk_duration and elapsed_minutes >= next_threshold[0]:
             chunks.append({
-                "home_score": home_total,
-                "away_score": away_total,
+                "home_score": gs.home_score,
+                "away_score": gs.away_score,
                 "elapsed_minutes": round(elapsed_minutes, 1),
                 "quarter": current_q_idx + 1,
                 "box": snapshot_box(box),
@@ -169,11 +165,10 @@ def simulate_game(
         adjustments: Optional[ModifierAdjustments] = None,
         quarter_clock: float = 720.0,
     ):
-        nonlocal game_clock, home_total, away_total, possession_counter, q_idx
-
-        game_clock += sec_per_poss
-        elapsed_minutes = game_clock / 60
-        q_idx = current_q_idx
+        # gs is a captured object; mutating its attributes needs no `nonlocal`.
+        gs.game_clock += sec_per_poss
+        elapsed_minutes = gs.game_clock / 60
+        gs.period_index = current_q_idx
 
         home_active = [home_by_id[pid] for pid in home_active_ids if pid in home_by_id]
         away_active = [away_by_id[pid] for pid in away_active_ids if pid in away_by_id]
@@ -202,17 +197,17 @@ def simulate_game(
             offense_oreb_rate=offense_oreb,
             quarter=current_q_idx + 1,
             clock_seconds=quarter_clock,
-            score_margin=home_total - away_total if is_home else away_total - home_total,
+            score_margin=gs.home_score - gs.away_score if is_home else gs.away_score - gs.home_score,
         )
         event = resolve_possession(ctx)
 
         pts, fouled_out_pid = apply_event(box, event)
 
         if is_home:
-            home_total += pts
+            gs.home_score += pts
         else:
-            away_total += pts
-        quarter_scores["home" if is_home else "away"][current_q_idx] += pts
+            gs.away_score += pts
+        gs.quarter_scores["home" if is_home else "away"][current_q_idx] += pts
 
         home_delta = pts if is_home else -pts
         for pid in home_active_ids:
@@ -222,10 +217,10 @@ def simulate_game(
             if pid in box:
                 box[pid]["plus_minus"] -= home_delta
 
-        possession_counter += 1
-        clock_secs = game_clock_override if game_clock_override is not None else round(game_clock)
+        gs.possession_number += 1
+        clock_secs = game_clock_override if game_clock_override is not None else round(gs.game_clock)
         poss_record = {
-            "possession": possession_counter,
+            "possession": gs.possession_number,
             "game_clock_seconds": clock_secs,
             "quarter": current_q_idx + 1,
             "is_home": is_home,
@@ -293,8 +288,8 @@ def simulate_game(
 
     ot_period = 0
     # Per-team concession state (hysteresis lives in late_game.should_concede)
-    home_conceded = False
-    away_conceded = False
+    gs.home_conceded = False
+    gs.away_conceded = False
 
     # Possession accounting — every mechanic that affects possession count reports
     # its contribution (CLAUDE.md guardrail 5). See app/services/diagnostics.py.
@@ -326,7 +321,7 @@ def simulate_game(
             different initial conditions (length, jump ball, closing lineups via the
             minute clamp). Every possession-level mechanic applies in any period.
             """
-            nonlocal home_total, away_total, possession_counter, game_clock, home_conceded, away_conceded
+            # gs is captured; attribute mutation needs no `nonlocal`.
             quarter_clock = float(period_seconds)
             current_is_home = period_tip_is_home
             oreb_depth = 0
@@ -337,7 +332,7 @@ def simulate_game(
                 # fouling is an end-of-GAME tactic. (Accounting run caught this firing
                 # at the end of Q1-Q3 too: 83% of games had foul sequences vs ~25% real.)
                 if cfg.use_strategic_foul and q_idx >= 3 and quarter_clock <= cfg.strategic_foul_clock_threshold:
-                    lead = home_total - away_total
+                    lead = gs.home_score - gs.away_score
                     trailing_is_home = lead < 0
                     if current_is_home != trailing_is_home:
                         margin = abs(lead)
@@ -354,16 +349,16 @@ def simulate_game(
                                 ftm = sum(1 for _ in range(fta) if rng.random() < ft_prob)
                                 foul_time = max(2.0, min(8.0, rng.gauss(4.0, 1.0)))
                                 quarter_clock = max(0.0, quarter_clock - foul_time)
-                                game_clock += foul_time
+                                gs.game_clock += foul_time
                                 diag.record_possession("strategic_foul", foul_time)
                                 pts = ftm
                                 if current_is_home:
-                                    home_total += pts
-                                    quarter_scores["home"][q_idx] += pts
+                                    gs.home_score += pts
+                                    gs.quarter_scores["home"][q_idx] += pts
                                 else:
-                                    away_total += pts
-                                    quarter_scores["away"][q_idx] += pts
-                                possession_counter += 1
+                                    gs.away_score += pts
+                                    gs.quarter_scores["away"][q_idx] += pts
+                                gs.possession_number += 1
                                 foul_event = {
                                     "scorer": target["id"], "shot_type": None, "made": False,
                                     "assisted_by": None, "rebounded_by": None,
@@ -375,7 +370,7 @@ def simulate_game(
                                     ),
                                 }
                                 poss_record = {
-                                    "possession": possession_counter,
+                                    "possession": gs.possession_number,
                                     "game_clock_seconds": int(quarter_clock),
                                     "quarter": q_idx + 1,
                                     "is_home": current_is_home,
@@ -386,7 +381,7 @@ def simulate_game(
                                     current_chunk_events.append(poss_record)
                                 elif capture_descriptions:
                                     all_events.append(poss_record)
-                                _maybe_snapshot(game_clock / 60, q_idx)
+                                _maybe_snapshot(gs.game_clock / 60, q_idx)
                                 current_is_home = not current_is_home
                                 oreb_depth = 0
                                 next_is_fastbreak = False
@@ -408,7 +403,7 @@ def simulate_game(
                 # Uncompensated in the pace budget on purpose: like strategic fouls,
                 # extra endgame possessions are state-dependent and should emerge.
                 if cfg.use_endgame_pacing and poss_category == "halfcourt":
-                    lg_ctx = build_context(q_idx, quarter_clock, home_total, away_total, current_is_home, cfg)
+                    lg_ctx = build_context(q_idx, quarter_clock, gs.home_score, gs.away_score, current_is_home, cfg)
                     override = possession_time_override(lg_ctx, cfg, rng)
                     if override is not None:
                         diag.endgame_time_delta += poss_time - override
@@ -424,25 +419,25 @@ def simulate_game(
                 # team decides independently whether to concede (asymmetric
                 # incentives — see late_game.should_concede).
                 if cfg.use_garbage_rotation:
-                    margin_abs = abs(home_total - away_total)
-                    home_leads = home_total >= away_total
-                    was_any = home_conceded or away_conceded
-                    home_conceded = should_concede(
-                        home_leads, margin_abs, quarter_clock, q_idx, cfg, home_conceded)
-                    away_conceded = should_concede(
-                        not home_leads, margin_abs, quarter_clock, q_idx, cfg, away_conceded)
-                    if (home_conceded or away_conceded) and not was_any:
+                    margin_abs = abs(gs.home_score - gs.away_score)
+                    home_leads = gs.home_score >= gs.away_score
+                    was_any = gs.home_conceded or gs.away_conceded
+                    gs.home_conceded = should_concede(
+                        home_leads, margin_abs, quarter_clock, q_idx, cfg, gs.home_conceded)
+                    gs.away_conceded = should_concede(
+                        not home_leads, margin_abs, quarter_clock, q_idx, cfg, gs.away_conceded)
+                    if (gs.home_conceded or gs.away_conceded) and not was_any:
                         diag.record_garbage_entry(margin_abs)
-                    if home_conceded or away_conceded:
+                    if gs.home_conceded or gs.away_conceded:
                         diag.record_garbage_possession()
                 home_active_ids = resolve_lineup(
                     home_rotation, current_minute, home_by_min, box,
-                    MODE_GARBAGE if home_conceded else MODE_SCHEDULED)
+                    MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED)
                 away_active_ids = resolve_lineup(
                     away_rotation, current_minute, away_by_min, box,
-                    MODE_GARBAGE if away_conceded else MODE_SCHEDULED)
-                in_mismatch = home_conceded != away_conceded
-                pre_poss_margin = abs(home_total - away_total)
+                    MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED)
+                in_mismatch = gs.home_conceded != gs.away_conceded
+                pre_poss_margin = abs(gs.home_score - gs.away_score)
 
                 team_defense_factor = 1.0
                 if cfg.use_team_defense:
@@ -457,23 +452,23 @@ def simulate_game(
                     if current_is_home:
                         def_lineup = [away_by_id[pid] for pid in away_active_ids if pid in away_by_id]
                         def_baseline = away_def_baseline
-                        def_mode = MODE_GARBAGE if away_conceded else MODE_SCHEDULED
+                        def_mode = MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED
                     else:
                         def_lineup = [home_by_id[pid] for pid in home_active_ids if pid in home_by_id]
                         def_baseline = home_def_baseline
-                        def_mode = MODE_GARBAGE if home_conceded else MODE_SCHEDULED
+                        def_mode = MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED
                     lq = compute_lineup_quality(def_lineup, def_baseline)
                     team_defense_factor *= lq["defense"]
                     diag.record_lineup_defense(def_mode, lq["defense"])
 
                 active_home_gs = {pid: home_player_gs[pid] for pid in home_active_ids if pid in home_player_gs}
                 active_away_gs = {pid: away_player_gs[pid] for pid in away_active_ids if pid in away_player_gs}
-                game_state = GameState(
-                    home_score=home_total,
-                    away_score=away_total,
+                game_state = GameSnapshot(
+                    home_score=gs.home_score,
+                    away_score=gs.away_score,
                     quarter=q_idx + 1,
                     clock_seconds=quarter_clock,
-                    possession_number=possession_counter,
+                    possession_number=gs.possession_number,
                     home_players=active_home_gs,
                     away_players=active_away_gs,
                 )
@@ -491,9 +486,9 @@ def simulate_game(
                 # don't execute a protect/chase strategy. This makes objectives and
                 # garbage rotation mutually exclusive, which matches the non-monotonic
                 # real Q4 curve (peak compression at 11-20, eased at 21+ once benches enter).
-                offense_conceded = home_conceded if current_is_home else away_conceded
+                offense_conceded = gs.home_conceded if current_is_home else gs.away_conceded
                 if cfg.use_team_objectives and not offense_conceded:
-                    margin = home_total - away_total
+                    margin = gs.home_score - gs.away_score
                     off_margin = margin if current_is_home else -margin
                     objective, intensity = derive_objective(
                         off_margin > 0, abs(off_margin), quarter_clock, q_idx, cfg)
@@ -524,7 +519,7 @@ def simulate_game(
                     mod.update(event, current_is_home, game_state)
 
                 if in_mismatch:
-                    diag.record_mismatch(abs(home_total - away_total) - pre_poss_margin)
+                    diag.record_mismatch(abs(gs.home_score - gs.away_score) - pre_poss_margin)
 
                 poss_minutes = poss_time / 60.0
                 for pid in home_active_ids:
@@ -571,10 +566,10 @@ def simulate_game(
             )
 
         # OT: another timed period — new jump ball, 300s, closing lineups
-        while home_total == away_total:
+        while gs.home_score == gs.away_score:
             ot_period += 1
-            quarter_scores["home"].append(0)
-            quarter_scores["away"].append(0)
+            gs.quarter_scores["home"].append(0)
+            gs.quarter_scores["away"].append(0)
             _run_clock_period(3 + ot_period, OT_SECONDS, rng.random() < 0.5)
 
     else:
@@ -585,7 +580,7 @@ def simulate_game(
         # use case, delete both and make use_clock unconditional.
         current_is_home = tip_winner_is_home
         for poss_idx in range(expected_possessions):
-            current_minute = min(GAME_MINUTES - 1, int((game_clock + SECONDS_PER_POSSESSION) / 60))
+            current_minute = min(GAME_MINUTES - 1, int((gs.game_clock + SECONDS_PER_POSSESSION) / 60))
             reg_q_idx = min(3, current_minute // 12)
 
             home_active_ids = home_rotation[current_minute]
@@ -619,12 +614,12 @@ def simulate_game(
     # -----------------------------------------------------------------------
     min_per_ot_poss = OT_MINUTES / POSSESSIONS_PER_OT
 
-    while not cfg.use_clock and home_total == away_total:
+    while not cfg.use_clock and gs.home_score == gs.away_score:
         ot_period += 1
         ot_tip_is_home = rng.random() < 0.5
         ot_q_idx = 3 + ot_period
-        quarter_scores["home"].append(0)
-        quarter_scores["away"].append(0)
+        gs.quarter_scores["home"].append(0)
+        gs.quarter_scores["away"].append(0)
 
         home_ot_ids = list(home_rotation[GAME_MINUTES - 1])
         away_ot_ids = list(away_rotation[GAME_MINUTES - 1])
@@ -650,21 +645,21 @@ def simulate_game(
                         away_ot_ids.append(repl)
 
     # Final snapshot
-    if steps and (not chunks or chunks[-1]["home_score"] != home_total or chunks[-1]["away_score"] != away_total):
+    if steps and (not chunks or chunks[-1]["home_score"] != gs.home_score or chunks[-1]["away_score"] != gs.away_score):
         chunks.append({
-            "home_score": home_total,
-            "away_score": away_total,
-            "elapsed_minutes": round(game_clock / 60, 1),
-            "quarter": q_idx + 1,
+            "home_score": gs.home_score,
+            "away_score": gs.away_score,
+            "elapsed_minutes": round(gs.game_clock / 60, 1),
+            "quarter": gs.period_index + 1,
             "box": snapshot_box(box),
         })
         chunk_events.append(list(current_chunk_events))
 
     return {
         "season": season,
-        "home_score": home_total,
-        "away_score": away_total,
-        "quarter_scores": quarter_scores,
+        "home_score": gs.home_score,
+        "away_score": gs.away_score,
+        "quarter_scores": gs.quarter_scores,
         "box_score": box,
         "chunks": chunks,
         "chunk_events": chunk_events,

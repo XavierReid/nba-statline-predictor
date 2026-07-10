@@ -32,7 +32,7 @@ class PlayerGameState:
 
 
 @dataclass
-class GameState:
+class GameSnapshot:
     home_score: int
     away_score: int
     quarter: int
@@ -45,7 +45,7 @@ class GameState:
 
 class GameStateModifier(ABC):
     @abstractmethod
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments: ...
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments: ...
 
     @abstractmethod
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None: ...
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None: ...

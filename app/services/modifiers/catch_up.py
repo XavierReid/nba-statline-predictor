@@ -1,5 +1,5 @@
 """CatchUpModifier — trailing teams push pace and shoot more threes; leaders protect."""
-from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, GameStateModifier, ModifierAdjustments
 
 
 class CatchUpModifier(GameStateModifier):
@@ -13,7 +13,7 @@ class CatchUpModifier(GameStateModifier):
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
 
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments:
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
         cfg = self._cfg
         if game_state.quarter < 4:
             return ModifierAdjustments()
@@ -52,5 +52,5 @@ class CatchUpModifier(GameStateModifier):
 
         return ModifierAdjustments()
 
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None:
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
         pass

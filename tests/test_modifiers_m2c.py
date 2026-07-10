@@ -1,7 +1,7 @@
 """Tests for M2c modifiers: FatigueModifier, FoulTroubleModifier, ClutchModifier."""
 import pytest
 
-from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
+from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
 from app.services.modifiers.fatigue import FatigueModifier, FATIGUE_THRESHOLD_MINUTES, MAX_SHOT_PENALTY
 from app.services.modifiers.foul_trouble import FoulTroubleModifier, FOUL_TROUBLE_THRESHOLD, MAX_DEFENSE_PENALTY
 from app.services.modifiers.clutch import ClutchModifier, CLUTCH_CLOCK_THRESHOLD, CLUTCH_POINT_DIFF
@@ -22,8 +22,8 @@ def _gs(
     clock_seconds: float = 400.0,
     home_players: dict = None,
     away_players: dict = None,
-) -> GameState:
-    return GameState(
+) -> GameSnapshot:
+    return GameSnapshot(
         home_score=home_score,
         away_score=away_score,
         quarter=quarter,
@@ -142,7 +142,7 @@ class TestClutchModifier:
     def setup_method(self):
         self.mod = ClutchModifier(_FakeCfg())
 
-    def _clutch_gs(self, home_score: int = 100, away_score: int = 100, home_clutch: int = 75) -> GameState:
+    def _clutch_gs(self, home_score: int = 100, away_score: int = 100, home_clutch: int = 75) -> GameSnapshot:
         return _gs(
             home_score=home_score,
             away_score=away_score,

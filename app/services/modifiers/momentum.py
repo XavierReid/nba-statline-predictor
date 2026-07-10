@@ -11,7 +11,7 @@ shot quality) not defensive ability.
 """
 from typing import TYPE_CHECKING
 
-from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, GameStateModifier, ModifierAdjustments
 
 if TYPE_CHECKING:
     from app.services.sim_config import SimConfig
@@ -33,12 +33,12 @@ class MomentumModifier(GameStateModifier):
         self._home_unanswered: int = 0
         self._away_unanswered: int = 0
 
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments:
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
         m = self._home if is_home else self._away
         # ±2.5% shot prob at max momentum, ±1.5% TOV at max momentum
         return ModifierAdjustments(shot_prob_delta=m * 0.5, tov_prob_delta=-m * 0.3)
 
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None:
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
         cfg = self._cfg
         pts = event.get("pts", 0)
 

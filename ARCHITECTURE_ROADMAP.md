@@ -69,13 +69,21 @@ primary defender, shot sub-type, contest level, shot quality, outcome — do NOT
 context. They become their own domain objects (Action, Matchup, ShotQuality, Outcome) in
 stages B/D. This keeps later pipeline splits clean.
 
-### Stage B — GameState (persistent, owns the sim)
-Score, clock, period, possession count, fouls, (eventually) timeouts, momentum,
-fatigue, lineups, rotations, modifiers, stats, RNG. Possession lifecycle becomes:
-`GameState → build PossessionContext → resolve → PossessionResult → GameState applies`.
-Exposes computed basketball state (`is_clutch`, `is_garbage_time`, `is_blowout`,
-`leading_team`, `win_probability`, `time_remaining`) so nobody recomputes
-`if quarter==4 and margin>=8 and clock<=120` in a dozen places.
+### Stage B — GameState (persistent, owns the sim) ✅ DONE (2026-07-09)
+`app/services/game_state.py` — owns the scalar state that survives across possessions:
+score, per-quarter scores, elapsed clock, possession count, period index, and the
+hysteretic `home_conceded`/`away_conceded` flags. Replaced the 8 loose `nonlocal`
+scalars juggled across the two nested closures (both `nonlocal` declarations are now
+gone — the closures mutate `gs` attributes). Exposes read-only computed state (`margin`,
+`abs_margin`, `leading_is_home`, `is_tied`, `is_final_period`, `offense_margin(is_home)`)
+as the one authoritative source. The pre-existing modifier snapshot `GameState` was
+renamed `GameSnapshot` (it is a per-possession read-only view, not the owner).
+
+**Scope (deliberate):** ownership only — fields + computed properties. State-transition
+METHODS (`advance_clock`, `apply_score`, `update_concessions`, `next_period`) are
+stage C+; the loop still mutates `gs.field` inline. Boundary rule now explicit: state
+that survives across possessions → GameState; state within one possession → PossessionContext.
+Behavior-neutral: 259 tests green + replay identical to `demoable-v1`.
 
 ### Stage C — Behavior Engine / modifier pipeline
 Modifiers become near-trivial: each receives context, returns an intention/`Adjustment`;

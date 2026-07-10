@@ -12,7 +12,7 @@ as a future enhancement; for now we model the degraded defense in the aggregate.
 """
 from typing import Dict
 
-from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, GameStateModifier, ModifierAdjustments
 
 # Foul count at which trouble begins (Q1-Q3) or escalates (Q4)
 FOUL_TROUBLE_THRESHOLD = 4
@@ -35,7 +35,7 @@ class FoulTroubleModifier(GameStateModifier):
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
 
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments:
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
         # is_home = True means the home team is on offense → look at away team's defense
         defensive_players = game_state.away_players if is_home else game_state.home_players
         if not defensive_players:
@@ -44,7 +44,7 @@ class FoulTroubleModifier(GameStateModifier):
         penalty = _compute_defense_penalty(defensive_players, game_state.quarter)
         return ModifierAdjustments(defense_penalty_delta=penalty)
 
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None:
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
         # Foul accumulation is handled in the game loop via event["foul_on"] tracking;
         # the modifier reads pre-computed values.
         pass

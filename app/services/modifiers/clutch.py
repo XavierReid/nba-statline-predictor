@@ -7,7 +7,7 @@ teams with higher average clutch ratings execute better. Effects are:
 
 Clutch ratings come from LeagueDashPlayerClutch (FG%, FT%, TOV rate in last 5 min ±5 pts).
 """
-from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, GameStateModifier, ModifierAdjustments
 
 # Seconds remaining in Q4/OT that activate clutch mode
 CLUTCH_CLOCK_THRESHOLD = 120.0  # 2 minutes
@@ -33,7 +33,7 @@ class ClutchModifier(GameStateModifier):
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
 
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments:
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
         if not _is_clutch_situation(game_state):
             return ModifierAdjustments()
 
@@ -50,12 +50,12 @@ class ClutchModifier(GameStateModifier):
             tov_prob_delta=MAX_TOV_REDUCTION * delta,
         )
 
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None:
-        # Clutch state is fully derived from GameState on each call; no accumulated state.
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
+        # Clutch state is fully derived from GameSnapshot on each call; no accumulated state.
         pass
 
 
-def _is_clutch_situation(gs: GameState) -> bool:
+def _is_clutch_situation(gs: GameSnapshot) -> bool:
     """True when the game is in a late, close-game situation."""
     if gs.quarter < 4:
         return False

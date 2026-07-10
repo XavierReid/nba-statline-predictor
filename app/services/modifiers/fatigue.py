@@ -8,7 +8,7 @@ Effect: shot_prob_delta < 0 when the active lineup's average minutes exceed the 
 """
 from typing import Dict
 
-from app.services.modifiers.base import GameState, GameStateModifier, ModifierAdjustments
+from app.services.modifiers.base import GameSnapshot, GameStateModifier, ModifierAdjustments
 
 
 # Minutes threshold at which fatigue starts accumulating.
@@ -36,7 +36,7 @@ class FatigueModifier(GameStateModifier):
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
 
-    def get_adjustments(self, is_home: bool, game_state: GameState) -> ModifierAdjustments:
+    def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
         players = game_state.home_players if is_home else game_state.away_players
         if not players:
             return ModifierAdjustments()
@@ -50,7 +50,7 @@ class FatigueModifier(GameStateModifier):
         penalty = MAX_SHOT_PENALTY * min(avg_excess / fatigue_range, 1.0)
         return ModifierAdjustments(shot_prob_delta=penalty)
 
-    def update(self, event: dict, is_home: bool, game_state: GameState) -> None:
+    def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
         # Minute accumulation happens in the game loop via clock tracking;
         # the modifier reads the pre-computed values, so no update logic needed here.
         pass

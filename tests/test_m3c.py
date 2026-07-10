@@ -1,7 +1,7 @@
 """Tests for M3c — CatchUpModifier and GarbageTimeModifier."""
 import pytest
 
-from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
+from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
 from app.services.modifiers.catch_up import CatchUpModifier
 from app.services.modifiers.garbage_time import GarbageTimeModifier
 from app.services.sim_config import DRAMA_M3, SimConfig
@@ -24,8 +24,8 @@ def _state(
     away_score: int = 100,
     quarter: int = 4,
     clock: float = 120.0,
-) -> GameState:
-    return GameState(
+) -> GameSnapshot:
+    return GameSnapshot(
         home_score=home_score,
         away_score=away_score,
         quarter=quarter,

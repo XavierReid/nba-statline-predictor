@@ -201,7 +201,9 @@ class TestModifierAdjustmentsM3c:
 
 class TestDramaM3Preset:
     def test_drama_m3_has_all_m3c_toggles(self):
-        assert DRAMA_M3.use_catch_up is True
+        # use_catch_up was superseded by use_team_objectives (gap 3.1); garbage time stays
+        assert DRAMA_M3.use_team_objectives is True
+        assert DRAMA_M3.use_catch_up is False
         assert DRAMA_M3.use_garbage_time is True
 
     def test_drama_m3_inherits_m2_toggles(self):

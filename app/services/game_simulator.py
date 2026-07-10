@@ -14,7 +14,10 @@ from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameState, ModifierAdjustments, PlayerGameState
 from app.services.box_score import apply_event, empty_stats, snapshot_box
 from app.services.diagnostics import SimulationDiagnostics
-from app.services.late_game import build_context, possession_time_override, should_concede
+from app.services.late_game import (
+    build_context, derive_objective, objective_adjustments,
+    possession_time_override, should_concede,
+)
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
 from app.services.roster import load_roster
@@ -286,6 +289,8 @@ def simulate_game(
         from app.services.modifiers.clutch import ClutchModifier
         active_modifiers.append(ClutchModifier(cfg))
 
+    # use_catch_up kept only for isolation replays; use_team_objectives (below,
+    # computed inline per possession) supersedes it in DRAMA_M3.
     if cfg.use_clock and cfg.use_catch_up:
         from app.services.modifiers.catch_up import CatchUpModifier
         active_modifiers.append(CatchUpModifier(cfg))
@@ -486,6 +491,22 @@ def simulate_game(
                     poss_adjustments = ModifierAdjustments()
                     for mod in active_modifiers:
                         poss_adjustments = poss_adjustments + mod.get_adjustments(current_is_home, game_state)
+
+                # Team objective (gap 3.1): derive the offense's objective from game
+                # state, translate to behavior. First Behavior-Engine citizen — its
+                # pace_multiplier is auto-gated for endgame possessions by the guard below.
+                # A CONCEDED team (bench in via garbage rotation) is neutral: scrubs
+                # don't execute a protect/chase strategy. This makes objectives and
+                # garbage rotation mutually exclusive, which matches the non-monotonic
+                # real Q4 curve (peak compression at 11-20, eased at 21+ once benches enter).
+                offense_conceded = home_conceded if current_is_home else away_conceded
+                if cfg.use_team_objectives and not offense_conceded:
+                    margin = home_total - away_total
+                    off_margin = margin if current_is_home else -margin
+                    objective, intensity = derive_objective(
+                        off_margin > 0, abs(off_margin), quarter_clock, q_idx, cfg)
+                    obj_adj = objective_adjustments(objective, intensity, cfg)
+                    poss_adjustments = (poss_adjustments or ModifierAdjustments()) + obj_adj
 
                 # Apply pace_multiplier: quarter_clock was already reduced by poss_time above,
                 # so readjust the net clock consumption for the new pace. Endgame-paced

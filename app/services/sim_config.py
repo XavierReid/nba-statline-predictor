@@ -16,7 +16,8 @@ class SimConfig:
     use_clutch: bool = False          # clutch_rating boosts late close-game efficiency
     use_player_variance: bool = False # per-game form factor drawn from player-specific distribution
     use_team_oreb: bool = False       # per-team OREB% from TeamSeasonStats replaces flat 22% constant
-    use_catch_up: bool = False        # trailing team shifts pace/shot selection in late Q4
+    use_catch_up: bool = False        # DEPRECATED by use_team_objectives; kept for isolation replays
+    use_team_objectives: bool = False # Q4 objective shift (PROTECT/CHASE) drives late-game behavior
     use_garbage_time: bool = False    # large-lead late-game intensity reduction
     use_shot_subtypes: bool = False   # six sub-types instead of three coarse buckets
     use_contest_model: bool = False   # separates contest probability from contest impact
@@ -33,6 +34,21 @@ class SimConfig:
     endgame_urgency_time_std: float = 1.5
     endgame_milk_time_mean: float = 20.0     # leading offense — time over expected points
     endgame_milk_time_std: float = 2.0
+
+    # --- Q4 team objectives (gap 3.1; late_game.derive_objective/objective_adjustments) ---
+    # Behavior-first: selection + tempo only, efficiency emerges. Constants are
+    # calibrated against the measured Q4 transition deltas (SIMULATION_GAPS.md).
+    objective_min_margin: int = 6        # below this, both teams stay NEUTRAL (toss-up / one possession)
+    objective_full_margin: int = 20      # intensity maxes here
+    # PROTECT efficiency cost is the primary compression lever (behavior-first
+    # selection backfired — see late_game.objective_adjustments). Tuned against the
+    # measured Q4 transition deltas (SIMULATION_GAPS.md): steep ramp so 6-10 is barely
+    # touched (+1.16 real) while 11-20 compresses (-1.12 real).
+    protect_efficiency_cost: float = 0.06  # leading team: max shot-prob reduction (worse shots)
+    protect_three_shift: float = 0.06    # leading team: mild reduction in three rate (variance ↓)
+    chase_three_shift: float = 0.0       # trailing variance (off by default — costs efficiency here)
+    protect_pace_bonus: float = 0.10     # leading team: max +10% possession time (milk)
+    chase_pace_bonus: float = 0.10       # trailing team: max -10% possession time (hurry)
 
     # --- M3e tuning constants ---
     # Naively 0.055 / 0.22 = 0.25 would match the old flat rate for a league-average
@@ -125,7 +141,7 @@ DRAMA_M3 = SimConfig(
     use_clutch=True,
     use_player_variance=True,
     use_team_oreb=True,
-    use_catch_up=True,
+    use_team_objectives=True,
     use_garbage_time=True,
     use_shot_subtypes=True,
     use_contest_model=True,

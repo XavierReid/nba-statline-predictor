@@ -406,8 +406,9 @@ is absent. Matters for stat-line realism more than team-level calibration.
 
 ## Gap 3.1 — Q4 objective shift (identified 2026-07-08; the last calibration gap)
 
-**Status:** diagnosed — design pending
-**Owns:** blowout excess, close-game deficit, tie/OT deficit (all remaining calibration gaps)
+**Status:** IMPLEMENTED (2026-07-09) — Team Objectives; residual blowout re-attributed to
+signal_gain over-separation (see closure below)
+**Owns:** close-game deficit (improved), Q4 margin compression (fixed for 11-20)
 
 **Evidence trail:**
 1. Real line scores (1,190 games) show sim Q1-Q3 dispersion ≈ real basketball
@@ -428,10 +429,33 @@ possessions, conservative selection, fewer transition attempts); the trailer max
 possession count and variance. Frame as OBJECTIVES, not buffs/nerfs — decisions emerge
 from what each team is optimizing.
 
-**Pre-implementation requirement:** behavioral decomposition of leader vs trailer within
-each Q4 bucket (possession length, shot profile, TOV, OREB, foul rate, transition
-frequency, PPP) so the missing basketball decision is identified before any code.
-Calibration target: the measured transition deltas above.
+**Implementation (2026-07-09) — first Behavior-Engine citizen (ARCHITECTURE_ROADMAP.md):**
+`late_game.derive_objective` (game state → PROTECT/CHASE/NEUTRAL + intensity) and
+`objective_adjustments` (intention → behavior), replacing `CatchUpModifier`
+(`use_team_objectives`, on in DRAMA_M3). Intensity scales with margin and elapsed period.
+
+**Key findings during build:**
+- Behavior-first (shot-selection shift) BACKFIRED: cutting a protecting team's three rate
+  pushes shots into the mid/close split, and close = layups/dunks = the most efficient
+  shot — so "conservative" RAISED efficiency, opposite of real basketball. The engine's
+  coarse buckets can't express "worse late-clock shots" via selection. Per pre-authorized
+  fallback, PROTECT now carries an explicit clock-priority efficiency cost
+  (`protect_efficiency_cost`, shot_prob_delta < 0). CHASE stays tempo-only, efficiency-neutral.
+- Objectives and garbage rotation are mutually exclusive: a CONCEDED team (bench in) goes
+  NEUTRAL — scrubs don't run a strategy. This produces the real non-monotone curve (peak
+  compression at 11-20, eased at 21+ once benches enter).
+
+**Result (schedule replay + q4_diagnostics):** 11-20 transition delta −1.35 vs real −1.12
+(fixed, was −0.09); close-game rate 20.1% → 21.9%. Q4-bucket tuning is noise-limited on the
+fixed matchup set — parameters set at principled values, validated on the 1,225-game replay.
+
+**Residual blowout re-attributed:** blowout% stayed ~26.6 (real 22.9) because objectives
+move games within the 6-18 range, not the 20+ mass. The real driver is now the **top-10
+strength slope at 1.26** (was 0.88) — the FT fix + objectives stacked differentiation on
+top of `signal_gain=1.25`, so the engine over-separates teams. **Next lever: reduce
+signal_gain** (already flagged at the Attribute-v2 milestone). The 0-5 over-growth
+(+6.06 vs +3.35) is a separate close-game-volatility gap (no rubber-banding), out of
+objective scope.
 
 ## Change log
 

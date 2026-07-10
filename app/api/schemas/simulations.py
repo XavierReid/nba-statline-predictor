@@ -60,6 +60,8 @@ class SimConfigOverrides(BaseModel):
     use_endgame_pacing: Optional[bool] = None
     use_garbage_rotation: Optional[bool] = None
     use_lineup_quality: Optional[bool] = None
+    use_team_objectives: Optional[bool] = None
+    use_catch_up: Optional[bool] = None
     signal_gain: Optional[float] = Field(None, ge=0.5, le=3.0)
     oreb_chain_cap: Optional[int] = Field(None, ge=1, le=10)
     strategic_foul_probability: Optional[float] = Field(None, ge=0.0, le=1.0)

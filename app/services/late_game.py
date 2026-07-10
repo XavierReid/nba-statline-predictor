@@ -1,16 +1,25 @@
-"""Late-game context — one place that answers "is this an endgame possession?"
+"""Late-game context + team objectives — the first real domain concept.
 
 Every late-game mechanic (urgency pace, clock milking, strategic fouls, future
 timeout/inbound logic) consumes this context instead of scattering
 `clock <= X and margin <= Y` checks through the possession loop.
 
-Philosophy (SIMULATION_GAPS.md gap 1.2): model incentives, not outcomes. The
-trailing team values possessions over efficiency; the leading team values time
-over expected points. Compression emerges from both teams optimizing.
+Philosophy (SIMULATION_GAPS.md gap 1.2 / 3.1): teams have OBJECTIVES that change
+with game state, and basketball behavior is a consequence of the objective — not
+a pile of ad-hoc late-game buffs/nerfs. A leading team shifts toward win
+probability (values clock over points → conservative selection, milk tempo); a
+trailing team shifts toward comeback probability (values possessions/variance →
+more threes, faster tempo, efficiency-neutral). Margin compression emerges from
+the objective-driven behavior, not from directly editing make probabilities.
+This is the first Behavior-Engine citizen (ARCHITECTURE_ROADMAP.md stage C):
+derive intention from state, then translate intention → adjustments.
 """
 import random
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
+
+from app.services.modifiers.base import ModifierAdjustments
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,61 @@ def should_concede(
     return margin_abs >= cfg.concede_trailing_margin or (
         margin_abs >= cfg.garbage_time_margin
         and clock_seconds <= cfg.concede_trailing_clock
+    )
+
+
+class TeamObjective(str, Enum):
+    NEUTRAL = "neutral"   # maximize expected points — normal basketball
+    PROTECT = "protect"   # leading: value clock/win-probability over points
+    CHASE = "chase"       # trailing: value possessions/variance over efficiency
+
+
+def derive_objective(is_leading, margin_abs, clock_seconds, q_idx, cfg):
+    """Pure game-state → (TeamObjective, intensity in [0,1]). Q4/OT only.
+
+    Intensity rises with margin (a bigger lead is more decided) and as the
+    period elapses (coaches commit harder late). This is the INTENTION layer;
+    translation to concrete adjustments is a separate step (objective_adjustments),
+    so future systems (fatigue, coaching) can contribute to the intention before
+    it becomes probabilities.
+    """
+    if q_idx < 3 or margin_abs < cfg.objective_min_margin:
+        return TeamObjective.NEUTRAL, 0.0
+    span = max(1, cfg.objective_full_margin - cfg.objective_min_margin)
+    margin_factor = min(1.0, (margin_abs - cfg.objective_min_margin) / span)
+    period_len = 300.0 if q_idx >= 4 else 720.0
+    elapsed = max(0.0, min(1.0, (period_len - clock_seconds) / period_len))
+    intensity = margin_factor * (0.5 + 0.5 * elapsed)  # 0.5..1.0 of margin_factor
+    return (TeamObjective.PROTECT if is_leading else TeamObjective.CHASE), intensity
+
+
+def objective_adjustments(objective, intensity, cfg) -> "ModifierAdjustments":
+    """Translate an objective+intensity into behavior.
+
+    We first tried behavior-only (shot-selection + tempo, efficiency emerging). The
+    Q4 diagnostic disproved it for this engine: cutting a protecting team's three
+    rate pushes shots into the mid/close split, and close = layups/dunks = the most
+    efficient shot — so "conservative" RAISED efficiency, the opposite of real
+    basketball (conservative = worse late-clock shots). The compression mechanism is
+    therefore modeled explicitly: a PROTECT team milking clock takes lower-quality
+    shots (shot_prob_delta < 0). This is a consequence of the win-probability
+    objective, not an arbitrary nerf. CHASE stays efficiency-neutral urgency (tempo
+    only) — chasing teams offset rushed shots with transition and offensive glass.
+
+    Tempo (pace_multiplier) is auto-suppressed for endgame-window possessions by
+    the game loop (possession_time_override owns tempo there) — no gating needed here.
+    """
+    if objective == TeamObjective.NEUTRAL or intensity <= 0:
+        return ModifierAdjustments()
+    if objective == TeamObjective.PROTECT:
+        return ModifierAdjustments(
+            shot_prob_delta=-cfg.protect_efficiency_cost * intensity,   # clock-priority = worse shots
+            three_rate_override=-cfg.protect_three_shift * intensity,   # fewer threes (variance ↓)
+            pace_multiplier=1.0 + cfg.protect_pace_bonus * intensity,   # milk clock
+        )
+    return ModifierAdjustments(  # CHASE — efficiency-neutral urgency, tempo only
+        three_rate_override=cfg.chase_three_shift * intensity,         # variance ↑ (default 0)
+        pace_multiplier=1.0 - cfg.chase_pace_bonus * intensity,        # faster
     )
 
 

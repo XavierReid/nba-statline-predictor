@@ -4,6 +4,7 @@ import pytest
 
 from app.services.roster import player_variance
 from app.services.possession import OREB_RATE, resolve_possession
+from app.services.possession_context import make_context
 from app.services.sim_config import SimConfig, DRAMA_M3
 
 
@@ -118,11 +119,11 @@ class TestFormFactors:
         trials = 500
         for i in range(trials):
             rng = random.Random(i)
-            event_hot = resolve_possession(offense, defense, rng, form_factors=hot_factors)
+            event_hot = resolve_possession(make_context(offense, defense, rng, form_factors=hot_factors))
             if event_hot.get("made"):
                 hot_makes += 1
             rng2 = random.Random(i)
-            event_cold = resolve_possession(offense, defense, rng2, form_factors=cold_factors)
+            event_cold = resolve_possession(make_context(offense, defense, rng2, form_factors=cold_factors))
             if event_cold.get("made"):
                 cold_makes += 1
 
@@ -139,9 +140,9 @@ class TestFormFactors:
         makes_empty = 0
         for i in range(200):
             rng1 = random.Random(i)
-            e1 = resolve_possession(offense, defense, rng1, form_factors=None)
+            e1 = resolve_possession(make_context(offense, defense, rng1, form_factors=None))
             rng2 = random.Random(i)
-            e2 = resolve_possession(offense, defense, rng2, form_factors={})
+            e2 = resolve_possession(make_context(offense, defense, rng2, form_factors={}))
             if e1.get("made"):
                 makes_none += 1
             if e2.get("made"):
@@ -165,12 +166,12 @@ class TestTeamOrebProfiles:
         trials = 1000
         for i in range(trials):
             rng = random.Random(i)
-            event = resolve_possession(offense, defense, rng, offense_oreb_rate=0.40)
+            event = resolve_possession(make_context(offense, defense, rng, offense_oreb_rate=0.40))
             if event.get("is_oreb"):
                 high_orebs += 1
 
             rng2 = random.Random(i)
-            event2 = resolve_possession(offense, defense, rng2, offense_oreb_rate=0.10)
+            event2 = resolve_possession(make_context(offense, defense, rng2, offense_oreb_rate=0.10))
             if event2.get("is_oreb"):
                 low_orebs += 1
 
@@ -186,10 +187,10 @@ class TestTeamOrebProfiles:
         orebs_explicit = 0
         for i in range(300):
             rng1 = random.Random(i)
-            if resolve_possession(offense, defense, rng1).get("is_oreb"):
+            if resolve_possession(make_context(offense, defense, rng1)).get("is_oreb"):
                 orebs_default += 1
             rng2 = random.Random(i)
-            if resolve_possession(offense, defense, rng2, offense_oreb_rate=OREB_RATE).get("is_oreb"):
+            if resolve_possession(make_context(offense, defense, rng2, offense_oreb_rate=OREB_RATE)).get("is_oreb"):
                 orebs_explicit += 1
 
         assert orebs_default == orebs_explicit

@@ -216,34 +216,41 @@ def describe_event(event: dict, name_map: dict) -> str:
     return desc
 
 
-def resolve_possession(
-    offense: list[dict],
-    defense: list[dict],
-    rng: random.Random,
-    home_bonus: float = 0.0,
-    name_map: Optional[dict] = None,
-    team_defense_factor: float = 1.0,
-    is_fastbreak: bool = False,
-    adjustments: Optional[ModifierAdjustments] = None,
-    form_factors: Optional[Dict[int, float]] = None,
-    offense_oreb_rate: float = OREB_RATE,
-    use_shot_subtypes: bool = False,
-    use_contest_model: bool = False,
-    use_positional_matchups: bool = False,
-    use_foul_drawing: bool = False,
-    foul_draw_scale: float = 0.19,  # keep in sync with SimConfig.foul_draw_scale
-    signal_gain: float = 1.0,       # keep in sync with SimConfig.signal_gain
-    quarter: int = 1,
-    clock_seconds: float = 720.0,
-    score_margin: int = 0,
-    foul_draw_late_zone1_clock: int = 120,
-    foul_draw_late_zone1_margin: int = 8,
-    foul_draw_late_zone1_mult: float = 1.3,
-    foul_draw_late_zone2_clock: int = 60,
-    foul_draw_late_zone2_margin: int = 5,
-    foul_draw_late_zone2_mult: float = 1.8,
-) -> dict:
-    """Simulate one possession and return an event dict."""
+def resolve_possession(ctx: "PossessionContext") -> dict:
+    """Simulate one possession and return an event dict.
+
+    Consumes a PossessionContext (the possession's starting STATE). Fields are
+    unpacked below into the same local names the body uses, so the resolution
+    logic is unchanged — this is the behavior-neutral Stage A extraction. Static
+    config reads come straight from ctx.cfg (single source of truth; the old
+    per-param "keep in sync with SimConfig" threading is gone).
+    """
+    offense = ctx.offense
+    defense = ctx.defense
+    rng = ctx.rng
+    home_bonus = ctx.home_bonus
+    name_map = ctx.name_map
+    team_defense_factor = ctx.team_defense_factor
+    is_fastbreak = ctx.is_fastbreak
+    adjustments = ctx.adjustments
+    form_factors = ctx.form_factors
+    offense_oreb_rate = ctx.offense_oreb_rate
+    quarter = ctx.quarter
+    clock_seconds = ctx.clock_seconds
+    score_margin = ctx.score_margin
+    cfg = ctx.cfg
+    use_shot_subtypes = cfg.use_shot_subtypes
+    use_contest_model = cfg.use_contest_model
+    use_positional_matchups = cfg.use_positional_matchups
+    use_foul_drawing = cfg.use_foul_drawing
+    foul_draw_scale = cfg.foul_draw_scale
+    signal_gain = cfg.signal_gain
+    foul_draw_late_zone1_clock = cfg.foul_draw_late_zone1_clock
+    foul_draw_late_zone1_margin = cfg.foul_draw_late_zone1_margin
+    foul_draw_late_zone1_mult = cfg.foul_draw_late_zone1_mult
+    foul_draw_late_zone2_clock = cfg.foul_draw_late_zone2_clock
+    foul_draw_late_zone2_margin = cfg.foul_draw_late_zone2_margin
+    foul_draw_late_zone2_mult = cfg.foul_draw_late_zone2_mult
     def _done(r: dict) -> dict:
         if name_map is not None:
             r["description"] = describe_event(r, name_map)

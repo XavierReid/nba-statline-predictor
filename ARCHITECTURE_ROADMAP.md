@@ -52,15 +52,22 @@ maintainability 6.5-7/10 (trending down as modifiers accumulate).
 
 ## Staged extraction plan (ordered by value, not by ease)
 
-### Stage A — PossessionContext (highest priority)
-The biggest missing abstraction. `resolve_possession` already takes ~19 parameters and
-grows every milestone. Build an immutable `PossessionContext` holding everything the
-engine knows about a possession: score/margin, quarter, clock, possession number,
-offense/defense units, ball handler, primary defender, lineups, momentum/fatigue/foul
-state, garbage-time state, Q4 objective, transition state, OREB chain, home court,
-active modifiers, RNG. Downstream systems read from it; adding a feature stops changing
-signatures. **Migration style:** wrap the existing param list first, behavior-neutral,
-replay-verified — then move fields onto it incrementally.
+### Stage A — PossessionContext ✅ DONE (2026-07-09)
+`resolve_possession` had grown to **25 parameters** (15 were `cfg.foo` passthroughs with
+"keep in sync with SimConfig" comments — the coupling smell). Built an immutable
+`PossessionContext` (`app/services/possession_context.py`) holding the possession's
+starting STATE only — offense/defense units, score margin, clock, quarter, pre-combined
+`adjustments`, `cfg`, RNG. `resolve_possession(ctx)` unpacks fields into the same locals,
+so the body is untouched (behavior-neutral: full suite green + replay identical to
+`demoable-v1`). `cfg` stays the single source of static config (not copied onto the
+context). Canonical builder `make_context()` routes overrides to cfg-vs-state by field
+name — one construction path for production and tests.
+
+**State/decision boundary established (deliberately):** the context holds only what
+exists when a possession begins. DECISIONS produced during resolution — ball handler,
+primary defender, shot sub-type, contest level, shot quality, outcome — do NOT go on the
+context. They become their own domain objects (Action, Matchup, ShotQuality, Outcome) in
+stages B/D. This keeps later pipeline splits clean.
 
 ### Stage B — GameState (persistent, owns the sim)
 Score, clock, period, possession count, fouls, (eventually) timeouts, momentum,

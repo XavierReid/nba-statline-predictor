@@ -20,6 +20,7 @@ from app.services.late_game import (
 )
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
+from app.services.possession_context import make_context
 from app.services.roster import load_roster
 from app.services.rotation import (
     GAME_MINUTES, MODE_GARBAGE, MODE_SCHEDULED,
@@ -190,29 +191,20 @@ def simulate_game(
 
         home_bonus = HOME_ADVANTAGE / expected_possessions if is_home else 0.0
         offense_oreb = home_oreb_rate if is_home else away_oreb_rate
-        event = resolve_possession(
-            offense, defense, rng, home_bonus, name_map,
+        ctx = make_context(
+            offense, defense, rng, cfg=cfg,
+            adjustments=adjustments if adjustments is not None else ModifierAdjustments(),
+            home_bonus=home_bonus,
+            name_map=name_map,
             team_defense_factor=team_defense_factor,
             is_fastbreak=is_fastbreak,
-            adjustments=adjustments,
             form_factors=form_factors if form_factors else None,
             offense_oreb_rate=offense_oreb,
-            use_shot_subtypes=cfg.use_shot_subtypes,
-            use_contest_model=cfg.use_contest_model,
-            use_positional_matchups=cfg.use_positional_matchups,
-            use_foul_drawing=cfg.use_foul_drawing,
-            foul_draw_scale=cfg.foul_draw_scale,
-            signal_gain=cfg.signal_gain,
             quarter=current_q_idx + 1,
             clock_seconds=quarter_clock,
             score_margin=home_total - away_total if is_home else away_total - home_total,
-            foul_draw_late_zone1_clock=cfg.foul_draw_late_zone1_clock,
-            foul_draw_late_zone1_margin=cfg.foul_draw_late_zone1_margin,
-            foul_draw_late_zone1_mult=cfg.foul_draw_late_zone1_mult,
-            foul_draw_late_zone2_clock=cfg.foul_draw_late_zone2_clock,
-            foul_draw_late_zone2_margin=cfg.foul_draw_late_zone2_margin,
-            foul_draw_late_zone2_mult=cfg.foul_draw_late_zone2_mult,
         )
+        event = resolve_possession(ctx)
 
         pts, fouled_out_pid = apply_event(box, event)
 

@@ -7,6 +7,7 @@ and Drama M1/M2 possession-flow modifiers.
 import pytest
 from unittest.mock import MagicMock
 from app.services.game_simulator import simulate_game, resolve_possession, OREB_RATE
+from app.services.possession_context import make_context
 from app.services.sim_config import SimConfig, DRAMA_M1, DRAMA_M2
 from app.services.modifiers.base import GameState, ModifierAdjustments
 from app.services.modifiers.momentum import MomentumModifier
@@ -336,9 +337,9 @@ def test_fast_break_only_on_is_fastbreak_flag():
     shot_types_fb = []
     shot_types_hc = []
     for i in range(300):
-        r = resolve_possession(offense, defense, _rng(i), is_fastbreak=True)
+        r = resolve_possession(make_context(offense, defense, _rng(i), is_fastbreak=True))
         shot_types_fb.append(r.get("shot_type"))
-        r2 = resolve_possession(offense, defense, _rng(i + 10000), is_fastbreak=False)
+        r2 = resolve_possession(make_context(offense, defense, _rng(i + 10000), is_fastbreak=False))
         shot_types_hc.append(r2.get("shot_type"))
 
     # Fast break weights: [5% three, 10% mid, 85% close]; half-court is balanced
@@ -497,7 +498,7 @@ def test_momentum_does_not_affect_steal_check():
     for _ in range(200):
         # Large positive tov_prob_delta — increases raw turnover rate, not steal rate
         adj = ModifierAdjustments(shot_prob_delta=0.0, tov_prob_delta=0.10)
-        event = resolve_possession(offense, defense, rng, adjustments=adj)
+        event = resolve_possession(make_context(offense, defense, rng, adjustments=adj))
         if event.get("steal_by") is not None:
             steal_count += 1
 

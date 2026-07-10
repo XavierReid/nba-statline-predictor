@@ -7,6 +7,7 @@ from app.services.possession import (
     _LEAGUE_AVG_FOUL_DRAW_RATE,
     resolve_possession,
 )
+from app.services.possession_context import make_context
 from app.services.rating_engine import compute_tendencies
 from app.services.sim_config import DRAMA_M3, DRAMA_M3_NO_SUBTYPES, SimConfig
 
@@ -31,7 +32,7 @@ def _bonus_foul_rate(offense, n=8000, seed=42, **kwargs):
     defense = [_player(pid=99)]
     count = 0
     for _ in range(n):
-        e = resolve_possession(offense, defense, rng, **kwargs)
+        e = resolve_possession(make_context(offense, defense, rng, **kwargs))
         if e["fta"] > 0 and e["shot_type"] is None and e["turnover_by"] is None:
             count += 1
     return count / n
@@ -43,7 +44,7 @@ def _shooting_foul_rate(offense, n=8000, seed=42, **kwargs):
     defense = [_player(pid=99)]
     shots, fouls = 0, 0
     for _ in range(n):
-        e = resolve_possession(offense, defense, rng, **kwargs)
+        e = resolve_possession(make_context(offense, defense, rng, **kwargs))
         if e["shot_type"] is not None:
             shots += 1
             if e["fta"] > 0:

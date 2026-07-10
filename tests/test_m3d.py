@@ -14,6 +14,7 @@ from app.services.possession import (
     attr_to_prob,
     resolve_possession,
 )
+from app.services.possession_context import make_context
 from app.services.sim_config import DRAMA_M3, DRAMA_M3_NO_SUBTYPES, SimConfig
 
 
@@ -68,7 +69,7 @@ def _team(position: str = "G", n: int = 5, base_pid: int = 1) -> list:
 def _sim(n: int, offense: list, defense: list, seed: int = 0, **kwargs) -> list:
     """Run n possessions and collect events."""
     rng = random.Random(seed)
-    return [resolve_possession(offense, defense, rng, **kwargs) for _ in range(n)]
+    return [resolve_possession(make_context(offense, defense, rng, **kwargs)) for _ in range(n)]
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ class TestShotAttributes:
 
         defense = _team("C", base_pid=10)
         events = [
-            resolve_possession([player], defense, rng, use_shot_subtypes=True)
+            resolve_possession(make_context([player], defense, rng, use_shot_subtypes=True))
             for _ in range(n)
         ]
         shots = [e for e in events if e["shot_type"] == sub_type_override]
@@ -230,7 +231,7 @@ class TestBlockEligibility:
         # Elite blocker on defense
         defense = [_player(pid=10, pos="C", block=99)]
         events = [
-            resolve_possession([player], defense, rng, use_shot_subtypes=True)
+            resolve_possession(make_context([player], defense, rng, use_shot_subtypes=True))
             for _ in range(n)
         ]
         return sum(1 for e in events if e.get("block_by") is not None) / n
@@ -257,7 +258,7 @@ class TestPositionalMatchups:
                        dunk_rate=0.0, floater_rate=0.0)]
         defs = [_player(pid=10 + i, pos=p) for i, p in enumerate(defense_positions)]
         events = [
-            resolve_possession(off, defs, rng, use_positional_matchups=True)
+            resolve_possession(make_context(off, defs, rng, use_positional_matchups=True))
             for _ in range(n)
         ]
         # Collect which defender id was matched (from fouled_by or block_by or just infer)
@@ -276,7 +277,7 @@ class TestPositionalMatchups:
                              dunk_rate=0.0, floater_rate=0.0)]
         defense = [_player(pid=10, pos="G"), _player(pid=11, pos="C")]
         events = [
-            resolve_possession(guard_off, defense, rng, use_positional_matchups=True)
+            resolve_possession(make_context(guard_off, defense, rng, use_positional_matchups=True))
             for _ in range(1000)
         ]
         # fouled_by on shooting fouls comes from the matched defender
@@ -292,7 +293,7 @@ class TestPositionalMatchups:
                            dunk_rate=1.0, floater_rate=0.0)]
         guard_def = _team("G", n=5, base_pid=10)
         events = [
-            resolve_possession(big_off, guard_def, rng, use_positional_matchups=True)
+            resolve_possession(make_context(big_off, guard_def, rng, use_positional_matchups=True))
             for _ in range(200)
         ]
         shots = [e for e in events if e.get("shot_type")]
@@ -309,8 +310,8 @@ class TestContestModel:
         off = [_player(pid=1, pos="G", three_point_rate=1.0, **offense_kwargs)]
         defs = [_player(pid=10, pos="G", perimeter_defense=def_rating)]
         events = [
-            resolve_possession(off, defs, rng,
-                               use_shot_subtypes=True, use_contest_model=True)
+            resolve_possession(make_context(off, defs, rng,
+                               use_shot_subtypes=True, use_contest_model=True))
             for _ in range(n)
         ]
         shots = [e for e in events if e.get("shot_type")]
@@ -333,8 +334,8 @@ class TestContestModel:
         def fg_pct(defense, n=2000):
             r = random.Random(42)
             events = [
-                resolve_possession(off, defense, r,
-                                   use_shot_subtypes=True, use_contest_model=True)
+                resolve_possession(make_context(off, defense, r,
+                                   use_shot_subtypes=True, use_contest_model=True))
                 for _ in range(n)
             ]
             shots = [e for e in events if e.get("shot_type") == "dunk"]
@@ -353,7 +354,7 @@ class TestFlagNoOps:
         rng = random.Random(42)
         off = _team("G")
         defs = _team("G", base_pid=10)
-        events = [resolve_possession(off, defs, rng, use_shot_subtypes=False) for _ in range(500)]
+        events = [resolve_possession(make_context(off, defs, rng, use_shot_subtypes=False)) for _ in range(500)]
         shot_types = {e["shot_type"] for e in events if e.get("shot_type")}
         assert shot_types <= {"three", "mid", "close"}
 
@@ -361,14 +362,14 @@ class TestFlagNoOps:
         rng = random.Random(42)
         off = _team("G")
         defs = _team("C", base_pid=10)
-        events = [resolve_possession(off, defs, rng, use_positional_matchups=False) for _ in range(200)]
+        events = [resolve_possession(make_context(off, defs, rng, use_positional_matchups=False)) for _ in range(200)]
         assert len(events) == 200
 
     def test_contest_model_off_no_crash(self):
         rng = random.Random(42)
         off = _team("G")
         defs = _team("G", base_pid=10)
-        events = [resolve_possession(off, defs, rng, use_contest_model=False) for _ in range(200)]
+        events = [resolve_possession(make_context(off, defs, rng, use_contest_model=False)) for _ in range(200)]
         assert len(events) == 200
 
 
@@ -388,7 +389,7 @@ class TestShotDistribution:
         ]
         defs = _team("G", n=5, base_pid=10)
         events = [
-            resolve_possession(off, defs, rng, use_shot_subtypes=True)
+            resolve_possession(make_context(off, defs, rng, use_shot_subtypes=True))
             for _ in range(n)
         ]
         shots = [e for e in events if e.get("shot_type")]

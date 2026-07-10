@@ -94,11 +94,12 @@ class SimConfig:
     catch_up_clock_frac: float = 0.0026 # measured 2026-07-07: +7.4s/game saved = 0.26% of regulation clock
     # Stage B signal gain — stretches each shot's deviation from the measured
     # league-average make probability for its sub-type (possession.py _LEAGUE_AVG_MAKE).
-    # 1.25 chosen from the 2026-07-08 replay sweep (1.0/1.25/1.5/1.75): hits the
-    # top-10 strength-slope target (0.88) with the least amplification, leaving
-    # headroom rather than calibrating around missing late-game mechanics (gap 1.2).
-    # Sweep at 1.5 → slope 0.96, 1.75 → 1.10 (over). Scoring/home-win neutral at all gains.
-    signal_gain: float = 1.25
+    # Re-swept 2026-07-09 after the FT-observation fix and Q4 objectives added their own
+    # differentiation: at 1.25 the top-10 strength slope had climbed to 1.26 (over). 1.0
+    # (no amplification — the raw pipeline) now gives slope 1.07 and close-game rate 23.2%
+    # (real 24.5). Blowout% is invariant to gain here, confirming the residual is
+    # mid-game dispersion, not team over-separation. Sweep: 1.10→slope 1.20, 1.15→1.25.
+    signal_gain: float = 1.0
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05

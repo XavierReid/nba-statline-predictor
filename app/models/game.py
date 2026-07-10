@@ -28,6 +28,18 @@ class Game(Base):
         String(16), nullable=False, default=GameStatus.SCHEDULED
     )
 
+    # Quarter line scores (calibration dataset — real margin-walk/dispersion targets)
+    home_q1: Mapped[Optional[int]] = mapped_column(Integer)
+    home_q2: Mapped[Optional[int]] = mapped_column(Integer)
+    home_q3: Mapped[Optional[int]] = mapped_column(Integer)
+    home_q4: Mapped[Optional[int]] = mapped_column(Integer)
+    home_ot: Mapped[Optional[int]] = mapped_column(Integer)   # all OT periods summed
+    away_q1: Mapped[Optional[int]] = mapped_column(Integer)
+    away_q2: Mapped[Optional[int]] = mapped_column(Integer)
+    away_q3: Mapped[Optional[int]] = mapped_column(Integer)
+    away_q4: Mapped[Optional[int]] = mapped_column(Integer)
+    away_ot: Mapped[Optional[int]] = mapped_column(Integer)
+
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id], lazy="joined")
     away_team: Mapped[Team] = relationship(foreign_keys=[away_team_id], lazy="joined")
 

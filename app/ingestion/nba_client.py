@@ -273,6 +273,30 @@ def fetch_defense_stats(season: str) -> dict[int, dict]:
     return out
 
 
+def fetch_line_score(game_id: str) -> dict:
+    """Per-quarter scores for one game: {team_id: {"q": [q1..q4], "ot": total}}.
+
+    Empty dict when the API has no line score (some seasons lack coverage).
+    """
+    from nba_api.stats.endpoints import boxscoresummaryv2
+
+    rows = boxscoresummaryv2.BoxScoreSummaryV2(
+        game_id=str(game_id), headers=CUSTOM_HEADERS, timeout=60
+    ).get_normalized_dict()['LineScore']
+    time.sleep(_RATE_LIMIT_DELAY)
+
+    out: dict = {}
+    for row in rows:
+        if row.get('PTS_QTR1') is None:
+            continue
+        ot = sum(row.get(f'PTS_OT{i}') or 0 for i in range(1, 11))
+        out[row['TEAM_ID']] = {
+            'q': [row['PTS_QTR1'], row['PTS_QTR2'], row['PTS_QTR3'], row['PTS_QTR4']],
+            'ot': ot,
+        }
+    return out
+
+
 def fetch_box_score(game_id: int) -> list[dict]:
     """Pull per-player box scores for a single game."""
     # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2

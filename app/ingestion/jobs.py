@@ -187,6 +187,46 @@ def ingest_shot_defense(db: Session, season: str) -> int:
     return count
 
 
+def ingest_line_scores(db: Session, season_prefix: str) -> int:
+    """Backfill per-quarter scores onto final games (resume-safe: skips games
+    already populated). season_prefix e.g. '00224' for 2024-25.
+
+    One API call per game (~0.7s each) — run in the background for full seasons.
+    """
+    from sqlalchemy import select
+    from app.models.game import Game
+
+    games = db.execute(
+        select(Game).where(
+            Game.id.like(f"{season_prefix}%"),
+            Game.status == "final",
+            Game.home_q1.is_(None),
+        ).order_by(Game.id)
+    ).scalars().all()
+
+    done = missing = 0
+    for i, g in enumerate(games):
+        try:
+            ls = nba_client.fetch_line_score(g.id)
+        except Exception as exc:
+            log.warning("line score fetch failed for %s: %s", g.id, exc)
+            continue
+        if g.home_team_id not in ls or g.away_team_id not in ls:
+            missing += 1
+            continue
+        h, a = ls[g.home_team_id], ls[g.away_team_id]
+        g.home_q1, g.home_q2, g.home_q3, g.home_q4 = h["q"]
+        g.away_q1, g.away_q2, g.away_q3, g.away_q4 = a["q"]
+        g.home_ot, g.away_ot = h["ot"], a["ot"]
+        done += 1
+        if i % 25 == 24:
+            db.commit()
+            log.info("line scores: %d/%d", i + 1, len(games))
+    db.commit()
+    log.info("ingest_line_scores: %d updated, %d missing", done, missing)
+    return done
+
+
 def seed_player_attributes(db: Session, season: str) -> int:
     """Derive PlayerAttributes and PlayerTendencies from PlayerSeasonStats."""
     from sqlalchemy import select

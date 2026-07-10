@@ -449,13 +449,23 @@ from what each team is optimizing.
 (fixed, was −0.09); close-game rate 20.1% → 21.9%. Q4-bucket tuning is noise-limited on the
 fixed matchup set — parameters set at principled values, validated on the 1,225-game replay.
 
-**Residual blowout re-attributed:** blowout% stayed ~26.6 (real 22.9) because objectives
-move games within the 6-18 range, not the 20+ mass. The real driver is now the **top-10
-strength slope at 1.26** (was 0.88) — the FT fix + objectives stacked differentiation on
-top of `signal_gain=1.25`, so the engine over-separates teams. **Next lever: reduce
-signal_gain** (already flagged at the Attribute-v2 milestone). The 0-5 over-growth
-(+6.06 vs +3.35) is a separate close-game-volatility gap (no rubber-banding), out of
-objective scope.
+**Residual blowout re-attributed (RESOLVED the attribution):** blowout% stayed ~26 because
+objectives move games within the 6-18 range, not the 20+ mass. Signal-gain re-sweep
+(2026-07-09) settled it: gain 1.0 restores slope 1.07 and close% 23.2, but **blowout% is
+invariant to gain (~26 at 1.0/1.10/1.15/1.25)** — so blowout is NOT team over-separation.
+
+---
+
+## Gap 3.2 — Mid-game dispersion / games blowing open (OPEN — next calibration target)
+
+**Status:** open — owns the residual blowout excess (26 vs 22.9)
+**Evidence:** measured Q2/Q3 dispersion runs slightly hot (Q2 sim 9.89 vs real 9.21, Q3
+12.18 vs 11.58); blowout% invariant to signal_gain, so it is not team separation. The 0-5
+Q4 over-growth (+6.06 vs +3.35 — no close-game rubber-banding) is likely the same root:
+the sim lacks mean-reversion within a game, so mid-game runs over-extend. Candidate
+mechanisms: a mild negative-feedback / run-stopper (timeout-like), or momentum tuning.
+**Do not start** until instrumented the same way Q4 was (measure which quarters/game-states
+create the over-extension before adding a mechanic).
 
 ## Change log
 

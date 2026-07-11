@@ -103,33 +103,60 @@ behavioral redesign (the Q4 work proved intention→outcome mapping is non-trivi
 can't be proven neutral — it comes later, one source at a time, each measured. This pass
 delivered the structural pipeline only.
 
-### Stage D — Decision layers (action selection pipeline)
-`select_action(context) → resolve_matchup(context) → evaluate_shot(action, matchup) →
-resolve_outcome(quality) → apply_post_possession(...)`. Each function can initially wrap
-existing code (behavior zero-change). Coaching tendencies, fatigue, momentum, archetypes
-then influence *decisions before the shot*, not make-probabilities after.
+### Stage D — Decision pipeline — THE LAST FOUNDATIONAL ARCHITECTURE MILESTONE
+Make the basketball engine **readable and ownable**, not just extensible. Today
+`resolve_possession()` performs every basketball decision in one long function; the stages
+below already exist *implicitly* inside it (ball-handler → defender → shot-type → contest
+→ outcome are literally sequential steps). Extracting them introduces NO new behavior — it
+makes the decision process **visible**, organized by basketball concept:
 
-### Stage E — Team Identity as first-class
-The biggest basketball realism jump: teams differ because their *offense* differs (pace,
-philosophy, action mix), not only because their players differ. Slots into the decision
-layer.
+```
+GameState → PossessionContext
+  → select_action()        # who acts, what action is attempted
+  → resolve_matchup()      # defender / assignment
+  → evaluate_shot()        # shot quality / difficulty / contest
+  → resolve_outcome()      # made/missed, foul, block, rebound
+  → apply_post_possession_updates()
+```
 
-### Stage F — EffectivePlayer / PlayerProfile split
-Immutable profile + per-possession effective player (fatigue/momentum/form/foul-trouble
-applied). Scheduled with fatigue/archetype work where it earns its keep — NOT urgent
-today because modifiers don't mutate player dicts yet.
+**The goal is comprehension, not future-proofing.** Success test for any extraction:
+*can you understand that basketball decision by opening one file, without tracing the
+rest?* The win holds even if no feature ever follows. That said, the seams also give every
+future feature an obvious home — coaching / Team Identity / fatigue → `select_action()`;
+defensive schemes / switching → `resolve_matchup()`; momentum / confidence / contest /
+difficulty → `evaluate_shot()`; fouls / blocks / rebounds / made-miss → `resolve_outcome()`.
 
-### Stage G — Domain namespaces (LAST)
-Reorganize into `state/ behavior/ decision/ resolution/ rotation/ calibration/ data/
-simulation/`. Deliberately last: moving files is the cheapest-looking, least-valuable
-part — do it once the abstractions exist and have settled.
+**Discipline (same as A/B/C):** pure behavior-neutral wraps of existing logic, proven by
+replay identical to the frozen baseline. The moment a stage drifts from "wrap the existing
+step" into "redesign the step" (e.g. rework shot quality), it is a FEATURE needing
+calibration validation — not part of this refactor.
 
-## How this merges with calibration work
+---
+**The stages below are NOT architecture-refactor work — they are feature layers with their
+own calibration loops. Do not "finish" them as part of the foundational architecture. Let
+calibration needs (the Calibration Frontier in SIMULATION_GAPS.md) pull them.**
 
-These extractions interleave with basketball milestones rather than blocking them. The
-active Q4 objective rebalance is the **first Behavior Engine citizen** (Stage C): instead
-of patching the catch-up modifier, introduce a `TeamObjective`
-(maximize-efficiency / protect-lead / chase) derived from game state that feeds
-intention-level adjustments. It delivers the calibration milestone *and* lays the first
-architectural brick — no throwaway work. Recommended order: Q4 objective (C-flavored) →
-PossessionContext (A) → GameState (B) → full pipeline (C/D) → identity (E) → namespaces (G).
+### Stage E — Team Identity (FEATURE, not refactor)
+Teams differ because their *offense* differs (pace, philosophy, action mix), not only
+their players. This is a new behavioral system with its own measure/validate loop; it
+slots into `select_action()` once Stage D exists. Belongs in the calibration/feature
+stream, demand-driven.
+
+### Stage F — EffectivePlayer / PlayerProfile split (DEMAND-DRIVEN)
+Immutable profile + per-possession effective player (fatigue/momentum/form applied). NOT
+urgent — modifiers don't mutate player dicts today. Do it when fatigue/archetype work
+actually needs it, not speculatively.
+
+### Stage G — Domain namespaces (TRIVIAL — whenever)
+Reorganize existing files into `state/ behavior/ decision/ resolution/ rotation/
+calibration/ data/ simulation/`. Cheap, low-value churn; do it once the abstractions have
+settled. New files are already born in the right package (e.g. `behavior/`).
+
+## Sequencing (2026-07-09)
+
+Foundational architecture = A, B, C, **D** — the pure structural refactors. A/B/C done; D
+is the last one. E/F/G are NOT foundational: E is a feature, F is demand-driven, G is
+trivial. Recommended path: **finish gap 3.2 (closes game-outcome distributions) → Stage D
+(the readability milestone) → reassess.** After D, resume the Calibration Frontier
+(3.3 OT, 3.4 player realism, 3.5 box-score, 3.6 lead changes); Team Identity enters there
+as a feature. Do not build E/F ahead of a real need.

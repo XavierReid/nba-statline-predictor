@@ -15,9 +15,9 @@ from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, Playe
 from app.services.box_score import apply_event, empty_stats, snapshot_box
 from app.services.diagnostics import SimulationDiagnostics
 from app.services.game_state import GameState
+from app.services.behavior.pipeline import BehaviorPipeline
 from app.services.late_game import (
-    build_context, derive_objective, objective_adjustments,
-    possession_time_override, should_concede,
+    build_context, possession_time_override, should_concede,
 )
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
 from app.services.possession import OREB_RATE, describe_event, resolve_possession
@@ -251,40 +251,7 @@ def simulate_game(
         for p in away_players
     }
 
-    active_modifiers: list = []
-    if cfg.use_clock and cfg.use_momentum:
-        from app.services.modifiers.momentum import MomentumModifier
-        home_composure = (
-            sum(p["overall"] for p in home_players) / len(home_players) / 100.0
-            if home_players else 0.75
-        )
-        away_composure = (
-            sum(p["overall"] for p in away_players) / len(away_players) / 100.0
-            if away_players else 0.75
-        )
-        active_modifiers.append(MomentumModifier(cfg, home_composure, away_composure))
-
-    if cfg.use_clock and cfg.use_fatigue:
-        from app.services.modifiers.fatigue import FatigueModifier
-        active_modifiers.append(FatigueModifier(cfg))
-
-    if cfg.use_clock and cfg.use_foul_trouble:
-        from app.services.modifiers.foul_trouble import FoulTroubleModifier
-        active_modifiers.append(FoulTroubleModifier(cfg))
-
-    if cfg.use_clock and cfg.use_clutch:
-        from app.services.modifiers.clutch import ClutchModifier
-        active_modifiers.append(ClutchModifier(cfg))
-
-    # use_catch_up kept only for isolation replays; use_team_objectives (below,
-    # computed inline per possession) supersedes it in DRAMA_M3.
-    if cfg.use_clock and cfg.use_catch_up:
-        from app.services.modifiers.catch_up import CatchUpModifier
-        active_modifiers.append(CatchUpModifier(cfg))
-
-    if cfg.use_clock and cfg.use_garbage_time:
-        from app.services.modifiers.garbage_time import GarbageTimeModifier
-        active_modifiers.append(GarbageTimeModifier(cfg))
+    behavior = BehaviorPipeline(cfg, home_players, away_players)
 
     ot_period = 0
     # Per-team concession state (hysteresis lives in late_game.should_concede)
@@ -471,29 +438,13 @@ def simulate_game(
                     possession_number=gs.possession_number,
                     home_players=active_home_gs,
                     away_players=active_away_gs,
+                    home_conceded=gs.home_conceded,
+                    away_conceded=gs.away_conceded,
                 )
 
-                poss_adjustments: Optional[ModifierAdjustments] = None
-                if active_modifiers:
-                    poss_adjustments = ModifierAdjustments()
-                    for mod in active_modifiers:
-                        poss_adjustments = poss_adjustments + mod.get_adjustments(current_is_home, game_state)
-
-                # Team objective (gap 3.1): derive the offense's objective from game
-                # state, translate to behavior. First Behavior-Engine citizen — its
-                # pace_multiplier is auto-gated for endgame possessions by the guard below.
-                # A CONCEDED team (bench in via garbage rotation) is neutral: scrubs
-                # don't execute a protect/chase strategy. This makes objectives and
-                # garbage rotation mutually exclusive, which matches the non-monotonic
-                # real Q4 curve (peak compression at 11-20, eased at 21+ once benches enter).
-                offense_conceded = gs.home_conceded if current_is_home else gs.away_conceded
-                if cfg.use_team_objectives and not offense_conceded:
-                    margin = gs.home_score - gs.away_score
-                    off_margin = margin if current_is_home else -margin
-                    objective, intensity = derive_objective(
-                        off_margin > 0, abs(off_margin), quarter_clock, q_idx, cfg)
-                    obj_adj = objective_adjustments(objective, intensity, cfg)
-                    poss_adjustments = (poss_adjustments or ModifierAdjustments()) + obj_adj
+                # All behavior sources (momentum, fatigue, clutch, garbage time, the
+                # Q4 objective, ...) combine here — one owner, no inline special cases.
+                poss_adjustments = behavior.adjustments(current_is_home, game_state)
 
                 # Apply pace_multiplier: quarter_clock was already reduced by poss_time above,
                 # so readjust the net clock consumption for the new pace. Endgame-paced
@@ -515,8 +466,7 @@ def simulate_game(
                     adjustments=poss_adjustments,
                     quarter_clock=quarter_clock,
                 )
-                for mod in active_modifiers:
-                    mod.update(event, current_is_home, game_state)
+                behavior.update(event, current_is_home, game_state)
 
                 if in_mismatch:
                     diag.record_mismatch(abs(gs.home_score - gs.away_score) - pre_poss_margin)

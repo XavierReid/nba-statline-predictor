@@ -85,10 +85,23 @@ stage C+; the loop still mutates `gs.field` inline. Boundary rule now explicit: 
 that survives across possessions → GameState; state within one possession → PossessionContext.
 Behavior-neutral: 259 tests green + replay identical to `demoable-v1`.
 
-### Stage C — Behavior Engine / modifier pipeline
-Modifiers become near-trivial: each receives context, returns an intention/`Adjustment`;
-a pipeline combines them into a `BehaviorState`; only then does resolution act. Kills the
-"multiple modifiers silently fight over the same probability" failure mode.
+### Stage C — Behavior Pipeline ✅ STRUCTURAL EXTRACTION DONE (2026-07-09)
+`app/services/behavior/` — `BehaviorPipeline` owns all per-possession behavior sources:
+builds the active list from cfg (registry logic moved out of the orchestrator), combines
+their adjustments (`.adjustments(is_home, snapshot)`), and fans out the post-possession
+`.update(...)`. The Q4 `TeamObjective` became a normal pipeline member (`ObjectiveModifier`)
+instead of an inline special case — the orchestrator now has one `behavior.adjustments()`
+/ `behavior.update()` pair, no registry/combine/objective/update sprawl. `GameSnapshot`
+gained `home_conceded`/`away_conceded` so the objective's concede gate reads through the
+standard interface. Started the `behavior/` namespace (new files born there; existing
+`modifiers/` migrate in stage G). Behavior-neutral: 266 tests green + replay identical to
+`demoable-v1`.
+
+**Deferred (per discipline):** converting sources from returning `ModifierAdjustments`
+(deltas) to returning richer *intentions* combined into a `BehaviorState`. That's a
+behavioral redesign (the Q4 work proved intention→outcome mapping is non-trivial) and
+can't be proven neutral — it comes later, one source at a time, each measured. This pass
+delivered the structural pipeline only.
 
 ### Stage D — Decision layers (action selection pipeline)
 `select_action(context) → resolve_matchup(context) → evaluate_shot(action, matchup) →

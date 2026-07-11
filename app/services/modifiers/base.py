@@ -41,6 +41,9 @@ class GameSnapshot:
     # Per-player state — keyed by player_id; populated when M2c modifiers are active
     home_players: Dict[int, PlayerGameState] = field(default_factory=dict)
     away_players: Dict[int, PlayerGameState] = field(default_factory=dict)
+    # Rotation concession state (read by ObjectiveModifier's concede gate)
+    home_conceded: bool = False
+    away_conceded: bool = False
 
 
 class GameStateModifier(ABC):

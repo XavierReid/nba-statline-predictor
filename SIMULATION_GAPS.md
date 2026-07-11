@@ -467,6 +467,47 @@ mechanisms: a mild negative-feedback / run-stopper (timeout-like), or momentum t
 **Do not start** until instrumented the same way Q4 was (measure which quarters/game-states
 create the over-extension before adding a mechanic).
 
+---
+
+## The Calibration Frontier (what "done" actually requires)
+
+We have rigorously calibrated **team-level game outcomes**. We have NOT touched
+**player-level or box-score realism**. 3.2 closes the game-outcome distribution work;
+the frontier below is the remaining, largely-unaddressed calibration surface. Ordered by
+value, not effort. Each item follows the engineering loop: instrument → measure vs real →
+hypothesize → fix → validate.
+
+### 3.2 — Mid-game dispersion (game-outcome distributions)
+See section above. Owns blowout 26.1 vs 22.9, close 23.2 vs 24.5, avg margin 14.1 vs 13.3.
+Closes out the margin/blowout distribution work.
+
+### 3.3 — OT rate
+Sim ~3.7% vs real (measured) 4.8%. Partly downstream of 3.2 (more close games → more ties
+→ more OT). Re-measure after 3.2 before deciding whether an OT-specific gap remains.
+
+### 3.4 — Player-level stat realism (NEVER DONE — likely highest product value)
+All calibration to date is team-aggregate. Team scoring can be exactly right while the
+distribution ACROSS players is wrong. Unvalidated questions: do stars score realistic PPG
+(25-30)? do rebounds concentrate on bigs? do playmakers get 8-10 assists? do usage/minutes
+produce believable individual lines? does anyone post a realistic triple-double? The RFC
+lists "player stat realism spot-checks" as a deferred DoD item. Needs a per-player
+distribution harness comparing simulated season box scores to real `PlayerSeasonStats`.
+Arguably more important to the product ("does Jokić post a triple-double?") than shaving
+3% off blowout rate.
+
+### 3.5 — Team box-score aggregates
+Team assists, rebounds, steals, blocks, turnovers per game vs real team averages. Only
+partially spot-checked (OREB, TOV, FTA, 3PA). Never a full pass.
+
+### 3.6 — Lead changes / game texture
+Flagged earlier at ~6/game vs real ~9-10 and never revisited. Likely the same
+no-mean-reversion root as 3.2 (fewer lead changes because leads don't rubber-band).
+Measure alongside 3.2.
+
+**Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
+box-score realism) — a category we have not started, and the one that most affects whether
+individual stat lines feel like real NBA.
+
 ## Change log
 
 | Date | Item | Action |

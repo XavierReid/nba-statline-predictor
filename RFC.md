@@ -1173,6 +1173,45 @@ scoring (~55% of attempts) and all individual defense carry zero between-team si
 - [x] Stage B recalibrated via single `signal_gain=1.25` (sweep documented, scoring-neutral by construction)
 - [x] Validation passed: team stdev 3.6-7.4 (was 0.0-1.2), sanity checks (Jokić/Giannis/Clingan #1s, Trae 55 perim D), top-10 slope 0.88; SIMULATION_GAPS.md 1.3 FIXED; baseline tag `attr-v2-baseline`
 
+#### Multi-Season Support — THE NEXT MILESTONE (spec, 2026-07-09)
+
+**Motivation:** the engine is only compatible with 2024-25 / 2025-26 today (the `players`
+table is a current-roster snapshot; `ingest_season_stats` skips unknown players and
+`load_roster` filters on the *current* team). Historical seasons matter beyond convenience:
+running an old era through the *same* engine and reproducing *that era's* distinct profile
+(lower 3PA, different pace) is the strongest generalization test we have — objective evidence
+the engine is genuinely data-driven, not overfit to two modern seasons. It also realizes the
+platform direction ("the engine shouldn't know who Curry is — only roles, ratings, context").
+
+**Sequence (Stage D done → this is next):**
+
+**Phase 1 — playable infrastructure (behavior-neutral for current seasons).**
+Make *any* NBA season ingestible and playable, without changing basketball behavior.
+- `ingest_season_stats` CREATES `Player` rows for players not already known (stats rows
+  carry PLAYER_ID / PLAYER_NAME / TEAM_ID), instead of skipping them.
+- `load_roster` uses the SEASON's team (`PlayerSeasonStats.team_id`) instead of `Player.team_id`.
+- Graceful fallback where advanced tracking data doesn't exist for a season (shot-location,
+  defensive-matchup, line scores) — players fall back to positional defaults (already the
+  below-gate path); ingestion of those datasets is skipped/soft-failed for old seasons.
+- DoD: any season (e.g. 2015-16, 2005-06) ingests a full player pool and loads era-correct
+  rosters; **current-season schedule replay is IDENTICAL to `demoable-v1`** (behavior-neutral proof).
+
+**Cross-era validation harness (its own step — build the measurement before Phase 2).**
+A small suite of league-level metrics — pace, avg score, 3PA rate, FTA rate, avg margin —
+computed for the SIM vs REAL for several eras (e.g. 2015-16, 2018-19, 2021-22, 2024-25).
+Objective test of whether each era emerges correctly from the same engine. This measurement
+drives Phase 2.
+
+**Phase 2 — era fidelity.**
+Make historical seasons authentic, not merely compatible: era-specific baselines/defaults
+where modern tracking data is absent (so old-season interior finishing / individual defense
+aren't flat positional defaults — the strength-compression issue would otherwise return),
+relocated-franchise mapping (Seattle→OKC, NJ→BKN, etc.), and closing the cross-era metric
+gaps the harness exposes.
+
+**Then:** resume player-realism (3.4) and the shot-model variance investigation (3.2) with
+much stronger evidence the engine generalizes across basketball history.
+
 ### v2
 - [ ] Player inspection tooling: endpoint or CLI to view a player's ratings, attributes, and tendencies side by side (with league percentile context) — makes attribute sanity checks routine instead of ad-hoc scripts (`scratch/explore_ratings.py` is a partial start)
 - [ ] Kafka producer/consumer

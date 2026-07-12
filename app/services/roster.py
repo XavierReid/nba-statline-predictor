@@ -1,10 +1,14 @@
-"""Roster loading — fetch and normalize a team's top-10 players for simulation."""
+"""Roster loading — fetch and normalize a team's top-10 players for simulation.
 
-# League FT% — measured from ingested totals (2024-25: 0.780, 2025-26: 0.783).
-# Used as the empirical-Bayes prior for per-player FT probability and the
-# fallback for players without FT history.
-LEAGUE_FT_PCT = 0.78
-_FT_SHRINK_PRIOR_ATTEMPTS = 20.0  # low-volume shooters shrink toward league average
+Roster construction has a single owner (RosterProvider) with two modes:
+  - CURRENT: the live roster (Player.team_id) — how the season's players sit on
+    today's teams. This is what every calibration baseline was validated against.
+  - HISTORICAL: season-accurate membership (PlayerSeasonStats.team_id) — reconstructing
+    a completed season from its own data.
+The possession engine is unaware of which mode produced a roster; it just gets a list
+of players. `load_roster()` picks the mode from the season (see CURRENT_ROSTER_SEASONS).
+"""
+from abc import ABC, abstractmethod
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -14,6 +18,17 @@ from app.models.player import Player
 from app.models.player_attributes import PlayerAttributes
 from app.models.player_tendencies import PlayerTendencies
 from app.models.player_season_stats import PlayerSeasonStats
+
+# League FT% — measured from ingested totals (2024-25: 0.780, 2025-26: 0.783).
+# Used as the empirical-Bayes prior for per-player FT probability and the
+# fallback for players without FT history.
+LEAGUE_FT_PCT = 0.78
+_FT_SHRINK_PRIOR_ATTEMPTS = 20.0  # low-volume shooters shrink toward league average
+
+# Seasons whose rosters the `players` table reflects (the live-roster snapshot).
+# These use CURRENT mode so every existing calibration baseline stays byte-identical;
+# every other season is treated as historical.
+CURRENT_ROSTER_SEASONS = frozenset({"2025-26"})
 
 
 def player_variance(player: dict) -> float:
@@ -41,25 +56,60 @@ def player_variance(player: dict) -> float:
     return 0.03
 
 
+class RosterProvider(ABC):
+    """Owns roster construction. Subclasses differ ONLY in how team membership is
+    resolved; everything else (ratings, tendencies, FT prob, minute normalization)
+    is shared, so both modes produce identically-shaped player lists."""
+
+    @abstractmethod
+    def _team_membership(self, team_id: int):
+        """SQLAlchemy filter selecting this team's players for the season."""
+
+    def load(self, db: Session, team_id: int, season: str) -> list[dict]:
+        """Load top 10 players by minutes for a team in a given season.
+
+        Minutes are normalized so the 10 players sum to 240 (5 players × 48 min).
+        Returns an empty list if no stats exist for that team/season combination.
+        """
+        rows = db.execute(
+            select(Player, PlayerAttributes, PlayerTendencies, PlayerSeasonStats)
+            .join(PlayerAttributes, PlayerAttributes.player_id == Player.id)
+            .join(PlayerTendencies, PlayerTendencies.player_id == Player.id)
+            .join(PlayerSeasonStats, PlayerSeasonStats.player_id == Player.id)
+            .where(self._team_membership(team_id))
+            .where(PlayerAttributes.season == season)
+            .where(PlayerTendencies.season == season)
+            .where(PlayerSeasonStats.season == season)
+            .order_by(PlayerSeasonStats.minutes_per_game.desc())
+            .limit(10)
+        ).all()
+        return _build_roster(rows)
+
+
+class CurrentRosterProvider(RosterProvider):
+    """Live roster — the season's players as they sit on today's teams."""
+    def _team_membership(self, team_id: int):
+        return Player.team_id == team_id
+
+
+class HistoricalRosterProvider(RosterProvider):
+    """Season-accurate roster — membership from the season's own stats."""
+    def _team_membership(self, team_id: int):
+        return PlayerSeasonStats.team_id == team_id
+
+
+def roster_provider_for(season: str) -> RosterProvider:
+    if season in CURRENT_ROSTER_SEASONS:
+        return CurrentRosterProvider()
+    return HistoricalRosterProvider()
+
+
 def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
-    """Load top 10 players by minutes for a team in a given season.
+    """Public entry point — delegates to the roster provider for the season."""
+    return roster_provider_for(season).load(db, team_id, season)
 
-    Minutes are normalized so the 10 players sum to 240 (5 players × 48 min).
-    Returns an empty list if no stats exist for that team/season combination.
-    """
-    rows = db.execute(
-        select(Player, PlayerAttributes, PlayerTendencies, PlayerSeasonStats)
-        .join(PlayerAttributes, PlayerAttributes.player_id == Player.id)
-        .join(PlayerTendencies, PlayerTendencies.player_id == Player.id)
-        .join(PlayerSeasonStats, PlayerSeasonStats.player_id == Player.id)
-        .where(Player.team_id == team_id)
-        .where(PlayerAttributes.season == season)
-        .where(PlayerTendencies.season == season)
-        .where(PlayerSeasonStats.season == season)
-        .order_by(PlayerSeasonStats.minutes_per_game.desc())
-        .limit(10)
-    ).all()
 
+def _build_roster(rows) -> list[dict]:
     if not rows:
         return []
 

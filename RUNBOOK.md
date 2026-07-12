@@ -38,22 +38,44 @@ LEFT JOIN player_tendencies t ON t.player_id = s.player_id AND t.season = s.seas
 GROUP BY s.season ORDER BY s.season;"
 ```
 
-### Ingest a new season
+### Ingest a new season (any season — multi-season, Phase 1)
+
+`ingest_season_stats` now **creates** player records for anyone not already in the DB, so
+*any* NBA season the API exposes can be ingested and played — not just the current one.
+Rosters load in the correct mode automatically (see "Roster modes" below).
 
 ```bash
 # Via API — runs in background, check /ingestion/seasons for completion
-curl -s -X POST http://localhost:8000/ingestion/seasons/2024-25/ingest | jq .
+curl -s -X POST http://localhost:8000/ingestion/seasons/2005-06/ingest | jq .
 
 # Via CLI (more reliable for slow NBA API connections)
 python - <<'EOF'
 from app.database import SessionLocal
 from app.ingestion.jobs import ingest_season_stats, seed_player_attributes
 db = SessionLocal()
-n = ingest_season_stats(db, "2024-25"); db.commit(); print(f"stats: {n}")
-n = seed_player_attributes(db, "2024-25"); db.commit(); print(f"attrs: {n}")
+n = ingest_season_stats(db, "2005-06"); db.commit(); print(f"stats: {n}")
+n = seed_player_attributes(db, "2005-06"); db.commit(); print(f"attrs: {n}")
 db.close()
 EOF
+
+# Then simulate a game from that season:
+python scratch/03_game_simulator.py SAS DET 7 2005-06
 ```
+
+**Roster modes.** Roster construction has one owner (`RosterProvider`, `app/services/roster.py`):
+- **Current** (`Player.team_id`) for the live-roster snapshot season (`CURRENT_ROSTER_SEASONS`
+  = `2025-26`). This is what every calibration baseline was validated against — unchanged.
+- **Historical** (`PlayerSeasonStats.team_id`) for every completed season — season-accurate
+  team membership (e.g. 2005-06 CLE returns LeBron / Hughes / Ilgauskas).
+
+**Phase 1 limitations for historical seasons** (playable, not yet fully authentic — Phase 2):
+- Advanced tracking data (shot-location, defensive-matchup, quarter line scores) doesn't exist
+  for older seasons, so interior-finishing and individual-defense attributes fall back to flat
+  positional defaults (less team differentiation than modern seasons).
+- Traded players appear under an aggregate "TOT" row (team id 0) and are omitted from historical
+  rosters (roster membership vs statistical attribution are separate concerns).
+- No position data from that endpoint (defaults to "F"); relocated franchises (Seattle→OKC,
+  NJ→BKN) don't map to a current team id.
 
 ### Seed (or re-seed) attributes only
 

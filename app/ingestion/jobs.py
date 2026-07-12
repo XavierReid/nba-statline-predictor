@@ -84,17 +84,34 @@ def ingest_games_for_season(db: Session, season: str) -> int:
 
 
 def ingest_season_stats(db: Session, season: str) -> int:
-    """Upsert per-game averages for all players from LeagueDashPlayerStats."""
+    """Upsert per-game averages for all players from LeagueDashPlayerStats.
+
+    Players not already in the `players` table are CREATED from the stats row
+    (multi-season support): the possession engine can then reconstruct any season's
+    rosters. Team membership for historical seasons is resolved from
+    PlayerSeasonStats.team_id (see roster.HistoricalRosterProvider), so a newly
+    created player's Player.team_id is only a convenience — set when the team is
+    known (a current franchise), else left null (relocated franchise / "TOT" row).
+    """
+    from app.models.team import Team
     from sqlalchemy import select
     rows = nba_client.fetch_season_stats(season)
     known_player_ids = {pid for (pid,) in db.execute(select(Player.id)).all()}
+    known_team_ids = {tid for (tid,) in db.execute(select(Team.id)).all()}
+    created = 0
     count = 0
-    skipped = 0
     for row in rows:
         pid = row['PLAYER_ID']
         if pid not in known_player_ids:
-            skipped += 1
-            continue
+            team_id = row.get('TEAM_ID')
+            db.add(Player(
+                id=pid,
+                full_name=row.get('PLAYER_NAME') or f"Player {pid}",
+                team_id=team_id if team_id in known_team_ids else None,
+                position=None,  # LeagueDashPlayerStats carries no position
+            ))
+            known_player_ids.add(pid)
+            created += 1
         existing = db.execute(
             select(PlayerSeasonStats).where(
                 PlayerSeasonStats.player_id == pid,
@@ -153,7 +170,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
                 dreb_pct=row.get('DREB_PCT'),
             ))
         count += 1
-    log.info("ingest_season_stats: %d upserted, %d skipped (not in players table)", count, skipped)
+    log.info("ingest_season_stats: %d upserted, %d players created (new to DB)", count, created)
     return count
 
 

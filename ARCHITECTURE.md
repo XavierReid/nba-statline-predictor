@@ -1,15 +1,29 @@
 # Architecture — NBA Franchise Simulator
 
-A walkthrough of how the simulation works end to end, written for someone who has
-never seen this repo. For operational commands see RUNBOOK.md; for milestone specs
-see RFC.md; for known limitations and the calibration evidence trail see
-SIMULATION_GAPS.md.
+> **New here?** Read [`README.md`](README.md) first for the plain-English pitch. This doc
+> is the technical walkthrough — how the engine is built, layer by layer.
 
-## The one-sentence version
+## The big picture (30 seconds)
+
+The engine is a pipeline. Real NBA data comes in one end; a fully simulated game comes
+out the other. Each stage has exactly one job, and the stages only talk to each other
+through clean hand-offs — so you can understand (or change) one stage without holding the
+whole thing in your head:
+
+```
+NBA data  →  player abilities  →  one possession  →  a full game  →  box score + play-by-play
+```
+
+The single most important design choice: **outcomes emerge from possessions.** The engine
+never computes "this player should score 25" and works backward. It plays out each
+possession and lets the box score add up on its own. Everything below serves that principle.
+
+## The one-sentence version (technical)
 
 Real NBA data becomes player attributes, attributes become per-possession
 probabilities, and game outcomes emerge from ~200 simulated possessions per game —
-never from projected box scores.
+never from projected box scores. For operational commands see RUNBOOK.md; for milestone
+specs see RFC.md; for the calibration evidence trail see SIMULATION_GAPS.md.
 
 ```
 NBA API → PlayerSeasonStats (observations: "what happened")

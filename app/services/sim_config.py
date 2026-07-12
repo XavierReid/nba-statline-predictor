@@ -38,6 +38,7 @@ class SimConfig:
     # --- Q4 team objectives (gap 3.1; late_game.derive_objective/objective_adjustments) ---
     # Behavior-first: selection + tempo only, efficiency emerges. Constants are
     # calibrated against the measured Q4 transition deltas (SIMULATION_GAPS.md).
+    competitive_late_margin: int = 8     # |margin| for GamePhase.COMPETITIVE_LATE (final period)
     objective_min_margin: int = 6        # below this, both teams stay NEUTRAL (toss-up / one possession)
     objective_full_margin: int = 20      # intensity maxes here
     # PROTECT efficiency cost is the primary compression lever (behavior-first

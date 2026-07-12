@@ -44,6 +44,8 @@ class GameSnapshot:
     # Rotation concession state (read by ObjectiveModifier's concede gate)
     home_conceded: bool = False
     away_conceded: bool = False
+    # "What kind of basketball" — a GamePhase value (str enum); behavior sources read it
+    phase: str = "normal"
 
 
 class GameStateModifier(ABC):

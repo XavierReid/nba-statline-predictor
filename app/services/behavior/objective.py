@@ -15,6 +15,8 @@ class ObjectiveModifier(GameStateModifier):
         self._cfg = cfg
 
     def get_adjustments(self, is_home: bool, game_state: GameSnapshot) -> ModifierAdjustments:
+        # A conceded OFFENSE runs no protect/chase strategy — its bench scrubs just play.
+        # (Per-team, not game-level GARBAGE: the other team may still be competing.)
         offense_conceded = game_state.home_conceded if is_home else game_state.away_conceded
         if offense_conceded:
             return ModifierAdjustments()

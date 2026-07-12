@@ -103,6 +103,26 @@ behavioral redesign (the Q4 work proved intention→outcome mapping is non-trivi
 can't be proven neutral — it comes later, one source at a time, each measured. This pass
 delivered the structural pipeline only.
 
+### GamePhase — "what kind of basketball" layer ✅ INTRODUCED (2026-07-09)
+`app/services/game_phase.py` — `GamePhase {NORMAL, COMPETITIVE_LATE, GARBAGE, OVERTIME}` +
+`derive_phase(...)`, sitting between GameState (what is true) and Objectives (what each team
+optimizes for). Threaded onto `GameSnapshot.phase` so behavior sources can read it.
+Behavior-neutral: nothing keys off it yet, replay identical to `demoable-v1`.
+
+**Honest scope finding:** the goal of "migrate existing behaviors onto GamePhase to retire
+duplicated clock/margin checks" ran into a real obstacle — what looked like duplication is
+actually **genuinely different phase definitions per behavior** (strategic foul: Q4 +
+margin 3-8; clutch: Q4/OT + clock + margin ≤ X; garbage modifier: Q3+ + margin ≥ 20;
+concede: ≥20/<12 hysteresis). They ask different precise questions, so one shared classifier
+can't neutrally replace them. GamePhase's real role is therefore (1) a NEW named phase
+(`COMPETITIVE_LATE`) that new behaviors read — the seam for the gap-3.2 competitive-Q4
+variance work — and (2) a future, DELIBERATE (non-neutral, measured) harmonization of those
+scattered thresholds if we choose it. Introduced as the layer + seam; existing behaviors
+keep their own definitions for now.
+
+Target pipeline: GameState → GamePhase → Objectives → Behavior Sources → Aggregation →
+PossessionContext → Decision Pipeline → Outcome.
+
 ### Stage D — Decision pipeline — THE LAST FOUNDATIONAL ARCHITECTURE MILESTONE
 Make the basketball engine **readable and ownable**, not just extensible. Today
 `resolve_possession()` performs every basketball decision in one long function; the stages

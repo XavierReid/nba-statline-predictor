@@ -15,6 +15,7 @@ from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, Playe
 from app.services.box_score import apply_event, empty_stats, snapshot_box
 from app.services.diagnostics import SimulationDiagnostics
 from app.services.game_state import GameState
+from app.services.game_phase import derive_phase
 from app.services.behavior.pipeline import BehaviorPipeline
 from app.services.late_game import (
     build_context, possession_time_override, should_concede,
@@ -430,6 +431,10 @@ def simulate_game(
 
                 active_home_gs = {pid: home_player_gs[pid] for pid in home_active_ids if pid in home_player_gs}
                 active_away_gs = {pid: away_player_gs[pid] for pid in away_active_ids if pid in away_player_gs}
+                phase = derive_phase(
+                    q_idx, abs(gs.home_score - gs.away_score),
+                    gs.home_conceded, gs.away_conceded, cfg,
+                )
                 game_state = GameSnapshot(
                     home_score=gs.home_score,
                     away_score=gs.away_score,
@@ -440,6 +445,7 @@ def simulate_game(
                     away_players=active_away_gs,
                     home_conceded=gs.home_conceded,
                     away_conceded=gs.away_conceded,
+                    phase=phase.value,
                 )
 
                 # All behavior sources (momentum, fatigue, clutch, garbage time, the

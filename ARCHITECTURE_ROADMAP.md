@@ -123,6 +123,25 @@ keep their own definitions for now.
 Target pipeline: GameState → GamePhase → Objectives → Behavior Sources → Aggregation →
 PossessionContext → Decision Pipeline → Outcome.
 
+### BehaviorProfile — baseline behavior per phase ✅ INTRODUCED (2026-07-09)
+`app/services/behavior_profile.py` — `BehaviorProfile` (foul_draw / turnover / pace /
+transition / offensive_rebound mults + a `ShotProfile` sub-object) answers "how is
+basketball *normally* played during this phase?", distinct from Objectives ("what is each
+team trying to accomplish?"). A phase resolves to a profile via `profile_for_phase()` (the
+lookup layer that can later return playoff / team-identity / coach profiles without touching
+the engine). Profiles COMPOSE with objectives and other sources — none overwrites another.
+Threaded onto `PossessionContext.behavior_profile`; the possession engine applies the mults
+(NORMAL_PROFILE = identity, so non-competitive play is unchanged). `COMPETITIVE_LATE` is
+populated from **measured 2024-25 clutch splits** (FTA 1.86×, TOV 0.92×, OREB 1.16×, 3PA
+flat). Toggle `use_behavior_profile` (on in DRAMA_M3); replaces the ad-hoc M3e late-foul
+zones as the canonical owner of competitive-late fouling.
+
+**Important:** this layer owns *measured behavior*, NOT statistical calibration. It did NOT
+close gap 3.2's Q4-variance target — instrumentation proved that gap is structural to the
+shot-outcome model, not behavioral (SIMULATION_GAPS.md). We kept the measured behaviors
+(realistic, headline-neutral-to-better: slope 1.00) rather than tuning the profile to chase
+a variance metric it was never meant to model.
+
 ### Stage D — Decision pipeline ✅ DONE (2026-07-09) — LAST FOUNDATIONAL MILESTONE
 `resolve_possession()` was one ~250-line function performing every basketball decision.
 It is now a short readable orchestrator over four named stages in `possession.py`:

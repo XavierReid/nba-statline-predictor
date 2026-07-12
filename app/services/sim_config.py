@@ -26,6 +26,17 @@ class SimConfig:
     use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
     use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
     use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
+    use_behavior_profile: bool = False  # GamePhase resolves to a baseline-behavior profile
+
+    # --- COMPETITIVE_LATE behavior profile (gap 3.2; behavior_profile.profile_for_phase) ---
+    # Seeded from measured 2024-25 clutch splits (last 5 min, <=5 pts) vs overall:
+    # FTA/FGA 1.86x, TOV/poss 0.92x, OREB 1.16x, 3PA flat 1.0x, pace/PPP flat.
+    # foul mult is TUNED against the competitive-Q4 variance target (60.6) because the
+    # phase (whole competitive Q4) is broader than the clutch window it was measured on.
+    comp_late_foul_mult: float = 1.86    # measured clutch FTA/FGA ratio (tuning anchor)
+    comp_late_tov_mult: float = 0.92
+    comp_late_oreb_mult: float = 1.16
+    comp_late_three_mult: float = 1.0    # real clutch 3PA is flat vs overall
 
     # --- endgame window + pacing (gap 1.2; consumed via late_game.LateGameContext) ---
     endgame_clock_window: int = 120      # seconds remaining in final period (Q4/OT)
@@ -152,6 +163,7 @@ DRAMA_M3 = SimConfig(
     use_endgame_pacing=True,
     use_garbage_rotation=True,
     use_lineup_quality=True,
+    use_behavior_profile=True,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

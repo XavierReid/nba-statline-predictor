@@ -3,7 +3,13 @@ import random
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from app.services.behavior_profile import NORMAL_PROFILE
 from app.services.modifiers.base import ModifierAdjustments
+
+
+def _profile(ctx):
+    """The active BehaviorProfile for this possession (identity when none set)."""
+    return ctx.behavior_profile or NORMAL_PROFILE
 
 OREB_RATE = 0.22            # offensive rebound rate on missed shots (NBA avg ~22%)
 LEAGUE_AVG_TOV_PER36 = 2.5  # used to normalize per-player turnover rates
@@ -294,11 +300,18 @@ def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
     """
     cfg = ctx.cfg
     if not cfg.use_foul_drawing:
-        return 0.055
-    raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
-    raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
-    prob = max(raw_rate * cfg.foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * cfg.foul_draw_scale)
-    if ctx.quarter >= 4 and ctx.clock_seconds <= cfg.foul_draw_late_zone1_clock:
+        prob = 0.055
+    else:
+        raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
+        raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
+        prob = max(raw_rate * cfg.foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * cfg.foul_draw_scale)
+
+    if cfg.use_behavior_profile:
+        # Phase profile owns competitive-late fouling (replaces the M3e clock zones).
+        if ctx.behavior_profile:
+            prob *= ctx.behavior_profile.foul_draw_mult
+    elif cfg.use_foul_drawing and ctx.quarter >= 4 and ctx.clock_seconds <= cfg.foul_draw_late_zone1_clock:
+        # Legacy M3e clock-zone escalation (presets without a behavior profile).
         margin = abs(ctx.score_margin)
         if margin <= cfg.foul_draw_late_zone2_margin and ctx.clock_seconds <= cfg.foul_draw_late_zone2_clock:
             prob *= cfg.foul_draw_late_zone2_mult
@@ -333,9 +346,11 @@ def _select_action(ctx, result: dict) -> Action:
         result["steal_by"] = best_defender["id"]
         return Action(ball_handler, terminal=True)
 
-    # unforced turnover — tov_prob_delta from modifiers raises/lowers it
+    # unforced turnover — phase profile scales the base tendency; modifier delta adds on top
+    profile = _profile(ctx)
     tov_delta = ctx.adjustments.tov_prob_delta if ctx.adjustments else 0.0
-    tov_prob = max(0.02, (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 + tov_delta)
+    base_tov = (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 * profile.turnover_mult
+    tov_prob = max(0.02, base_tov + tov_delta)
     if rng.random() < tov_prob:
         result["turnover_by"] = ball_handler["id"]
         return Action(ball_handler, terminal=True)
@@ -346,10 +361,12 @@ def _select_action(ctx, result: dict) -> Action:
         result["fouled_by"] = ball_handler["id"]
         return Action(ball_handler, terminal=True)
 
-    # shot type — three_rate_override applied before sub-type derivation
+    # shot type — objective three_rate_override then phase shot-profile multiplier
     three_rate = ball_handler["three_point_rate"]
     if ctx.adjustments and ctx.adjustments.three_rate_override:
         three_rate = min(0.60, max(0.0, three_rate + ctx.adjustments.three_rate_override))
+    if profile.shot_profile.three_rate_mult != 1.0:
+        three_rate = min(0.60, max(0.0, three_rate * profile.shot_profile.three_rate_mult))
     if ctx.is_fastbreak:
         coarse_type = rng.choices(["three", "mid", "close"], weights=[0.05, 0.10, 0.85])[0]
     else:
@@ -369,7 +386,8 @@ def _select_action(ctx, result: dict) -> Action:
 def _assign_rebound(ctx, result: dict) -> None:
     """Offensive or defensive rebound, weighted by the players' rebound rates."""
     rng = ctx.rng
-    if rng.random() < ctx.offense_oreb_rate:
+    oreb_rate = min(0.60, ctx.offense_oreb_rate * _profile(ctx).offensive_rebound_mult)
+    if rng.random() < oreb_rate:
         result["rebounded_by"] = rng.choices(
             ctx.offense, weights=[p["oreb_rate"] for p in ctx.offense]
         )[0]["id"]
@@ -471,6 +489,9 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     result["made"] = rng.random() < quality.make_prob
     ft_prob = _free_throw_prob(ball_handler)
     shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0
+    # NB: the phase foul boost lives on the non-shooting bonus foul (which REPLACES a shot
+    # with a low-variance FT trip). Boosting shooting fouls instead adds and-1s — higher
+    # variance — so it is deliberately NOT applied here.
 
     # 3PT shooting foul (~2% x sub-type multiplier)
     if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult:

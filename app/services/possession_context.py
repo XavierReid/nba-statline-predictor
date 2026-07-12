@@ -38,6 +38,7 @@ class PossessionContext:
     clock_seconds: float = 720.0
     score_margin: int = 0
     name_map: Optional[dict] = None
+    behavior_profile: object = None   # BehaviorProfile for this possession's phase
 
 
 def make_context(offense, defense, rng, cfg=None, adjustments=None, **overrides):
@@ -52,9 +53,11 @@ def make_context(offense, defense, rng, cfg=None, adjustments=None, **overrides)
     the state/config boundary intact. Unknown names raise TypeError.
     """
     from dataclasses import fields, replace
+    from app.services.behavior_profile import NORMAL_PROFILE
     from app.services.sim_config import SimConfig
 
     cfg = cfg if cfg is not None else SimConfig()
+    overrides.setdefault("behavior_profile", NORMAL_PROFILE)
     cfg_names = {f.name for f in fields(SimConfig)}
     ctx_names = {f.name for f in fields(PossessionContext)} - {"offense", "defense", "rng", "cfg", "adjustments"}
 

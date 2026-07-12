@@ -16,6 +16,7 @@ from app.services.box_score import apply_event, empty_stats, snapshot_box
 from app.services.diagnostics import SimulationDiagnostics
 from app.services.game_state import GameState
 from app.services.game_phase import derive_phase
+from app.services.behavior_profile import NORMAL_PROFILE, profile_for_phase
 from app.services.behavior.pipeline import BehaviorPipeline
 from app.services.late_game import (
     build_context, possession_time_override, should_concede,
@@ -165,6 +166,7 @@ def simulate_game(
         is_fastbreak: bool = False,
         adjustments: Optional[ModifierAdjustments] = None,
         quarter_clock: float = 720.0,
+        behavior_profile: object = None,
     ):
         # gs is a captured object; mutating its attributes needs no `nonlocal`.
         gs.game_clock += sec_per_poss
@@ -199,6 +201,7 @@ def simulate_game(
             quarter=current_q_idx + 1,
             clock_seconds=quarter_clock,
             score_margin=gs.home_score - gs.away_score if is_home else gs.away_score - gs.home_score,
+            behavior_profile=behavior_profile if behavior_profile is not None else NORMAL_PROFILE,
         )
         event = resolve_possession(ctx)
 
@@ -463,6 +466,7 @@ def simulate_game(
                     diag.catch_up_time_delta += orig_poss_time - poss_time
                 diag.record_possession(poss_category, poss_time)
 
+                poss_profile = profile_for_phase(phase, cfg) if cfg.use_behavior_profile else NORMAL_PROFILE
                 fouled_out_pid, event = _apply_possession(
                     home_active_ids, away_active_ids, current_is_home,
                     poss_time, poss_time / 60.0, q_idx,
@@ -471,6 +475,7 @@ def simulate_game(
                     is_fastbreak=next_is_fastbreak,
                     adjustments=poss_adjustments,
                     quarter_clock=quarter_clock,
+                    behavior_profile=poss_profile,
                 )
                 behavior.update(event, current_is_home, game_state)
 

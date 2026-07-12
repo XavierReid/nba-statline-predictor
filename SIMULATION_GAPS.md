@@ -456,7 +456,38 @@ invariant to gain (~26 at 1.0/1.10/1.15/1.25)** — so blowout is NOT team over-
 
 ---
 
-## Gap 3.2 — Mid-game dispersion / games blowing open (OPEN — next calibration target)
+## Gap 3.2 — Competitive-Q4 variance (REFRAMED — STRUCTURAL, not behavioral)
+
+**Status (2026-07-09):** the dispersion is fully isolated and the behavioral hypothesis is
+DISPROVEN. Real competitive-Q4 point-differential variance is ~60.6 vs the sim's ~76
+(+26%); the sim's Q1 variance already MATCHES real (73 vs 74), so per-possession randomness
+is right — real basketball drops variance ~18% in competitive Q4 and the sim stays flat.
+
+**Behavioral levers tested, all negative (instrument-first):**
+- Ingested real 2024-25 clutch team splits (last 5 min, ≤5 pts) vs overall. Measured shifts:
+  FTA/FGA **1.86×**, TOV **0.92×**, OREB **1.16×**, 3PA **flat (0.99)**, pace/PPP **flat**.
+  So the naive fixes (fewer threes, slower pace) are ruled out by real data.
+- Built the measured shifts into the `COMPETITIVE_LATE` BehaviorProfile and measured:
+  bonus-foul boost 1.86× → variance ~unchanged (FT trips replace too few possessions);
+  shooting-foul boost → variance WORSE (and-1s are 3-4 pt, high-variance); three reduction
+  0.70-0.85 → no clean effect. **None of the measurable competitive-late behaviors reduce
+  the sim's Q4 variance.**
+
+**Conclusion:** the excess variance is STRUCTURAL to the per-possession shot-outcome model,
+not a phase-behavior gap. Real's competitive-Q4 variance reduction comes from something the
+current shot model can't express (contested-but-consistent execution / possession-structure
+effects), not from a shot-mix or foul-rate shift. BehaviorProfile correctly owns the
+*measured behaviors*; it is NOT responsible for this variance metric.
+
+**Next work (separate investigation, do not use BehaviorProfile):** fresh instrumentation of
+the shot-outcome model — start by decomposing per-possession points variance by shot sub-type
+vs real, and check whether the sim over-produces high-variance outcomes (threes, and-1s)
+relative to real in ALL phases (the gap only *shows* in Q4 because that's where real tightens).
+Guardrail: the sim's Q1-Q3 variance already matches real — do not break it.
+
+---
+
+## Gap 3.2-OLD — Mid-game dispersion / games blowing open (SUPERSEDED by the above)
 
 **Status:** open — owns the residual blowout excess (26 vs 22.9)
 **Evidence:** measured Q2/Q3 dispersion runs slightly hot (Q2 sim 9.89 vs real 9.21, Q3

@@ -1,5 +1,6 @@
 """Possession resolution — simulate one possession and return an event dict."""
 import random
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 from app.services.modifiers.base import ModifierAdjustments
@@ -216,162 +217,205 @@ def describe_event(event: dict, name_map: dict) -> str:
     return desc
 
 
-def resolve_possession(ctx: "PossessionContext") -> dict:
-    """Simulate one possession and return an event dict.
+# ---------------------------------------------------------------------------
+# Decision pipeline (roadmap stage D) — a possession resolves as a sequence of
+# named basketball stages, each visible on its own:
+#     select_action -> resolve_matchup -> evaluate_shot -> resolve_outcome
+# The stages preserve the exact RNG draw order of the original monolith, so this
+# is a pure readability extraction (behavior-neutral).
+# ---------------------------------------------------------------------------
 
-    Consumes a PossessionContext (the possession's starting STATE). Fields are
-    unpacked below into the same local names the body uses, so the resolution
-    logic is unchanged — this is the behavior-neutral Stage A extraction. Static
-    config reads come straight from ctx.cfg (single source of truth; the old
-    per-param "keep in sync with SimConfig" threading is gone).
-    """
-    offense = ctx.offense
-    defense = ctx.defense
-    rng = ctx.rng
-    home_bonus = ctx.home_bonus
-    name_map = ctx.name_map
-    team_defense_factor = ctx.team_defense_factor
-    is_fastbreak = ctx.is_fastbreak
-    adjustments = ctx.adjustments
-    form_factors = ctx.form_factors
-    offense_oreb_rate = ctx.offense_oreb_rate
-    quarter = ctx.quarter
-    clock_seconds = ctx.clock_seconds
-    score_margin = ctx.score_margin
-    cfg = ctx.cfg
-    use_shot_subtypes = cfg.use_shot_subtypes
-    use_contest_model = cfg.use_contest_model
-    use_positional_matchups = cfg.use_positional_matchups
-    use_foul_drawing = cfg.use_foul_drawing
-    foul_draw_scale = cfg.foul_draw_scale
-    signal_gain = cfg.signal_gain
-    foul_draw_late_zone1_clock = cfg.foul_draw_late_zone1_clock
-    foul_draw_late_zone1_margin = cfg.foul_draw_late_zone1_margin
-    foul_draw_late_zone1_mult = cfg.foul_draw_late_zone1_mult
-    foul_draw_late_zone2_clock = cfg.foul_draw_late_zone2_clock
-    foul_draw_late_zone2_margin = cfg.foul_draw_late_zone2_margin
-    foul_draw_late_zone2_mult = cfg.foul_draw_late_zone2_mult
-    def _done(r: dict) -> dict:
-        if name_map is not None:
-            r["description"] = describe_event(r, name_map)
-        return r
 
-    result: dict = {
+@dataclass
+class Action:
+    """What the offense attempts this possession."""
+    ball_handler: dict
+    terminal: bool                      # possession ended with no live shot (foul / turnover)
+    coarse_type: Optional[str] = None   # three / mid / close
+    sub_type: Optional[str] = None      # corner_three / layup / ... (or coarse when sub-types off)
+
+
+@dataclass
+class Matchup:
+    """The defensive response to the shot attempt."""
+    defender: Optional[dict]
+    blocked: bool = False               # rim protection ended the possession
+
+
+@dataclass
+class ShotQuality:
+    """How likely the attempt is to go in, after everything."""
+    make_prob: float
+
+
+def _empty_result() -> dict:
+    return {
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
     }
 
-    # 1. Ball handler — weighted by usage rate
+
+def _finish(ctx, result: dict) -> dict:
+    if ctx.name_map is not None:
+        result["description"] = describe_event(result, ctx.name_map)
+    return result
+
+
+def resolve_possession(ctx: "PossessionContext") -> dict:
+    """Simulate one possession and return an event dict.
+
+    Reads the possession's starting state from a PossessionContext and resolves it
+    through the decision pipeline below. See each stage for its basketball role.
+    """
+    result = _empty_result()
+
+    action = _select_action(ctx, result)
+    if action.terminal:
+        return _finish(ctx, result)
+
+    matchup = _resolve_matchup(ctx, action, result)
+    if matchup.blocked:
+        return _finish(ctx, result)
+
+    quality = _evaluate_shot(ctx, action, matchup)
+    _resolve_outcome(ctx, action, matchup, quality, result)
+    return _finish(ctx, result)
+
+
+# --- stage 1: select_action -------------------------------------------------
+
+def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
+    """Non-shooting (over-the-limit) foul probability for this ball handler.
+
+    use_foul_drawing: player-specific rate (FTA/FGA x scale), floored at the league
+    average and escalated late in close games. Otherwise the flat pre-M3e 5.5%.
+    """
+    cfg = ctx.cfg
+    if not cfg.use_foul_drawing:
+        return 0.055
+    raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
+    raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
+    prob = max(raw_rate * cfg.foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * cfg.foul_draw_scale)
+    if ctx.quarter >= 4 and ctx.clock_seconds <= cfg.foul_draw_late_zone1_clock:
+        margin = abs(ctx.score_margin)
+        if margin <= cfg.foul_draw_late_zone2_margin and ctx.clock_seconds <= cfg.foul_draw_late_zone2_clock:
+            prob *= cfg.foul_draw_late_zone2_mult
+        elif margin <= cfg.foul_draw_late_zone1_margin:
+            prob *= cfg.foul_draw_late_zone1_mult
+    return prob
+
+
+def _select_action(ctx, result: dict) -> Action:
+    """Who acts and what they attempt. Pre-shot events (bonus foul, steal, turnover,
+    offensive foul) end the possession terminally; otherwise a shot type is chosen."""
+    rng, offense, defense, cfg = ctx.rng, ctx.offense, ctx.defense, ctx.cfg
+
+    # ball handler — weighted by usage rate
     usage_weights = [p["usage_rate"] for p in offense]
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 
-    # 1b. Bonus foul — non-shooting foul when team is over the foul limit.
-    # With use_foul_drawing: player-specific rate (FTA/FGA × foul_draw_scale), floored at the
-    # league average so players with no FTA history still generate some fouls.
-    # Late-game escalation applied here since it captures heightened defensive pressure
-    # regardless of shot type. Sub-type multiplier is applied at the shooting foul checks
-    # (steps 8a/8b) where shot type is known and conceptually cleaner.
-    # Without use_foul_drawing: flat 5.5% pre-M3e behavior.
-    if not use_foul_drawing:
-        base_foul_prob = 0.055
-    else:
-        raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
-        raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
-        base_foul_prob = max(raw_rate * foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * foul_draw_scale)
-        in_late_game = quarter >= 4 and clock_seconds <= foul_draw_late_zone1_clock
-        if in_late_game:
-            margin = abs(score_margin)
-            if margin <= foul_draw_late_zone2_margin and clock_seconds <= foul_draw_late_zone2_clock:
-                base_foul_prob *= foul_draw_late_zone2_mult
-            elif margin <= foul_draw_late_zone1_margin:
-                base_foul_prob *= foul_draw_late_zone1_mult
-
-    if rng.random() < base_foul_prob:
+    # bonus foul (non-shooting)
+    if rng.random() < _bonus_foul_prob(ctx, ball_handler):
         result["scorer"] = ball_handler["id"]
         result["fouled_by"] = rng.choice(defense)["id"]
         ft_prob = _free_throw_prob(ball_handler)
         result["fta"] = 2
         result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
-        return _done(result)
+        return Action(ball_handler, terminal=True)
 
-    # 2. Steal check (~1.7% of possessions)
+    # steal (~1.7%): best on-ball defender
     best_defender = max(defense, key=lambda p: p["steal"])
     if rng.random() < (best_defender["steal"] / 100.0) * 0.034:
         result["turnover_by"] = ball_handler["id"]
         result["steal_by"] = best_defender["id"]
-        return _done(result)
+        return Action(ball_handler, terminal=True)
 
-    # 3. Turnover — bad pass, travel, etc.
-    # tov_prob_delta from modifiers raises/lowers unforced turnover rate;
-    # the steal check above is intentionally unchanged (defender skill, not pressure).
-    _tov_delta = adjustments.tov_prob_delta if adjustments else 0.0
-    _tov_prob = max(0.02, (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 + _tov_delta)
-    if rng.random() < _tov_prob:
+    # unforced turnover — tov_prob_delta from modifiers raises/lowers it
+    tov_delta = ctx.adjustments.tov_prob_delta if ctx.adjustments else 0.0
+    tov_prob = max(0.02, (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 + tov_delta)
+    if rng.random() < tov_prob:
         result["turnover_by"] = ball_handler["id"]
-        return _done(result)
+        return Action(ball_handler, terminal=True)
 
-    # 3b. Offensive foul — charge or illegal screen (~1.5% of possessions)
+    # offensive foul — charge / illegal screen (~1.5%)
     if rng.random() < 0.015:
         result["turnover_by"] = ball_handler["id"]
         result["fouled_by"] = ball_handler["id"]
-        return _done(result)
+        return Action(ball_handler, terminal=True)
 
-    # 4. Shot type selection — three_rate_override applied before sub-type derivation
+    # shot type — three_rate_override applied before sub-type derivation
     three_rate = ball_handler["three_point_rate"]
-    if adjustments and adjustments.three_rate_override:
-        three_rate = min(0.60, max(0.0, three_rate + adjustments.three_rate_override))
-
-    if is_fastbreak:
-        coarse_type = rng.choices(
-            ["three", "mid", "close"], weights=[0.05, 0.10, 0.85]
-        )[0]
+    if ctx.adjustments and ctx.adjustments.three_rate_override:
+        three_rate = min(0.60, max(0.0, three_rate + ctx.adjustments.three_rate_override))
+    if ctx.is_fastbreak:
+        coarse_type = rng.choices(["three", "mid", "close"], weights=[0.05, 0.10, 0.85])[0]
     else:
         coarse_type = rng.choices(
             ["three", "mid", "close"],
             weights=[three_rate, (1 - three_rate) * 0.4, (1 - three_rate) * 0.6],
         )[0]
+    sub_type = _select_sub_type(ball_handler, coarse_type, rng) if cfg.use_shot_subtypes else coarse_type
 
-    sub_type = _select_sub_type(ball_handler, coarse_type, rng) if use_shot_subtypes else coarse_type
     result["shot_type"] = sub_type
     result["scorer"] = ball_handler["id"]
+    return Action(ball_handler, terminal=False, coarse_type=coarse_type, sub_type=sub_type)
 
-    # 5. Block check
-    # With sub-types: only block-eligible shots can be blocked; rate scaled by sub-type.
-    # Without sub-types: original behavior (non-three, non-fastbreak).
-    block_eligible = (sub_type in _BLOCK_ELIGIBLE) if use_shot_subtypes else (coarse_type != "three")
-    if block_eligible and not is_fastbreak:
-        block_mult = _BLOCK_MULT.get(sub_type, 1.0) if use_shot_subtypes else 1.0
+
+# --- stage 2: resolve_matchup (rim protection + on-ball assignment) ----------
+
+def _assign_rebound(ctx, result: dict) -> None:
+    """Offensive or defensive rebound, weighted by the players' rebound rates."""
+    rng = ctx.rng
+    if rng.random() < ctx.offense_oreb_rate:
+        result["rebounded_by"] = rng.choices(
+            ctx.offense, weights=[p["oreb_rate"] for p in ctx.offense]
+        )[0]["id"]
+        result["is_oreb"] = True
+    else:
+        result["rebounded_by"] = rng.choices(
+            ctx.defense, weights=[p["dreb_rate"] for p in ctx.defense]
+        )[0]["id"]
+
+
+def _resolve_matchup(ctx, action: Action, result: dict) -> Matchup:
+    """Defensive response: rim protection first (a block ends the possession, with a
+    rebound), then the on-ball defender assignment."""
+    rng, defense, cfg = ctx.rng, ctx.defense, ctx.cfg
+    sub_type, coarse_type = action.sub_type, action.coarse_type
+
+    block_eligible = (sub_type in _BLOCK_ELIGIBLE) if cfg.use_shot_subtypes else (coarse_type != "three")
+    if block_eligible and not ctx.is_fastbreak:
+        block_mult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
         best_blocker = max(defense, key=lambda p: p["block"])
         if rng.random() < (best_blocker["block"] / 100.0) * 0.04 * block_mult:
             result["block_by"] = best_blocker["id"]
-            if rng.random() < offense_oreb_rate:
-                result["rebounded_by"] = rng.choices(
-                    offense, weights=[p["oreb_rate"] for p in offense]
-                )[0]["id"]
-                result["is_oreb"] = True
-            else:
-                result["rebounded_by"] = rng.choices(
-                    defense, weights=[p["dreb_rate"] for p in defense]
-                )[0]["id"]
-            return _done(result)
+            _assign_rebound(ctx, result)
+            return Matchup(defender=None, blocked=True)
 
-    # 6. Defender selection
-    # With positional matchups: filter to same position group, fall back to full pool if none.
-    # Defender is chosen uniformly within the matched pool — attributes affect outcome (step 7),
-    # not selection frequency. This leaves room for explicit assignment logic in future phases.
-    if use_positional_matchups:
-        pos_group = _position_group(ball_handler.get("position", "F"))
-        candidates = [p for p in defense if _position_group(p.get("position", "F")) == pos_group]
-        if not candidates:
-            candidates = defense
+    # on-ball assignment — positional matchups filter to the ball handler's group;
+    # chosen uniformly within the pool (attributes affect the outcome, not selection).
+    if cfg.use_positional_matchups:
+        pos_group = _position_group(action.ball_handler.get("position", "F"))
+        candidates = [p for p in defense if _position_group(p.get("position", "F")) == pos_group] or defense
         defender = rng.choice(candidates)
     else:
         defender = rng.choice(defense)
+    return Matchup(defender=defender)
 
-    # 7. Base probability and defense penalty by sub-type
+
+# --- stage 3: evaluate_shot (no make/miss draw — that is the outcome) --------
+
+def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
+    """Compute how likely the attempt is to go in: base ability by sub-type, minus the
+    defender's penalty, adjusted by the contest model, signal gain, home court, and
+    per-possession modifier/form deltas. No RNG for make/miss here (see resolve_outcome)."""
+    cfg, rng = ctx.cfg, ctx.rng
+    defender = matchup.defender
+    sub_type, coarse_type, ball_handler = action.sub_type, action.coarse_type, action.ball_handler
+
     attr_key, lo, hi = _SUB_TYPE_SPECS[sub_type]
     base_prob = attr_to_prob(ball_handler.get(attr_key, ball_handler["close_shot"]), lo=lo, hi=hi)
 
@@ -381,57 +425,54 @@ def resolve_possession(ctx: "PossessionContext") -> dict:
         defense_penalty = defender["perimeter_defense"] / 100.0 * 0.05
     elif sub_type in _INTERIOR_TYPES:
         defense_penalty = defender["interior_defense"] / 100.0 * 0.08
-    else:  # floater — blend
+    else:  # floater — blend interior/perimeter
         defense_penalty = (
             defender["interior_defense"] * 0.6 + defender["perimeter_defense"] * 0.4
         ) / 100.0 * 0.07
 
-    if is_fastbreak:
+    if ctx.is_fastbreak:
         if coarse_type == "close":
             base_prob = min(base_prob + 0.08, 0.85)
         defense_penalty *= 0.80
 
-    # 7b. Contest model — separates whether the defender reaches the shot (contest_prob)
-    # from how much that contest affects the outcome (contest_impact).
-    if use_contest_model:
+    # contest model — separates whether the defender reaches the shot from its impact
+    if cfg.use_contest_model:
         def_attr = (
             defender["perimeter_defense"] if sub_type in _PERIMETER_TYPES
             else defender["interior_defense"]
         )
-        contest_prob = (def_attr / 100.0) * _CONTEST_REACH[sub_type]
-        is_contested = rng.random() < contest_prob
-        # Non-contested = baseline penalty unchanged (1.0×); contested = CONTEST_IMPACT deviation.
-        # This makes the model additive texture (harder dunks, easier corner threes when contested)
-        # rather than a systematic open-shot bonus that inflates scoring globally.
-        contest_mult = _CONTEST_IMPACT[sub_type] if is_contested else 1.0
-        defense_penalty *= contest_mult
+        is_contested = rng.random() < (def_attr / 100.0) * _CONTEST_REACH[sub_type]
+        defense_penalty *= _CONTEST_IMPACT[sub_type] if is_contested else 1.0
 
-    # Stage B signal gain: stretch this shot's deviation from the league-average make
-    # probability for its sub-type. Amplifies skill/defense differentiation without
-    # moving league totals. home_bonus added AFTER the gain (already calibrated), as
-    # are modifier deltas and form factors (separately calibrated systems).
-    shot_prob = (base_prob - defense_penalty) * team_defense_factor
-    if signal_gain != 1.0:
+    shot_prob = (base_prob - defense_penalty) * ctx.team_defense_factor
+    if cfg.signal_gain != 1.0:
         anchor = _LEAGUE_AVG_MAKE[sub_type]
-        shot_prob = anchor + (shot_prob - anchor) * signal_gain
-    # home_bonus arrives as a per-possession probability delta (HOME_ADVANTAGE /
-    # expected_possessions), not a 0-100 rating — dividing by 100 here reduced home
-    # advantage to ~0.03 pts/game (found via schedule replay: 50.7% home win vs 55.4% real).
-    shot_prob = shot_prob + home_bonus
-    _shot_delta = (adjustments.shot_prob_delta + adjustments.defense_penalty_delta) if adjustments else 0.0
-    # Form factor: per-game variance drawn at game start; applied as a probability offset.
-    # (form_factor - 1.0) converts e.g. 1.10 → +0.10 multiplied by base_prob to stay proportional.
-    _form_delta = (
-        (form_factors[ball_handler["id"]] - 1.0) * base_prob
-        if (form_factors and ball_handler["id"] in form_factors)
+        shot_prob = anchor + (shot_prob - anchor) * cfg.signal_gain
+    shot_prob = shot_prob + ctx.home_bonus
+
+    shot_delta = (ctx.adjustments.shot_prob_delta + ctx.adjustments.defense_penalty_delta) if ctx.adjustments else 0.0
+    form_delta = (
+        (ctx.form_factors[ball_handler["id"]] - 1.0) * base_prob
+        if (ctx.form_factors and ball_handler["id"] in ctx.form_factors)
         else 0.0
     )
-    result["made"] = rng.random() < max(0.05, min(0.95, shot_prob + _shot_delta + _form_delta))
+    make_prob = max(0.05, min(0.95, shot_prob + shot_delta + form_delta))
+    return ShotQuality(make_prob=make_prob)
 
+
+# --- stage 4: resolve_outcome -----------------------------------------------
+
+def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality, result: dict) -> None:
+    """Draw the shot result, then shooting fouls, assist, and rebound-on-miss."""
+    rng, cfg = ctx.rng, ctx.cfg
+    ball_handler, defender = action.ball_handler, matchup.defender
+    sub_type, coarse_type = action.sub_type, action.coarse_type
+
+    result["made"] = rng.random() < quality.make_prob
     ft_prob = _free_throw_prob(ball_handler)
+    shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0
 
-    # 8a. 3PT shooting foul — base 2% scaled by sub-type multiplier (corner threes draw fewer).
-    shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if use_foul_drawing else 1.0
+    # 3PT shooting foul (~2% x sub-type multiplier)
     if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult:
         result["fouled_by"] = defender["id"]
         if result["made"]:
@@ -440,11 +481,8 @@ def resolve_possession(ctx: "PossessionContext") -> dict:
         else:
             result["fta"] = 3
             result["ftm"] = sum(1 for _ in range(3) if rng.random() < ft_prob)
-
-    # 8b. 2PT shooting foul — base scaled by sub-type multiplier (dunks/layups draw more).
-    # Base drops 0.15 → 0.13 under foul drawing because the multiplier averages ~1.16 over
-    # the simulated shot mix; 0.13 × 1.16 ≈ 0.15 keeps total 2PT foul volume unchanged.
-    elif coarse_type != "three" and rng.random() < (0.13 if use_foul_drawing else 0.15) * shoot_foul_mult:
+    # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
+    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
@@ -453,26 +491,16 @@ def resolve_possession(ctx: "PossessionContext") -> dict:
             result["fta"] = 2
             result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
 
-    # 9. Assist
+    # assist on a make
     if result["made"]:
         ast_rate = 0.65 if coarse_type in ("three", "mid") else 0.50
         if rng.random() < ast_rate:
-            passers = [p for p in offense if p["id"] != ball_handler["id"]]
+            passers = [p for p in ctx.offense if p["id"] != ball_handler["id"]]
             if passers:
                 result["assisted_by"] = rng.choices(
                     passers, weights=[p["assist_rate"] for p in passers]
                 )[0]["id"]
 
-    # 10. Rebound on miss
+    # rebound on a live miss (no free throws pending)
     if not result["made"] and result["fta"] == 0:
-        if rng.random() < offense_oreb_rate:
-            result["rebounded_by"] = rng.choices(
-                offense, weights=[p["oreb_rate"] for p in offense]
-            )[0]["id"]
-            result["is_oreb"] = True
-        else:
-            result["rebounded_by"] = rng.choices(
-                defense, weights=[p["dreb_rate"] for p in defense]
-            )[0]["id"]
-
-    return _done(result)
+        _assign_rebound(ctx, result)

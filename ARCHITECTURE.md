@@ -69,17 +69,21 @@ Guardrail: `overall_rating` is UI-only and never a simulation input.
 
 ## Layer 3 — Possession resolution (`app/services/possession.py`)
 
-`resolve_possession(offense, defense, rng, ...)` simulates exactly one possession:
+`resolve_possession(ctx)` simulates exactly one possession, as a short orchestrator over
+four named stages (each visible on its own in `possession.py`):
 
 ```
-bonus foul? → steal? → turnover? → offensive foul?
-→ shot type (three/mid/close from tendencies)
-→ sub-type (corner_three / above_break_three / mid_range / floater / layup / dunk)
-→ block check → defender selection (positional matchup)
-→ base probability (shooter attribute) − defense penalty (defender attribute)
-→ contest model (reach × impact) → signal gain → home bonus
-→ made? → shooting foul / and-1 → assist attribution → rebound
+_select_action   → who has the ball + what they attempt
+                   (bonus foul / steal / turnover / offensive foul end it here;
+                    otherwise a shot type: three/mid/close → sub-type)
+_resolve_matchup → rim protection (block) then the on-ball defender
+_evaluate_shot   → make probability: base ability − defense penalty, contest model,
+                   signal gain, home court, modifier/form deltas  (no make/miss draw)
+_resolve_outcome → the make/miss draw, shooting fouls, assist, rebound
 ```
+
+Extracted from a former ~250-line monolith with the exact RNG order preserved
+(behavior-neutral). Every future basketball system has an obvious home among these stages.
 
 Key concepts:
 - **Signal gain** (`SimConfig.signal_gain`): stretches each shot's deviation from

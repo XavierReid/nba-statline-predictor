@@ -123,12 +123,23 @@ keep their own definitions for now.
 Target pipeline: GameState → GamePhase → Objectives → Behavior Sources → Aggregation →
 PossessionContext → Decision Pipeline → Outcome.
 
-### Stage D — Decision pipeline — THE LAST FOUNDATIONAL ARCHITECTURE MILESTONE
-Make the basketball engine **readable and ownable**, not just extensible. Today
-`resolve_possession()` performs every basketball decision in one long function; the stages
-below already exist *implicitly* inside it (ball-handler → defender → shot-type → contest
-→ outcome are literally sequential steps). Extracting them introduces NO new behavior — it
-makes the decision process **visible**, organized by basketball concept:
+### Stage D — Decision pipeline ✅ DONE (2026-07-09) — LAST FOUNDATIONAL MILESTONE
+`resolve_possession()` was one ~250-line function performing every basketball decision.
+It is now a short readable orchestrator over four named stages in `possession.py`:
+`_select_action → _resolve_matchup → _evaluate_shot → _resolve_outcome`, with lightweight
+`Action` / `Matchup` / `ShotQuality` products. The stages preserve the **exact RNG draw
+order** of the monolith, so it is a pure readability extraction — 261 tests green + replay
+byte-identical to `demoable-v1`. `_evaluate_shot` is deliberately make/miss-free (it
+computes shot *quality*); the make draw lives in `_resolve_outcome`. Every future feature
+now has an obvious home: coaching/identity/fatigue → `_select_action`; defensive schemes →
+`_resolve_matchup`; contest/difficulty → `_evaluate_shot`; fouls/rebounds → `_resolve_outcome`.
+
+**Foundational architecture (A–D) is complete.** Remaining stages are not refactors: E
+(Team Identity) is a feature, F is demand-driven, G is trivial namespace churn.
+
+Original goal (kept for reference) — make the basketball engine **readable and ownable**,
+not just extensible; the stages already existed *implicitly* and extracting them introduced
+NO new behavior, only visibility, organized by basketball concept:
 
 ```
 GameState → PossessionContext

@@ -1202,15 +1202,24 @@ computed for the SIM vs REAL for several eras (e.g. 2015-16, 2018-19, 2021-22, 2
 Objective test of whether each era emerges correctly from the same engine. This measurement
 drives Phase 2.
 
-**Phase 2 — era fidelity.**
-Make historical seasons authentic, not merely compatible: era-specific baselines/defaults
-where modern tracking data is absent (so old-season interior finishing / individual defense
-aren't flat positional defaults — the strength-compression issue would otherwise return),
-relocated-franchise mapping (Seattle→OKC, NJ→BKN, etc.), and closing the cross-era metric
-gaps the harness exposes.
+**Phase 2 — era fidelity. ✅ COMPLETE (2026-07-14).**
+- Era-specific attribute derivation (interior finishing + box-score defense fallback) — done
+  in the cross-era reconciliation milestone (SIMULATION_GAPS.md). Old-era strength no longer
+  compresses; scoring reconciles within ~1.5 pts across 1996-97 / 2005-06 / 2025-26.
+- Relocated-franchise identity — `app/services/franchise.py` (season-aware city/nickname/abbr;
+  'SEA' resolves for 2005-06). Instrument-first finding: franchise *mapping* already worked
+  (stable NBA franchise ids), so only the *display/input identity* needed fixing.
+- Cross-era metric gaps — closed to second-order via the accounting layer.
+
+**Known Phase-2 limitations (documented, low value / need new data):** traded players carry
+season-total stats on their final team (the season-stats endpoint pre-resolves them; per-team
+splits would need a different source); the ~+0.013 three-point efficiency residual is left as
+a second-order limitation, not chased.
 
 **Then:** resume player-realism (3.4) and the shot-model variance investigation (3.2) with
-much stronger evidence the engine generalizes across basketball history.
+much stronger evidence the engine generalizes across basketball history. (Recommended interim:
+a small legacy engine-mode cleanup pass — remove the fixed-200/no-clock/DRAMA_M1-M2 paths,
+proven byte-identical via replay — before opening 3.4. See ARCHITECTURE_ROADMAP.md.)
 
 ### v2
 - [ ] Player inspection tooling: endpoint or CLI to view a player's ratings, attributes, and tendencies side by side (with league percentile context) — makes attribute sanity checks routine instead of ad-hoc scripts (`scratch/explore_ratings.py` is a partial start)

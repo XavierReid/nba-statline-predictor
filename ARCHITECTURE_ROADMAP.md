@@ -219,6 +219,23 @@ flushed out the era-invariant-constant/data-gap defects that blocked generalizat
 SIMULATION_GAPS.md milestone section. This validates the direction: future work is "find the
 behavior responsible for this residual," not "tune another constant until totals match."
 
+## Data enrichment (demand-driven — not a stage)
+
+New nba_api sources are pulled in only when a milestone needs them, each with an
+era-availability check and a box-score fallback if it touches cross-era behavior.
+Queued:
+- **`ShotChartDetail`** (1996-97+): shot-level zone makes — closes the corner-3 /
+  above-break-3 make-data gap (currently attempts-only), upgrades the observed-FG%
+  make model from zone aggregates to real corner-vs-above-break shot quality. Design
+  sketched. **Slot: the opening ingest of the next shot-model milestone** (shot quality
+  = ShotChartDetail + `LeagueDashPlayerPtShot` contest), which revisits gap 3.2
+  variance + the deferred 3-pt efficiency residual — MEASURED, not tuned. Do NOT pull
+  forward just to shave that residual.
+- Others surveyed (unused): `LeagueDashPlayerPtShot` (contest), `SynergyPlayTypes`
+  (Team Identity/Stage E), `PlayerGameLog`/`BoxScoreTraditional` (gap 3.4 realism),
+  `LeagueSeasonMatchups` (best-defender determinism 2.2), `LeagueDashPtStats`/
+  `DraftCombineStats` (athleticism/fatigue, Phase 3).
+
 ## Sequencing (2026-07-09)
 
 Foundational architecture = A, B, C, **D** — the pure structural refactors. A/B/C done; D

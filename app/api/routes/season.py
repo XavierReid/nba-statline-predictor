@@ -37,7 +37,7 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
     Validates that the team and season exist but does not start the simulation.
     Call POST /simulations/{id}/start to begin.
     """
-    team = get_team(db, req.team)
+    team = get_team(db, req.team, req.season)
 
     if not load_roster(db, team.id, req.season):
         raise HTTPException(

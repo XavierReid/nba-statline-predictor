@@ -1,4 +1,6 @@
 """Shared helper utilities for simulation API routes."""
+from typing import Optional
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,10 +9,19 @@ from app.models.game import Game
 from app.models.simulation import SimulatedGame
 from app.models.team import Team
 from app.services.game_simulator import load_roster
+from app.services.franchise import resolve_abbreviation
 from app.api.schemas.simulations import PlayerLine, StepThroughResponse
 
 
-def get_team(db: Session, abbr: str) -> Team:
+def get_team(db: Session, abbr: str, season: Optional[str] = None) -> Team:
+    # Season-aware: an era abbreviation (e.g. 'SEA' for 2005-06) resolves to the
+    # franchise even though the teams table stores only today's identity ('OKC').
+    if season:
+        franchise_id = resolve_abbreviation(abbr, season)
+        if franchise_id is not None:
+            team = db.get(Team, franchise_id)
+            if team:
+                return team
     team = db.execute(select(Team).where(Team.abbreviation == abbr.upper())).scalar_one_or_none()
     if not team:
         raise HTTPException(status_code=404, detail=f"Team '{abbr}' not found")
@@ -20,8 +31,8 @@ def get_team(db: Session, abbr: str) -> Team:
 def load_rosters(db: Session, home_team_abbr: str, away_team_abbr: str, season: str) -> tuple:
     if home_team_abbr.upper() == away_team_abbr.upper():
         raise HTTPException(status_code=422, detail="Home and away teams must be different.")
-    home_team = get_team(db, home_team_abbr)
-    away_team = get_team(db, away_team_abbr)
+    home_team = get_team(db, home_team_abbr, season)
+    away_team = get_team(db, away_team_abbr, season)
     home_players = load_roster(db, home_team.id, season)
     away_players = load_roster(db, away_team.id, season)
     if not home_players:

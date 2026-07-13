@@ -31,10 +31,12 @@ from sqlalchemy import select
 # Real league reference points (per-team-game unless noted). Source: Basketball
 # Reference league averages. Only for eras where we can eyeball; not a validated
 # target (that needs ingested games — see replay_schedule.py).
+# Validated from ingested real games + team_season_stats (pace) where available.
 REAL_REF = {
-    "2005-06": {"avg_score": 97.0, "pace": 90.5, "home_win": 60.5},
+    "1996-97": {"avg_score": 96.9, "pace": 91.6, "home_win": 57.5},
+    "2005-06": {"avg_score": 97.0, "pace": 91.7, "home_win": 60.3},
     "2024-25": {"avg_score": 113.4, "pace": 99.5, "home_win": 55.0},
-    "2025-26": {"avg_score": 113.0, "pace": 99.0, "home_win": 54.0},
+    "2025-26": {"avg_score": 113.0, "pace": 100.2, "home_win": 54.0},
 }
 
 
@@ -62,8 +64,12 @@ def simulate_season(db, season, sims):
                 )
                 margins.append(r["home_score"] - r["away_score"])
                 scores.append((r["home_score"] + r["away_score"]) / 2)
+                # Sim-internal possession events per team. NOT directly comparable
+                # to the NBA pace stat (which counts a trip once; the sim's
+                # second_chance/fastbreak categories don't map 1:1). Ground truth for
+                # calibration is scoring vs real games (replay_schedule.py), not this.
                 poss = sum(r["possession_accounting"]["counts"].values())
-                paces.append(poss / 2)  # per-team possessions
+                paces.append(poss / 2)
     return {
         "n": len(margins),
         "teams": len(ids),

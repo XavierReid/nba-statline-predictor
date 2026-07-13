@@ -45,6 +45,17 @@ _SUB_TYPE_SPECS: Dict[str, tuple] = {
     "close":             ("close_shot",  0.65, 0.72),
 }
 
+# Sub-type -> observed zone make-prob key on the player (roster.py). When present,
+# the 2pt base make probability IS the shooter's real (era-embedded) zone FG%
+# instead of an attribute→modern-band round-trip. Threes are unchanged (already
+# accurate). Absent for synthetic rosters / seasons without shot data -> attr band.
+_OBSERVED_ZONE_KEY: Dict[str, str] = {
+    "dunk": "rim_fg_prob", "layup": "rim_fg_prob", "close": "rim_fg_prob",
+    "floater": "nonrim_fg_prob",
+    "mid_range": "nonrim_fg_prob", "mid": "nonrim_fg_prob",
+    "corner_three": "three_fg_prob", "above_break_three": "three_fg_prob", "three": "three_fg_prob",
+}
+
 # Sub-types where a block is physically possible
 _BLOCK_ELIGIBLE = frozenset({"layup", "dunk", "floater", "close"})
 
@@ -154,16 +165,17 @@ def _select_sub_type(ball_handler: dict, shot_type: str, rng: random.Random) -> 
         )[0]
 
     if shot_type == "mid":
-        return "mid_range"
+        # Non-rim 2pt: mostly mid-range jumpers, a few floaters (both paint/mid zone).
+        # Keeping floaters here makes "close" pure rim, so the mid/rim split is exactly
+        # the player's observed non-rim share (mid_shot_rate) with no bucket leakage.
+        floater_rate = ball_handler.get("floater_rate", defaults["floater_rate"])
+        return rng.choices(["mid_range", "floater"],
+                           weights=[1.0 - floater_rate, floater_rate])[0]
 
-    # close
-    dunk_rate    = ball_handler.get("dunk_rate",    defaults["dunk_rate"])
-    floater_rate = ball_handler.get("floater_rate", defaults["floater_rate"])
-    layup_rate   = max(0.0, 1.0 - dunk_rate - floater_rate)
-    return rng.choices(
-        ["dunk", "layup", "floater"],
-        weights=[dunk_rate, layup_rate, floater_rate],
-    )[0]
+    # close — pure rim
+    dunk_rate  = ball_handler.get("dunk_rate", defaults["dunk_rate"])
+    layup_rate = max(0.0, 1.0 - dunk_rate)
+    return rng.choices(["dunk", "layup"], weights=[dunk_rate, layup_rate])[0]
 
 
 def attr_to_prob(rating: int, lo: float = 0.25, hi: float = 0.75) -> float:
@@ -370,9 +382,12 @@ def _select_action(ctx, result: dict) -> Action:
     if ctx.is_fastbreak:
         coarse_type = rng.choices(["three", "mid", "close"], weights=[0.05, 0.10, 0.85])[0]
     else:
+        # Mid share of 2pt attempts is the player's observed tendency (era-embedded);
+        # 0.4 is only the fallback for synthetic rosters / seasons without shot data.
+        mid_frac = ball_handler.get("mid_shot_rate", 0.4)
         coarse_type = rng.choices(
             ["three", "mid", "close"],
-            weights=[three_rate, (1 - three_rate) * 0.4, (1 - three_rate) * 0.6],
+            weights=[three_rate, (1 - three_rate) * mid_frac, (1 - three_rate) * (1 - mid_frac)],
         )[0]
     sub_type = _select_sub_type(ball_handler, coarse_type, rng) if cfg.use_shot_subtypes else coarse_type
 
@@ -435,18 +450,30 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
     sub_type, coarse_type, ball_handler = action.sub_type, action.coarse_type, action.ball_handler
 
     attr_key, lo, hi = _SUB_TYPE_SPECS[sub_type]
-    base_prob = attr_to_prob(ball_handler.get(attr_key, ball_handler["close_shot"]), lo=lo, hi=hi)
+    zone_key = _OBSERVED_ZONE_KEY.get(sub_type)
+    observed = ball_handler.get(zone_key) if zone_key else None
+    base_prob = (observed if observed is not None
+                 else attr_to_prob(ball_handler.get(attr_key, ball_handler["close_shot"]), lo=lo, hi=hi))
 
     if sub_type in ("corner_three", "above_break_three", "three"):
-        defense_penalty = defender["perimeter_defense"] / 100.0 * 0.06
+        scale, basis = 0.06, lambda p: p["perimeter_defense"]
     elif sub_type in ("mid_range", "mid"):
-        defense_penalty = defender["perimeter_defense"] / 100.0 * 0.05
+        scale, basis = 0.05, lambda p: p["perimeter_defense"]
     elif sub_type in _INTERIOR_TYPES:
-        defense_penalty = defender["interior_defense"] / 100.0 * 0.08
+        scale, basis = 0.08, lambda p: p["interior_defense"]
     else:  # floater — blend interior/perimeter
-        defense_penalty = (
-            defender["interior_defense"] * 0.6 + defender["perimeter_defense"] * 0.4
-        ) / 100.0 * 0.07
+        scale, basis = 0.07, lambda p: p["interior_defense"] * 0.6 + p["perimeter_defense"] * 0.4
+    def_attr = basis(defender)
+    defense_penalty = def_attr / 100.0 * scale
+    # When the base is an OBSERVED zone FG% (already realized vs an average defender),
+    # the defender effect must be a DEVIATION from the average defender on the floor —
+    # otherwise league-average defense is subtracted twice. Centering on the defending
+    # lineup (not a fixed 50) self-calibrates across eras, whose rating scales differ
+    # (percentile-curve median ~72, tracking ~63, position-default ~50). Attribute-derived
+    # bases keep the full penalty (their bands were calibrated to include it).
+    if observed is not None:
+        center = sum(basis(d) for d in ctx.defense) / len(ctx.defense)
+        defense_penalty = (def_attr - center) / 100.0 * scale
 
     if ctx.is_fastbreak:
         if coarse_type == "close":

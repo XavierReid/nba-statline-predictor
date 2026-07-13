@@ -108,13 +108,15 @@ class TestSubTypeSelection:
         counts = self._run("three", pos="G")
         assert set(counts.keys()) == {"corner_three", "above_break_three"}
 
-    def test_mid_always_mid_range(self):
+    def test_mid_produces_midrange_and_floater(self):
+        # non-rim bucket: mostly mid-range jumpers with some floaters (both paint/mid)
         counts = self._run("mid", pos="G")
-        assert set(counts.keys()) == {"mid_range"}
+        assert set(counts.keys()) == {"mid_range", "floater"}
 
-    def test_close_produces_three_subtypes(self):
+    def test_close_is_pure_rim(self):
+        # "close" is now pure rim (floaters moved to the non-rim "mid" bucket)
         counts = self._run("close", pos="G")
-        assert set(counts.keys()) == {"dunk", "layup", "floater"}
+        assert set(counts.keys()) == {"dunk", "layup"}
 
     def test_guard_corner_rate_approx(self):
         counts = self._run("three", pos="G", n=5000)

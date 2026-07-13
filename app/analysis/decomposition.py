@@ -94,6 +94,16 @@ def compare(real: PossessionAccounting, sim: PossessionAccounting) -> None:
     print(f"  {'3pt split':10}corner {real.corner_share:.2f}/{sim.corner_share:.2f}"
           f"   above {real.above_break_share:.2f}/{sim.above_break_share:.2f}  (attempts only)")
 
+    # --- shot-mix reconciliation: attempts are conserved, so a deficit in one zone
+    # is an equal surplus in others. Answer literally where missing attempts went. ---
+    deltas = {z: sim.zones[z].fga_share - real.zones[z].fga_share for z in ZONES}
+    deficit = min(deltas, key=deltas.get)
+    if deltas[deficit] < 0:
+        surplus = {z: d for z, d in deltas.items() if d > 0}
+        parts = ", ".join(f"{z} +{d*100:.0f}%" for z, d in sorted(surplus.items(), key=lambda x: -x[1]))
+        print(f"\n  Shot-mix: sim under-attempts {deficit} by {-deltas[deficit]*100:.0f}% of FGA"
+              f" — those attempts became: {parts}")
+
     # --- points attribution: gap = possession volume + per-component (vol + eff) ---
     gap = sim.points_per_game - real.points_per_game
     rp, sp = _ppp_parts(real), _ppp_parts(sim)

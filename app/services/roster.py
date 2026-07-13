@@ -25,6 +25,14 @@ from app.models.player_season_stats import PlayerSeasonStats
 LEAGUE_FT_PCT = 0.78
 _FT_SHRINK_PRIOR_ATTEMPTS = 20.0  # low-volume shooters shrink toward league average
 
+# Interior/mid make probability comes from OBSERVED zone FG% (like ft_prob), not a
+# percentile→band round-trip — so a shot's difficulty reflects the era it was taken
+# in (90s rim ~.55 vs modern ~.65) instead of a modern-anchored constant. The
+# shrinkage prior is THAT season's league average for the zone (data-derived, not a
+# hardcoded era table), so low-volume players regress to their own era's norm.
+_ZONE_SHRINK_PRIOR_ATTEMPTS = 40.0
+_ZONE_PRIOR_CACHE: dict = {}
+
 # Seasons whose rosters the `players` table reflects (the live-roster snapshot).
 # These use CURRENT mode so every existing calibration baseline stays byte-identical;
 # every other season is treated as historical.
@@ -83,7 +91,7 @@ class RosterProvider(ABC):
             .order_by(PlayerSeasonStats.minutes_per_game.desc())
             .limit(10)
         ).all()
-        return _build_roster(rows)
+        return _build_roster(rows, _league_zone_prior(db, season))
 
 
 class CurrentRosterProvider(RosterProvider):
@@ -109,9 +117,53 @@ def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
     return roster_provider_for(season).load(db, team_id, season)
 
 
-def _build_roster(rows) -> list[dict]:
+def _league_zone_prior(db: Session, season: str) -> dict:
+    """Season league-average FG% for rim / paint / mid — the shrinkage prior.
+    Cached per season (a full-season aggregation). None for a zone means the
+    season carries no shot-location data (players then fall back to attr-based prob)."""
+    if season in _ZONE_PRIOR_CACHE:
+        return _ZONE_PRIOR_CACHE[season]
+    rows = db.execute(
+        select(PlayerSeasonStats).where(PlayerSeasonStats.season == season)
+    ).scalars().all()
+
+    def league_pct(fga_attr, fgm_fn):
+        fga = sum((getattr(r, fga_attr) or 0.0) * (r.games_played or 0) for r in rows)
+        fgm = sum(fgm_fn(r) * (r.games_played or 0) for r in rows)
+        return fgm / fga if fga else None
+
+    # Two 2pt zones, matching the accounting's interior/mid: rim = Restricted Area,
+    # non-rim = paint(non-RA) + mid-range. non_rim_frac is the era-derived shrinkage
+    # prior for each player's rim-vs-non-rim shot split (see _build_roster), so the
+    # sim's 2pt shot mix reflects the era it is simulating instead of a 0.4 constant.
+    S = lambda f: sum((getattr(r, f) or 0.0) * (r.games_played or 0) for r in rows)
+    nonrim_a = S("paint_fga") + S("mid_fga")
+    two_pt_a = S("ra_fga") + nonrim_a
+    nonrim_m = S("paint_fgm") + sum(
+        (r.mid_fga or 0.0) * (r.mid_fg_pct or 0.0) * (r.games_played or 0) for r in rows)
+    prior = {
+        "rim": league_pct("ra_fga", lambda r: r.ra_fgm or 0.0),
+        "nonrim": nonrim_m / nonrim_a if nonrim_a else None,
+        "nonrim_frac": nonrim_a / two_pt_a if two_pt_a else None,
+        "three": league_pct("fg3a", lambda r: r.fg3m or 0.0),
+    }
+    _ZONE_PRIOR_CACHE[season] = prior
+    return prior
+
+
+def _shrunk_zone_prob(fgm_pg, fga_pg, gp, prior_fg) -> Optional[float]:
+    if not fga_pg or prior_fg is None:
+        return None
+    att = fga_pg * gp
+    made = (fgm_pg or 0.0) * gp
+    return round((made + prior_fg * _ZONE_SHRINK_PRIOR_ATTEMPTS)
+                 / (att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
+
+
+def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
     if not rows:
         return []
+    zone_prior = zone_prior or {"rim": None, "paint": None, "mid": None}
 
     players = []
     for p, a, t, s in rows:
@@ -157,6 +209,29 @@ def _build_roster(rows) -> list[dict]:
         players[-1]["ft_prob"] = round(
             (ftm_total + LEAGUE_FT_PCT * _FT_SHRINK_PRIOR_ATTEMPTS)
             / (fta_total + _FT_SHRINK_PRIOR_ATTEMPTS), 4)
+        # Observed zone make probabilities (rim/paint/mid) — the shot's era-embedded
+        # difficulty. Absent when the season has no shot-location data; _evaluate_shot
+        # then falls back to the attribute-derived band.
+        gp = s.games_played or 0
+        nonrim_fga = (s.paint_fga or 0.0) + (s.mid_fga or 0.0)
+        nonrim_fgm = (s.paint_fgm or 0.0) + (s.mid_fga or 0.0) * (s.mid_fg_pct or 0.0)
+        rim = _shrunk_zone_prob(s.ra_fgm, s.ra_fga, gp, zone_prior["rim"])
+        nonrim = _shrunk_zone_prob(nonrim_fgm, nonrim_fga, gp, zone_prior["nonrim"])
+        three = _shrunk_zone_prob(s.fg3m, s.fg3a, gp, zone_prior["three"])
+        if rim is not None:
+            players[-1]["rim_fg_prob"] = rim
+        if nonrim is not None:
+            players[-1]["nonrim_fg_prob"] = nonrim
+        if three is not None:
+            players[-1]["three_fg_prob"] = three
+        # Non-rim (paint+mid) share of this player's 2pt attempts (observed) —
+        # replaces the hardcoded 0.4 mid/interior split in shot selection. Shrunk
+        # toward the era's league share so low-volume players regress to their norm.
+        two_pt_att = ((s.ra_fga or 0.0) + nonrim_fga) * gp
+        if two_pt_att and zone_prior["nonrim_frac"] is not None:
+            players[-1]["mid_shot_rate"] = round(
+                (nonrim_fga * gp + zone_prior["nonrim_frac"] * _ZONE_SHRINK_PRIOR_ATTEMPTS)
+                / (two_pt_att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
         # Only include when real data exists — M3d sub-type selection falls back
         # to positional defaults via .get() when the key is absent.
         if t.corner_three_rate is not None:

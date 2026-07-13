@@ -270,21 +270,17 @@ def simulate_game(
         mean_quarter_possessions = expected_possessions / 4
         target_mean = QUARTER_SECONDS / mean_quarter_possessions
 
-        # Pace targets already include short possessions (second chances, fastbreaks) and
-        # catch-up urgency, so halfcourt possessions must run longer than the naive mean:
-        #   t_hc = (target − f_sc·t_sc − f_fb·t_fb) / (1 − f_sc − f_fb)
-        # Fractions are measured, not heuristic: f_sc from actual team OREB rates (real
-        # NBA data), f_fb and the catch-up clock fraction from possession accounting runs
-        # (see SimConfig provenance comments). Strategic fouls are deliberately NOT
-        # compensated — state-dependent, validated separately via SimulationDiagnostics.
-        f_sc = ((home_oreb_rate + away_oreb_rate) / 2.0) * ELIGIBLE_MISS_RATE if cfg.use_second_chance else 0.0
+        # NBA pace = DISTINCT possessions; an offensive rebound continues the same
+        # possession, it is not a new one (see analysis/accounting.py). So the budget is
+        # spent only on distinct possessions — fastbreaks (which ARE distinct, just fast)
+        # are compensated so the average distinct possession still hits target_mean, but
+        # second chances are NOT: they are extra shot opportunities layered on top, taking
+        # their own clock. Folding them into the budget (the old f_sc term) starved the
+        # sim of ~10 distinct possessions/game — the FGA/OREB shortfall the accounting found.
         f_fb = cfg.fastbreak_poss_frac if cfg.use_fast_break else 0.0
         if cfg.use_catch_up:
             target_mean *= 1.0 + cfg.catch_up_clock_frac
-        mean_poss_time_clock = (
-            (target_mean - f_sc * cfg.second_chance_time_mean - f_fb * cfg.fastbreak_time_mean)
-            / (1.0 - f_sc - f_fb)
-        )
+        mean_poss_time_clock = (target_mean - f_fb * cfg.fastbreak_time_mean) / (1.0 - f_fb)
         def _run_clock_period(q_idx: int, period_seconds: float, period_tip_is_home: bool) -> None:
             """One timed period (regulation quarter or OT) — identical mechanics either way.
 

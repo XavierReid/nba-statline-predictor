@@ -46,6 +46,21 @@ OT_SECONDS = 300
 HOME_ADVANTAGE = 3.0
 ELIGIBLE_MISS_RATE = 0.32
 
+# team_defense_factor divides a team's def_rating by the LEAGUE average to get a
+# relative multiplier centered at 1.0. That average must be the era's, not a fixed
+# modern constant (~113) — otherwise old eras (league def_rating ~105) are uniformly
+# suppressed and modern boosted, biasing shot efficiency by era. Cached per season.
+_LEAGUE_DEF_CACHE: dict = {}
+
+
+def _league_avg_def_rating(db, season: str, fallback: float) -> float:
+    if season not in _LEAGUE_DEF_CACHE:
+        vals = [r.def_rating for r in db.execute(
+            select(TeamSeasonStats).where(TeamSeasonStats.season == season)
+        ).scalars().all() if r.def_rating is not None]
+        _LEAGUE_DEF_CACHE[season] = sum(vals) / len(vals) if vals else fallback
+    return _LEAGUE_DEF_CACHE[season]
+
 
 def simulate_game(
     home_players: list[dict],
@@ -104,6 +119,11 @@ def simulate_game(
                     "def_rating": row.def_rating,
                     "oreb_pct": row.oreb_pct,
                 }
+
+    league_avg_def = (
+        _league_avg_def_rating(db, season, cfg.league_avg_def_rating)
+        if db is not None and season and cfg.use_team_defense else cfg.league_avg_def_rating
+    )
 
     home_oreb_rate = ((home_stats or {}).get("oreb_pct") or OREB_RATE) if cfg.use_team_oreb else OREB_RATE
     away_oreb_rate = ((away_stats or {}).get("oreb_pct") or OREB_RATE) if cfg.use_team_oreb else OREB_RATE
@@ -410,7 +430,7 @@ def simulate_game(
                 if cfg.use_team_defense:
                     defending_stats = away_stats if current_is_home else home_stats
                     if defending_stats:
-                        raw = defending_stats["def_rating"] / cfg.league_avg_def_rating
+                        raw = defending_stats["def_rating"] / league_avg_def
                         team_defense_factor = 1.0 + (raw - 1.0) * 0.5
 
                 # Lineup quality: season def_rating describes the normal rotation;

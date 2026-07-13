@@ -21,10 +21,3 @@ def get_game(game_id: int, db: Session = Depends(get_db)):
         "away_score": game.away_score,
         "status": game.status.value,
     }
-
-
-@router.get("/{game_id}/predictions")
-def predictions_for_game(game_id: int, db: Session = Depends(get_db)):
-    """Predicted statlines for every active player in this game."""
-    # TODO: load both rosters, compute predictions for each player, return list.
-    return {"game_id": game_id, "predictions": []}

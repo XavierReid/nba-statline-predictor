@@ -471,10 +471,12 @@ def ingest_team_season_stats(db: Session, season: str) -> int:
             )
         ).scalar_one_or_none()
         if existing:
-            existing.pace = row['pace']
-            existing.off_rating = row['off_rating']
-            existing.def_rating = row['def_rating']
-            existing.net_rating = row['net_rating']
+            # Update every field the fetch returns — omitting oreb_pct here left it
+            # NULL on rows created before it was captured, silently forcing the sim to
+            # the stale OREB_RATE fallback (modern OREB 8.7 vs 12.5 real).
+            for k, v in row.items():
+                if k != 'team_id':
+                    setattr(existing, k, v)
         else:
             db.add(TeamSeasonStats(season=season, **row))
     return len(rows)

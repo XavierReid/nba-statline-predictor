@@ -250,6 +250,7 @@ def seed_player_attributes(db: Session, season: str) -> int:
     from app.services.rating_engine import (
         compute_ratings_for_attribute, compute_tendencies,
         apply_overrides, position_defaults, compute_overall, SKILL_CONFIGS,
+        derive_box_score_defense,
     )
 
     all_stats = db.execute(
@@ -259,6 +260,29 @@ def seed_player_attributes(db: Session, season: str) -> int:
     if not all_stats:
         log.warning("No season stats found for season=%s — run ingest_season_stats first", season)
         return 0
+
+    # Pre-2013-14 seasons have no player-tracking defense (LeagueDashPtDefend
+    # empty), so interior/perimeter defense would collapse to flat positional
+    # defaults. Derive them from box score + team def_rating instead. Detected by
+    # data presence, not a hardcoded year — the current season always has tracking
+    # so its rating stays byte-identical.
+    has_tracking_defense = any(getattr(s, "d_lt6_fga", None) is not None for s in all_stats)
+    box_defense: dict = {}
+    if not has_tracking_defense:
+        team_def_ratings = {
+            ts.team_id: ts.def_rating
+            for ts in db.execute(
+                select(TeamSeasonStats).where(TeamSeasonStats.season == season)
+            ).scalars().all()
+        }
+        if team_def_ratings:
+            positions = {
+                p.id: p.position
+                for p in db.execute(select(Player)).scalars().all()
+            }
+            box_defense = derive_box_score_defense(all_stats, team_def_ratings, positions)
+            log.info("seed_player_attributes: box-score defense fallback for %s (%d players)",
+                     season, len(box_defense))
 
     # v2 attributes fall back to position-adjusted defaults when a player is
     # below the data volume gates (flat defaults would erase position identity).
@@ -313,6 +337,11 @@ def seed_player_attributes(db: Session, season: str) -> int:
                 + 0.3 * full_attrs["layup"]
                 + _DUNK_POS_MOD.get(pos_key, 0)
             )))
+
+        # Box-score defense fallback overwrites the flat positional defaults that
+        # the tracking-based derivation left behind for pre-2013-14 seasons.
+        if pid in box_defense:
+            full_attrs.update(box_defense[pid])
 
         overrides = db.execute(
             select(PlayerAttributeOverride).where(

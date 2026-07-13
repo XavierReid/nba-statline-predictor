@@ -9,6 +9,7 @@ from app.services.rating_engine import (
     _raw_perimeter_defense,
     compute_ratings_for_attribute,
     compute_tendencies,
+    derive_box_score_defense,
 )
 
 
@@ -91,6 +92,46 @@ class TestPercentilePipeline:
         stats = [_Stats(player_id=1, ra_fga=6.0), _Stats(player_id=2, ra_fga=0.2)]
         r = compute_ratings_for_attribute("layup", stats, SKILL_CONFIGS["layup"])
         assert r[2] == 40  # SHOOTING_DEFAULT
+
+
+class TestBoxScoreDefenseFallback:
+    """Pre-2013-14 fallback: team def_rating + individual box proxy -> defense."""
+
+    def _players(self):
+        # two teams: 100 (elite defense) and 200 (poor defense); within each a
+        # rim protector (high blocks/steals) and a turnstile (none).
+        return [
+            _Stats(player_id=1, team_id=100, blocks=2.5, steals=1.8),
+            _Stats(player_id=2, team_id=100, blocks=0.1, steals=0.2),
+            _Stats(player_id=3, team_id=200, blocks=2.5, steals=1.8),
+            _Stats(player_id=4, team_id=200, blocks=0.1, steals=0.2),
+        ]
+
+    def test_team_defense_quality_drives_rating(self):
+        # same individual profile, different team quality -> better team rates higher
+        d = derive_box_score_defense(
+            self._players(), {100: 105.0, 200: 118.0},  # lower def_rating = better
+            positions={1: "C", 2: "C", 3: "C", 4: "C"},
+        )
+        assert d[1]["interior_defense"] > d[3]["interior_defense"]
+        assert d[2]["perimeter_defense"] > d[4]["perimeter_defense"]
+
+    def test_individual_proxy_separates_within_team(self):
+        d = derive_box_score_defense(
+            self._players(), {100: 105.0, 200: 118.0},
+            positions={1: "F", 2: "F", 3: "F", 4: "F"},
+        )
+        assert d[1]["interior_defense"] > d[2]["interior_defense"]  # blocks
+        assert d[1]["perimeter_defense"] > d[2]["perimeter_defense"]  # steals
+
+    def test_ratings_bounded(self):
+        d = derive_box_score_defense(
+            self._players(), {100: 105.0, 200: 118.0},
+            positions={1: "C", 2: "G", 3: "F", 4: "G"},
+        )
+        for v in d.values():
+            assert 30 <= v["interior_defense"] <= 99
+            assert 30 <= v["perimeter_defense"] <= 99
 
 
 class TestTendencies:

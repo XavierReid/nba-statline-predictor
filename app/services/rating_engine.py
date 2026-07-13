@@ -321,6 +321,77 @@ def _raw_passing(stats) -> Optional[float]:
     return stats.assists * min(1.0, (stats.games_played or 0) / 50)
 
 
+# ---------------------------------------------------------------------------
+# Box-score defense fallback (pre-2013-14 eras — no player-tracking defense)
+# ---------------------------------------------------------------------------
+# LeagueDashPtDefend (defended FG% matchups) only exists from 2013-14 on, so
+# _raw_interior_defense / _raw_perimeter_defense return None for older seasons
+# and every player collapses to a flat positional default — erasing team
+# defensive identity (the dominant driver of cross-era strength). This fallback
+# reconstructs *relative* defense from data every era has: a team component
+# (team def_rating, the reliable signal for telling elite defenses apart) blended
+# with an individual box proxy (blocks->interior, steals->perimeter) that keeps
+# within-team identity. Measured against the 2005-06 schedule replay (strength
+# slope); current-season rating never uses this path so its baseline is untouched.
+_TEAM_DEF_WEIGHT = 0.6   # team defensive quality dominates for strength differentiation
+_INDIV_DEF_WEIGHT = 0.4  # individual box proxy preserves rim-protector vs turnstile
+
+
+def _percentile_ratings(scored: dict) -> dict:
+    """{key: raw_score} -> {key: 0-100 rating} by within-pool percentile rank."""
+    if not scored:
+        return {}
+    scores = list(scored.values())
+    return {
+        k: percentile_to_rating(sum(1 for x in scores if x < s) / len(scores) * 100)
+        for k, s in scored.items()
+    }
+
+
+def derive_box_score_defense(
+    all_stats: list,
+    team_def_ratings: dict,
+    positions: dict,
+) -> dict:
+    """Fallback {player_id: {"interior_defense", "perimeter_defense"}} for eras
+    without tracking defense. See section header for rationale.
+
+    team_def_ratings: {team_id: def_rating} (lower = better). positions: {pid: pos}.
+    """
+    # Team quality -> rating: invert def_rating (lower is better) then percentile
+    # across the league's teams. One rating per team, shared by its players.
+    team_score = {tid: -dr for tid, dr in team_def_ratings.items() if dr is not None}
+    team_rating = _percentile_ratings(team_score)
+
+    # Individual box proxies, volume-weighted by games so small samples regress.
+    blk_score, stl_score = {}, {}
+    for s in all_stats:
+        gw = min(1.0, (s.games_played or 0) / 50)
+        if s.blocks:
+            blk_score[s.player_id] = s.blocks * gw
+        if s.steals:
+            stl_score[s.player_id] = s.steals * gw
+    blk_rating = _percentile_ratings(blk_score)
+    stl_rating = _percentile_ratings(stl_score)
+
+    out: dict = {}
+    for s in all_stats:
+        pid = s.player_id
+        tr = team_rating.get(s.team_id, ESTIMATED_DEFAULT)
+        pos = (positions.get(pid) or "F").upper().split("-")[0]
+        pmods = _POSITION_MODIFIERS.get(pos, {})
+
+        interior = (_TEAM_DEF_WEIGHT * tr
+                    + _INDIV_DEF_WEIGHT * blk_rating.get(pid, ESTIMATED_DEFAULT))
+        perimeter = (_TEAM_DEF_WEIGHT * tr
+                     + _INDIV_DEF_WEIGHT * stl_rating.get(pid, ESTIMATED_DEFAULT))
+        out[pid] = {
+            "interior_defense": max(30, min(99, round(interior + pmods.get("interior_defense", 0)))),
+            "perimeter_defense": max(30, min(99, round(perimeter + pmods.get("perimeter_defense", 0)))),
+        }
+    return out
+
+
 _RAW_SCORE_FNS = {
     "three_point":       _raw_three_point,
     "free_throw":        _raw_free_throw,

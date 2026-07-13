@@ -38,10 +38,11 @@ def statistical_possessions(fga: float, oreb: float, tov: float, fta: float) -> 
 # make data is not split by three sub-zone) but tracks their attempt split.
 ZONES = ("interior", "mid", "three")
 
-# sim sub_type / coarse fallback -> comparison zone
+# sim sub_type / coarse fallback -> comparison zone. floater is a short runner in
+# the lane — it belongs with paint/mid (real "mid" folds paint-non-RA + mid-range).
 _SIM_ZONE = {
     "dunk": "interior", "layup": "interior", "close": "interior",
-    "mid_range": "mid", "mid": "mid",
+    "mid_range": "mid", "mid": "mid", "floater": "mid",
     "corner_three": "three", "above_break_three": "three", "three": "three",
 }
 _ZONE_POINTS = {"interior": 2, "mid": 2, "three": 3}

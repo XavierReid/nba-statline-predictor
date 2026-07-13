@@ -46,15 +46,12 @@ def _run_seed(season: str, force: bool) -> None:
 
 
 def _run_ingest_and_seed(season: str) -> None:
-    from app.ingestion.jobs import ingest_season_stats, seed_player_attributes
-    db = SessionLocal()
-    try:
-        ingest_season_stats(db, season)
-        db.commit()
-        seed_player_attributes(db, season)
-        db.commit()
-    finally:
-        db.close()
+    # Full pipeline (games, season stats, shot locations + tracking defense, team
+    # stats, then attribute seeding in the right order). The earlier two-step version
+    # seeded attributes without shot data, silently producing the pre-reconciliation
+    # attribute-band model. run_full_ingestion manages its own session.
+    from app.ingestion.jobs import run_full_ingestion
+    run_full_ingestion(season)
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +119,12 @@ def seed_season(season: str, req: SeedRequest, background_tasks: BackgroundTasks
 
 @router.post("/seasons/{season}/ingest", status_code=202)
 def ingest_season(season: str, background_tasks: BackgroundTasks):
-    """Fetch season stats from NBA API and seed attributes/tendencies.
+    """Full-season ingest: teams, games, season stats, shot locations + tracking
+    defense, team stats, then attribute/tendency seeding (in dependency order).
 
-    Makes two HTTP calls to stats.nba.com (PerGame + Advanced), then seeds.
-    Runs in the background — check GET /ingestion/seasons to confirm completion.
+    Makes ~60 calls to stats.nba.com and runs in the background — check GET
+    /ingestion/seasons for completion. Does NOT fetch per-game line scores
+    (quarter dynamics); run those separately, they're one slow call per game.
 
     Note: stats.nba.com can be slow or throttled. If this times out, run
     ingestion via the CLI instead (see RUNBOOK.md).

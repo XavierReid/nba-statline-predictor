@@ -14,10 +14,6 @@ def _snap(home=100, away=100, quarter=4, clock=300.0, home_conceded=False, away_
 
 
 class TestPipelineBuild:
-    def test_empty_without_clock(self):
-        p = BehaviorPipeline(SimConfig(use_momentum=True, use_clock=False), [], [])
-        assert p.is_empty
-
     def test_drama_m3_has_sources(self):
         p = BehaviorPipeline(DRAMA_M3, [{"id": 1, "overall": 75}], [{"id": 2, "overall": 75}])
         assert not p.is_empty
@@ -34,13 +30,13 @@ class TestPipelineBuild:
 class TestPipelineCombines:
     def test_objective_included_and_applied(self):
         # A protecting leader in Q4 should produce a non-neutral combined adjustment
-        cfg = SimConfig(use_clock=True, use_team_objectives=True)
+        cfg = SimConfig(use_team_objectives=True)
         p = BehaviorPipeline(cfg, [], [])
         adj = p.adjustments(True, _snap(home=112, away=100, clock=120.0))  # +12, protecting
         assert adj.shot_prob_delta < 0.0  # PROTECT efficiency cost
 
     def test_conceded_offense_is_neutral(self):
-        cfg = SimConfig(use_clock=True, use_team_objectives=True)
+        cfg = SimConfig(use_team_objectives=True)
         p = BehaviorPipeline(cfg, [], [])
         adj = p.adjustments(True, _snap(home=125, away=100, clock=120.0, home_conceded=True))
         assert adj.shot_prob_delta == 0.0 and adj.pace_multiplier == 1.0

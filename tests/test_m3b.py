@@ -205,11 +205,6 @@ class TestSimConfigM3b:
         assert DRAMA_M3.use_player_variance is True
         assert DRAMA_M3.use_team_oreb is True
 
-    def test_drama_m2_preset_unchanged(self):
-        from app.services.sim_config import DRAMA_M2
-        assert not hasattr(DRAMA_M2, "use_player_variance") or DRAMA_M2.use_player_variance is False
-        assert not hasattr(DRAMA_M2, "use_team_oreb") or DRAMA_M2.use_team_oreb is False
-
     def test_baseline_has_variance_off(self):
         cfg = SimConfig()
         assert cfg.use_player_variance is False

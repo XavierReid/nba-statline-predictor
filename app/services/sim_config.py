@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 @dataclass
 class SimConfig:
     # --- feature toggles (all off = current behavior) ---
-    use_pace: bool = False            # pace-derived possession count vs fixed 200
-    use_clock: bool = False           # real clock tracking vs post-hoc distribution
+    # NB: pace-derived possessions and real-clock tracking are now unconditional
+    # (the fixed-200 / post-hoc engine paths were removed 2026-07-14).
     use_second_chance: bool = False   # oreb extends possession chain
     use_fast_break: bool = False      # steal → transition modifier next possession
     use_team_defense: bool = False    # team def_rating suppresses opponent FG%
@@ -118,32 +118,7 @@ class SimConfig:
     momentum_decay_rate: float = 0.20
 
 
-# Pre-built config with all drama M1 modifiers enabled — used by calibration script
-DRAMA_M1 = SimConfig(
-    use_pace=True,
-    use_clock=True,
-    use_second_chance=True,
-    use_fast_break=True,
-    use_team_defense=True,
-    use_strategic_foul=True,
-)
-
-DRAMA_M2 = SimConfig(
-    use_pace=True,
-    use_clock=True,
-    use_second_chance=True,
-    use_fast_break=True,
-    use_team_defense=True,
-    use_strategic_foul=True,
-    use_momentum=True,
-    use_fatigue=True,
-    use_foul_trouble=True,
-    use_clutch=True,
-)
-
 DRAMA_M3 = SimConfig(
-    use_pace=True,
-    use_clock=True,
     use_second_chance=True,
     use_fast_break=True,
     use_team_defense=True,
@@ -167,8 +142,6 @@ DRAMA_M3 = SimConfig(
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(
-    use_pace=True,
-    use_clock=True,
     use_second_chance=True,
     use_fast_break=True,
     use_team_defense=True,

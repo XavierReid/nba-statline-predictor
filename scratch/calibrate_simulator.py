@@ -20,7 +20,7 @@ from app.database import SessionLocal
 from app.models.game import Game
 from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
-from app.services.sim_config import SimConfig, DRAMA_M2, DRAMA_M3, DRAMA_M3_NO_SUBTYPES
+from app.services.sim_config import SimConfig, DRAMA_M3, DRAMA_M3_NO_SUBTYPES
 from sqlalchemy import case, func, select
 
 # Representative matchups: strong vs strong, weak vs weak, mixed
@@ -157,7 +157,7 @@ def run_calibration(n_games: int, season: str, config: SimConfig) -> None:
 
     # Show which modifiers are active
     all_toggles = (
-        "use_pace","use_clock","use_second_chance","use_fast_break",
+        "use_second_chance","use_fast_break",
         "use_team_defense","use_strategic_foul","use_momentum",
         "use_fatigue","use_foul_trouble","use_clutch",
         "use_player_variance","use_team_oreb",
@@ -234,9 +234,7 @@ if __name__ == "__main__":
     elif args.drama_m2:
         from dataclasses import replace
         config = replace(
-            DRAMA_M2,
-            use_pace=not args.disable_pace,
-            use_clock=not args.disable_clock,
+            DRAMA_M3,
             use_second_chance=not args.disable_second_chance,
             use_fast_break=not args.disable_fast_break,
             use_team_defense=not args.disable_team_defense,
@@ -245,8 +243,6 @@ if __name__ == "__main__":
         )
     elif args.drama_m1:
         config = SimConfig(
-            use_pace=not args.disable_pace,
-            use_clock=not args.disable_clock,
             use_second_chance=not args.disable_second_chance,
             use_fast_break=not args.disable_fast_break,
             use_team_defense=not args.disable_team_defense,
@@ -254,8 +250,6 @@ if __name__ == "__main__":
         )
     else:
         config = SimConfig(
-            use_pace=False,
-            use_clock=False,
             use_second_chance=False,
             use_fast_break=False,
             use_team_defense=False,

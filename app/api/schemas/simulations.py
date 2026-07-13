@@ -5,13 +5,11 @@ from typing import Optional
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.sim_config import DRAMA_M1, DRAMA_M2, DRAMA_M3, DRAMA_M3_NO_SUBTYPES, SimConfig
+from app.services.sim_config import DRAMA_M3, DRAMA_M3_NO_SUBTYPES, SimConfig
 
 
 _PRESETS: dict = {
     "baseline": SimConfig(),
-    "drama-m1": DRAMA_M1,
-    "drama-m2": DRAMA_M2,
     "drama-m3": DRAMA_M3,
     "drama-m3-no-subtypes": DRAMA_M3_NO_SUBTYPES,
 }
@@ -38,8 +36,6 @@ def resolve_config(req: Optional["SimConfigRequest"]) -> SimConfig:
 # ---------------------------------------------------------------------------
 
 class SimConfigOverrides(BaseModel):
-    use_pace: Optional[bool] = None
-    use_clock: Optional[bool] = None
     use_second_chance: Optional[bool] = None
     use_fast_break: Optional[bool] = None
     use_team_defense: Optional[bool] = None
@@ -70,7 +66,7 @@ class SimConfigOverrides(BaseModel):
 
 
 class SimConfigRequest(BaseModel):
-    preset: str = Field("baseline", description="Named preset: 'baseline', 'drama-m1', 'drama-m2', 'drama-m3', or 'drama-m3-no-subtypes'")
+    preset: str = Field("baseline", description="Named preset: 'baseline', 'drama-m3', or 'drama-m3-no-subtypes'")
     overrides: Optional[SimConfigOverrides] = Field(None, description="Override individual fields on top of the preset")
 
 

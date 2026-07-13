@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import MagicMock
 from app.services.game_simulator import simulate_game, resolve_possession, OREB_RATE
 from app.services.possession_context import make_context
-from app.services.sim_config import SimConfig, DRAMA_M1, DRAMA_M2
+from app.services.sim_config import SimConfig, DRAMA_M3
 from app.services.modifiers.base import GameSnapshot, ModifierAdjustments
 from app.services.modifiers.momentum import MomentumModifier
 from app.services.stepthrough_store import create_session, pop_next_chunk
@@ -277,21 +277,10 @@ def test_pop_carries_metadata():
 
 def test_sim_config_defaults_all_off():
     cfg = SimConfig()
-    assert cfg.use_pace is False
-    assert cfg.use_clock is False
     assert cfg.use_second_chance is False
     assert cfg.use_fast_break is False
     assert cfg.use_team_defense is False
     assert cfg.use_strategic_foul is False
-
-
-def test_drama_m1_preset_all_on():
-    assert DRAMA_M1.use_pace is True
-    assert DRAMA_M1.use_clock is True
-    assert DRAMA_M1.use_second_chance is True
-    assert DRAMA_M1.use_fast_break is True
-    assert DRAMA_M1.use_team_defense is True
-    assert DRAMA_M1.use_strategic_foul is True
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +288,7 @@ def test_drama_m1_preset_all_on():
 # ---------------------------------------------------------------------------
 
 def test_clock_sim_produces_valid_result():
-    cfg = SimConfig(use_clock=True)
+    cfg = SimConfig()
     r = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
     assert r["home_score"] > 0
     assert r["away_score"] > 0
@@ -307,7 +296,7 @@ def test_clock_sim_produces_valid_result():
 
 
 def test_clock_sim_reproducible():
-    cfg = SimConfig(use_clock=True)
+    cfg = SimConfig()
     r1 = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
     r2 = simulate_game(HOME, AWAY, seed=SEED, config=cfg)
     assert r1["home_score"] == r2["home_score"]
@@ -315,7 +304,7 @@ def test_clock_sim_reproducible():
 
 
 def test_clock_sim_elapsed_minutes_covers_48():
-    cfg = SimConfig(use_clock=True)
+    cfg = SimConfig()
     r = simulate_game(HOME, AWAY, seed=SEED, config=cfg, steps=4)
     assert r["chunks"][-1]["elapsed_minutes"] >= 48.0
 
@@ -357,7 +346,6 @@ def test_fast_break_only_on_is_fastbreak_flag():
 def test_team_defense_suppresses_offense_for_elite_d():
     """Elite defense (low def_rating) should reduce opponent scoring vs bad defense.
 
-    Team defense only applies in the clock-based loop, so use_clock=True is required.
     Both home and away get the same def_rating so the effect is symmetric — we
     compare total scoring (home+away) to isolate the defensive suppression signal.
     """
@@ -369,7 +357,7 @@ def test_team_defense_suppresses_offense_for_elite_d():
         mock_db = MagicMock()
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_row
 
-        cfg = SimConfig(use_team_defense=True, use_clock=True)
+        cfg = SimConfig(use_team_defense=True)
         totals = []
         for seed in range(60):
             r = simulate_game(
@@ -509,14 +497,8 @@ def test_momentum_does_not_affect_steal_check():
     assert steal_count >= 0  # no crash; steal path still reachable
 
 
-def test_drama_m2_preset_includes_momentum():
-    assert DRAMA_M2.use_momentum is True
-    assert DRAMA_M2.use_clock is True
-    assert DRAMA_M2.use_pace is True
-
-
-def test_drama_m2_game_runs_without_error():
-    """Full game with drama-m2 should complete and produce valid scores."""
+def test_drama_m3_game_runs_without_error():
+    """Full game with drama-m3 should complete and produce valid scores."""
     home = [make_player(i, i < 5) for i in range(10)]
     away = [make_player(i + 10, i < 5) for i in range(10)]
     # overall already set in make_player; confirm it's present
@@ -526,7 +508,7 @@ def test_drama_m2_game_runs_without_error():
 
     result = simulate_game(
         home, away, seed=99,
-        config=DRAMA_M2,
+        config=DRAMA_M3,
         home_team_id=1, away_team_id=2, db=mock_db,
     )
     assert result["home_score"] >= 0

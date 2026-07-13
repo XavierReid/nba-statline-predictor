@@ -34,11 +34,9 @@ class BehaviorPipeline:
 
 
 def _build_sources(cfg, home_players, away_players) -> List[GameStateModifier]:
-    """Assemble the active behavior sources from config toggles. Clock-based
-    sources require use_clock; the Q4 objective is one source among the rest."""
+    """Assemble the active behavior sources from config toggles. The Q4 objective
+    is one source among the rest."""
     sources: List[GameStateModifier] = []
-    if not cfg.use_clock:
-        return sources
 
     if cfg.use_momentum:
         from app.services.modifiers.momentum import MomentumModifier

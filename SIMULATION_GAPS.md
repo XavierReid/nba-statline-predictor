@@ -59,6 +59,34 @@ before/after calibration) → final M3 calibration pass at 1000 games.
 
 ---
 
+## MILESTONE: cross-era scoring reconciliation (2026-07-14) ✅
+
+The `app/analysis/` accounting layer decomposes the scoring equation into named
+basketball behaviors (shot mix, zone FG%, PPP, FTA/TOV/OREB rate) so every residual
+has an owner instead of "the engine scores too much". Validated by schedule replay +
+possession decomposition across three generations, each fix making a behavior EMERGE
+from era data rather than a constant:
+
+| pts/game vs real | 1996-97 | 2005-06 | 2025-26 |
+|---|---|---|---|
+| before | +5.2 | +7.3 | −0.3* |
+| **after** | **+0.4** | **+1.5** | **−1.2** |
+
+*modern was only "exact" via canceling errors (over-efficiency masking under-FGA).
+
+Fixes (all commits on `main`): observed zone-FG% make model; observed non-rim shot
+split (replaced 0.4 constant); second chances additive not folded into pace budget;
+defense penalty centered on the defending lineup, not a fixed 50; `three_point_rate`
+falsy-zero (real 0.0 → 30%); `team_defense_factor` era-league def_rating (not the
+modern 113); `oreb_pct` dropped on team-stats re-ingest. Every defect was the same
+class — an era-invariant constant or silent data gap distorting old vs new.
+
+**Known second-order limitation (NOT chased — overfitting risk, no clean owner):**
+uniform three-point efficiency ~+0.013 from the home_bonus (asymmetric +home/0-away)
+× contest interaction on the observed base.
+
+---
+
 ## Engine structure (for orientation)
 
 ```
@@ -554,3 +582,5 @@ individual stat lines feel like real NBA.
 | 2026-07-08 | 1.1 | FIXED: OT runs as a real timed period via `_run_clock_period` — all mechanics active in OT. No regulation regression vs baseline. |
 | 2026-07-08 | 1.2 | COMPLETE FOR SCOPE: `late_game.py` LateGameContext + incentive pacing (urgency 9s / milk 20s). Close% 18.9→20.1, tie conversion 9.2→12.2%, OT 2.7→3.7%, slope 0.91. Negative experiment: window widening (8→10→12) does not move blowouts — margin built over first 46 min. Blowout excess re-assigned to gap 2.1 (promoted, target 26.7→22.9). Residual Q1 dispersion on watch list. |
 | 2026-07-08 | 2.1 | COMPLETE FOR SCOPE: rotation modes + asymmetric `should_concede` decision layer (Q3-extended) + `lineup_quality.py`. Behavior verified (star minutes, loser-fights-longer, mismatch window 25 poss). Two documented negative results: symmetric benching preserves margins; defensive starter/bench gap is genuinely small (real gap is offensive). Blowout 26.7→26.3 only → residual excess is early-game dispersion (watch-list item promoted). Next phase: cleanup/docs, then dispersion investigation. |
+| 2026-07-13 | — | Analysis pillar (`app/analysis/`): canonical PossessionAccounting (statistical possession = FGA−OREB+TOV+0.44FTA everywhere) + scoring decomposition. Multi-season Phase 2 (partial): era-aware interior derivation + box-score defense fallback. Pace hypothesis tested and REJECTED (a diagnostic bug, not the engine). |
+| 2026-07-14 | MILESTONE | Cross-era scoring reconciliation (see milestone section above): observed zone-FG% make model, observed non-rim shot split, additive second chances, lineup-centered defense; + falsy-zero `three_point_rate`, era-league `team_defense_factor`, dropped `oreb_pct` on re-ingest. Result +0.4/+1.5/−1.2 across 1996-97/2005-06/2025-26 from +5.2/+7.3/−0.3. One engine, no era constants. |

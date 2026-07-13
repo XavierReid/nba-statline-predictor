@@ -202,6 +202,23 @@ Reorganize existing files into `state/ behavior/ decision/ resolution/ rotation/
 calibration/ data/ simulation/`. Cheap, low-value churn; do it once the abstractions have
 settled. New files are already born in the right package (e.g. `behavior/`).
 
+## Analysis pillar (2026-07-13/14) — a new layer, not a stage
+
+The architecture matured past `Data → Engine`: measurement is now a first-class pillar,
+`Data → Engine → Accounting → Analysis → Calibration`. `app/analysis/` owns it:
+`accounting.py` (canonical PossessionAccounting; THE statistical possession definition,
+FGA−OREB+TOV+0.44FTA, used everywhere) and `decomposition.py` (attributes the sim-vs-real
+scoring gap to named behaviors — shot mix, zone FG%, FTA/TOV/OREB rate). `services` answer
+"run the simulation"; `analysis` answers "explain what happened and prove it's for the
+right reasons."
+
+**Cross-era reconciliation milestone (2026-07-14, COMPLETE).** Using the accounting layer,
+the engine now reproduces 1996-97 / 2005-06 / 2025-26 within ~1.5 pts/game from ONE engine
+with no era-specific tuning — every fix made a behavior emerge from era data, and the layer
+flushed out the era-invariant-constant/data-gap defects that blocked generalization. See
+SIMULATION_GAPS.md milestone section. This validates the direction: future work is "find the
+behavior responsible for this residual," not "tune another constant until totals match."
+
 ## Sequencing (2026-07-09)
 
 Foundational architecture = A, B, C, **D** — the pure structural refactors. A/B/C done; D

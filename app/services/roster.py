@@ -191,7 +191,9 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
             "clutch_rating": a.clutch_rating,
             # tendencies
             "usage_rate": t.usage_rate or 0.20,
-            "three_point_rate": t.three_point_rate or 0.30,
+            # `is not None` (not `or`): a real 0.0 three rate — a non-shooter, ~27% of
+            # players in pre-spacing eras — must stay 0.0, not fall through to the default.
+            "three_point_rate": t.three_point_rate if t.three_point_rate is not None else 0.30,
             "shot_tendency": t.shot_tendency or 15.0,
             "assist_rate": s.assists or 1.0,
             "oreb_rate": t.oreb_rate or 0.05,

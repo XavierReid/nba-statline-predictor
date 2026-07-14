@@ -37,7 +37,11 @@ from sqlalchemy import select
 # Entering-Q4 buckets (|margin| after Q3) — the real Q4-transition target from
 # SIMULATION_GAPS.md is keyed on these.
 _Q4_BUCKETS = [(0, 5), (6, 10), (11, 20), (21, 999)]
-_REAL_LEAD_CHANGES = 9.5   # documented real ~9-10/game; sim flagged ~6
+# MEASURED from ingested real PBP (2024-25, n=1225) with the SAME algorithm as the sim
+# (leader sign-flip on scoring events): real 6.64 vs sim 6.79 — they MATCH. The old
+# "~9-10" literature anchor used a different (unknown) definition and is retired; the
+# apparent gap 3.6 was an apples-to-oranges artifact. See _leadchange_decomp.
+_REAL_LEAD_CHANGES = 6.64
 
 
 def _bucket(m: int) -> str:
@@ -179,7 +183,7 @@ def compare(real: TextureAccount, sim: TextureAccount,
     print(f"    {'blowout% (20+)':28}{_fmt(real.blowout_rate()*100, sim.blowout_rate()*100, '{:.1f}')}")
     print(f"    {'close% (<=5)':28}{_fmt(real.close_rate()*100, sim.close_rate()*100, '{:.1f}')}")
 
-    print("\n  lead changes / game (sim-only vs documented real ~9-10):")
+    print("\n  lead changes / game (real MEASURED from PBP, same algorithm):")
     print(f"    {'lead changes':28}{_fmt(_REAL_LEAD_CHANGES, mean(lead_changes), '{:.1f}')}")
 
     print("\n  per-possession points by shot sub-type (sim — high-variance outcome check):")
@@ -327,6 +331,54 @@ def _response_stats(sequences: List[List[Tuple[str, int, float]]],
     }
 
 
+def _leadchange_decomp(sequences: List[List[Tuple[str, int, float]]], near: int = 3) -> dict:
+    """Decompose lead changes (gap 3.6) into near-tie EXPOSURE × CROSSING rate.
+
+    A lead can only change when the margin crosses zero, which requires the game to
+    be near zero. Split lead-changes/game into: (1) close_frac — the time-weighted
+    fraction of the game with |margin| <= near (how often the game is genuinely
+    close), and (2) flips_per_close_min — lead changes per minute spent near-tie
+    (when it IS close, how readily the lead actually flips). If the sim is low on
+    (1) the owner is dispersion (games leave zero too early); if low on (2) it is
+    scoring structure (chunkiness / granularity near zero).
+    """
+    close_fracs, flips_list, flips_per_close = [], [], []
+    for seq in sequences:
+        if len(seq) < 2:
+            continue
+        h = a = 0
+        prev_t = 0.0
+        leader = 0
+        close_t = total_t = 0.0
+        flips = 0
+        for side, pts, t in seq:
+            dt = t - prev_t
+            if dt > 0:
+                total_t += dt
+                if abs(h - a) <= near:
+                    close_t += dt
+            if side == "home":
+                h += pts
+            else:
+                a += pts
+            sgn = (h > a) - (h < a)
+            if sgn != 0 and leader != 0 and sgn != leader:
+                flips += 1
+            if sgn != 0:
+                leader = sgn
+            prev_t = t
+        if total_t > 0:
+            close_fracs.append(close_t / total_t)
+            flips_list.append(flips)
+            if close_t > 0:
+                flips_per_close.append(flips / (close_t / 60.0))
+    return {
+        "close_frac": mean(close_fracs),
+        "lead_changes": mean(flips_list),
+        "flips_per_close_min": mean(flips_per_close) if flips_per_close else 0.0,
+    }
+
+
 def compare_run_drought(real_seq, sim_seq) -> None:
     w = 78
     r, s = _run_drought(real_seq), _run_drought(sim_seq)
@@ -346,6 +398,12 @@ def compare_run_drought(real_seq, sim_seq) -> None:
     print(f"    {'lag-1 margin autocorr':28}{_fmt(rr['autocorr'], sr['autocorr'], '{:+.3f}')}")
     print(f"    {'answered-run rate (>=8->>=6)':28}{_fmt(rr['answered_rate'], sr['answered_rate'], '{:.3f}')}")
     print(f"    {'>=8 runs / game (triggers)':28}{_fmt(rr['triggers_pg'], sr['triggers_pg'], '{:.2f}')}")
+
+    rl, sl = _leadchange_decomp(real_seq), _leadchange_decomp(sim_seq)
+    print("\n  lead-change decomposition (gap 3.6 — exposure x crossing rate):")
+    print(f"    {'lead changes / game':28}{_fmt(rl['lead_changes'], sl['lead_changes'], '{:.2f}')}")
+    print(f"    {'near-tie exposure (|m|<=3)':28}{_fmt(rl['close_frac'], sl['close_frac'], '{:.3f}')}")
+    print(f"    {'flips / near-tie minute':28}{_fmt(rl['flips_per_close_min'], sl['flips_per_close_min'], '{:.3f}')}")
     print("=" * w + "\n")
 
 

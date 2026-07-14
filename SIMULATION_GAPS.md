@@ -666,18 +666,19 @@ tests green, full-game scoring not worsened (the fix only removes points; the re
 2024-25 sim +3.7 over real is the pre-existing modern over-scoring, a separate gap, and the
 fix nudged it slightly down). **Partial residuals (honest):** (1) Q4 variance improved but not
 fully closed (69.6 vs 62.6); (2) **lead changes did NOT move (6.8 vs 9.5)** — this Q4
-comfortable-lead behavior cannot create lead changes (a 12→8 lead never crosses zero); lead
-changes are a mid-game/closeness property with a DIFFERENT owner (likely Q1-3 dispersion,
-which still runs slightly hot). Gap 3.2 blowout/Q4-compression: SUBSTANTIALLY CLOSED; lead
-changes (3.6) remain open and now clearly separated.
+comfortable-lead behavior cannot create lead changes (a 12→8 lead never crosses zero). At the
+time this was read as a 6.8-vs-9.5 residual owned elsewhere — but see the 3.6 update below:
+that "9.5" was a bad anchor and the residual is not real. Gap 3.2 blowout/Q4-compression:
+SUBSTANTIALLY CLOSED.
 
 ---
 
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 
 **Status (2026-07-14):** the "sim lacks within-game correction" hypothesis is now the
-surviving direction (Q1-Q3 variance matches real, only Q4 fails to compress; lead changes
-6.8 vs 9.5). Folded into gap 3.2. The owner is deliberately left UNNAMED pending run/drought
+surviving direction (Q1-Q3 variance matches real, only Q4 fails to compress). Folded into gap
+3.2. (The lead-change "6.8 vs 9.5" once cited here was a bad anchor — see 3.6, dismissed.) The
+owner is deliberately left UNNAMED pending run/drought
 instrumentation — it is a late-emerging game-state adaptation behavior, to be modeled through
 a new game-evolution abstraction (not `team_defense_factor`, not a direct variance knob).
 
@@ -730,10 +731,18 @@ See project-player-allocation-diagnosis memory.
 Team assists, rebounds, steals, blocks, turnovers per game vs real team averages. Only
 partially spot-checked (OREB, TOV, FTA, 3PA). Never a full pass.
 
-### 3.6 — Lead changes / game texture
-Flagged earlier at ~6/game vs real ~9-10 and never revisited. Likely the same
-no-mean-reversion root as 3.2 (fewer lead changes because leads don't rubber-band).
-Measure alongside 3.2.
+### 3.6 — Lead changes — ✅ DISMISSED (2026-07-14): NOT A GAP under consistent measurement
+Flagged for years at "sim ~6.8 vs real ~9-10". That real anchor was LITERATURE/memory, never
+measured from our data with our definition. With real PBP now ingested, `game_texture.py`
+`_leadchange_decomp` computes real lead changes with the SAME algorithm as the sim (leader
+sign-flip on scoring events): **real 6.64 vs sim 6.79 — they match** (2024-25, real n=1225 /
+sim n=2450). The decomposition also matches on both factors: near-tie exposure (|margin|≤3)
+real 0.294 / sim 0.288, and flips per near-tie-minute real 0.410 / sim 0.438. The apparent gap
+was an apples-to-oranges artifact (the "9-10" figure uses a different, unknown definition —
+e.g. counting ties-into-lead, or a different era). No behavioral change warranted; the "9.5"
+anchor is retired. Lesson: an unmeasured cross-source anchor is not a calibration target —
+measure real and sim the same way before declaring a gap. (This also voids the "lead changes
+stuck at 6.8" residual noted under the 3.2 fix — it was already correct.)
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

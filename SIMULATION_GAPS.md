@@ -722,14 +722,39 @@ each with its own validation harness (the 7-era tier reconciliation):
   post-make draw among non-shooters (lead creators capped ~5.9 ast/36). Fix: a possession INITIATOR
   role (assist-weighted, independent of shooter); assisted make credits the initiator, self-creates
   unassisted; rate re-derived 0.85/0.66 to hold AST/FGM ~0.60. Playmaker share now within 1-2% of real.
-- **3.4d Player game-to-game variance — future.** Does a 25-ppg scorer have realistic spread
-  (ties into `player_variance`)? Not yet measured.
+- **3.4d Player game-to-game variance — BLOCKED ON DATA (2026-07-14).** Does a 25-ppg scorer
+  have realistic per-game spread (ties into `player_variance`)? Cannot be measured: real
+  per-game player lines are NOT ingested (PlayerSeasonStats is season averages only). Needs a
+  `PlayerGameLog` / BoxScoreTraditional ingestion (a data pull like the PBP feed for 3.2) before
+  the sim's per-game player-stat distribution can be compared to real. Decision pending.
 
 See project-player-allocation-diagnosis memory.
 
-### 3.5 — Team box-score aggregates
-Team assists, rebounds, steals, blocks, turnovers per game vs real team averages. Only
-partially spot-checked (OREB, TOV, FTA, 3PA). Never a full pass.
+### 3.5 — Team box-score aggregates — MEASURED (2026-07-14): steals & blocks the owners
+Full league-level per-team-game pass via `app/analysis/team_boxscore.py`. Real from
+PlayerSeasonStats totals; that table is rotation-filtered (431 players, ~8% short on
+roster-games), so non-scoring totals are scaled by the completeness factor derived from
+the ONE complete+accurate stat, team points from the Game table (×1.083). Adjusted real
+then matches known 2024-25 averages. Sim from a schedule replay's box scores (n=2450):
+
+| stat | real (adj) | sim | sim/real |
+|---|---|---|---|
+| assists | 26.2 | 26.0 | 0.99× ✓ (3.4c initiator holds) |
+| points | 113.8 | 116.7 | 1.03× (known modern over-scoring) |
+| turnovers | 13.4 | 14.7 | 1.09× |
+| rebounds | 44.0 | 38.3 | **0.87×** |
+| **steals** | 8.1 | 3.0 | **0.37×** |
+| **blocks** | 4.9 | 1.0 | **0.20×** |
+
+**Owners: blocks (5× under) and steals (~2.7× under); rebounds ~13% low a secondary.**
+These are box-score realism gaps that DON'T touch team scoring (a block is still a miss, a
+steal is still a turnover, a rebound re-assigns an already-counted possession), which is why
+they survived every scoring-calibration pass. Hypotheses to test when fixing (NOT started):
+blocks — the shot model flags too few misses as blocked (real ~4.9 ≈ 11% of missed 2pts);
+steals — too few turnovers attributed as live-ball steals (sim 3.0/14.7 = 20% of TOV vs real
+8.1/13.4 = 60%); rebounds — some misses credit no `rebounded_by` (a tracking gap). Fouls (pf)
+have no real anchor in PlayerSeasonStats (sim 14.3/team). Each is a per-opportunity attribution
+rate, calibratable without disturbing scoring/possessions.
 
 ### 3.6 — Lead changes — ✅ DISMISSED (2026-07-14): NOT A GAP under consistent measurement
 Flagged for years at "sim ~6.8 vs real ~9-10". That real anchor was LITERATURE/memory, never

@@ -244,6 +244,52 @@ def ingest_line_scores(db: Session, season_prefix: str) -> int:
     return done
 
 
+def ingest_play_by_play(db: Session, season_prefix: str) -> int:
+    """Backfill distilled scoring events (game_texture run/drought instrument) onto
+    final games (resume-safe: skips games that already have events). season_prefix
+    e.g. '00224' for 2024-25. One API call per game (~0.7s) — run in the background.
+    """
+    from sqlalchemy import select
+    from app.models.scoring_event import ScoringEvent
+
+    done_ids = set(db.execute(
+        select(ScoringEvent.game_id).distinct()
+    ).scalars().all())
+    games = db.execute(
+        select(Game).where(
+            Game.id.like(f"{season_prefix}%"),
+            Game.status == "final",
+            Game.home_score.isnot(None),
+        ).order_by(Game.id)
+    ).scalars().all()
+    games = [g for g in games if g.id not in done_ids]
+
+    done = missing = 0
+    for i, g in enumerate(games):
+        try:
+            plays = nba_client.fetch_play_by_play(g.id)
+        except Exception as exc:
+            log.warning("pbp fetch failed for %s: %s", g.id, exc)
+            continue
+        if not plays:
+            missing += 1
+            continue
+        for p in plays:
+            db.add(ScoringEvent(
+                game_id=g.id, event_num=p['event_num'], period=p['period'],
+                seconds_remaining=p['seconds_remaining'],
+                scoring_side=p['scoring_side'], points=p['points'],
+                home_score=p['home_score'], away_score=p['visitor_score'],
+            ))
+        done += 1
+        if i % 25 == 24:
+            db.commit()
+            log.info("pbp: %d/%d", i + 1, len(games))
+    db.commit()
+    log.info("ingest_play_by_play: %d games, %d missing", done, missing)
+    return done
+
+
 def seed_player_attributes(db: Session, season: str) -> int:
     """Derive PlayerAttributes and PlayerTendencies from PlayerSeasonStats."""
     from sqlalchemy import select

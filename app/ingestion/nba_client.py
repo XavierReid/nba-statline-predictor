@@ -7,7 +7,10 @@ Docs: https://github.com/swar/nba_api
 """
 
 # from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2
+import re
 import time
+
+import requests
 from nba_api.stats.static import teams
 from nba_api.stats.endpoints import commonteamroster
 
@@ -294,6 +297,65 @@ def fetch_line_score(game_id: str) -> dict:
             'q': [row['PTS_QTR1'], row['PTS_QTR2'], row['PTS_QTR3'], row['PTS_QTR4']],
             'ot': ot,
         }
+    return out
+
+
+# stats.nba.com/stats/playbyplayv2 now returns an empty {} for direct pulls; the NBA
+# CDN live feed is the working source and richer (running score on every action, no
+# "V - H" string to orient). Covers ~2020+ seasons — fine for 2024-25 calibration.
+_CDN_PBP_URL = "https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{game_id}.json"
+_CDN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Referer": "https://www.nba.com/",
+    "Origin": "https://www.nba.com",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+_CLOCK_RE = re.compile(r"PT(\d+)M([\d.]+)S")
+
+
+def _parse_iso_clock(clock: str) -> int:
+    """'PT10M50.00S' -> 650 seconds remaining in the period."""
+    m = _CLOCK_RE.match(clock or "")
+    return int(m.group(1)) * 60 + int(float(m.group(2))) if m else 0
+
+
+def fetch_play_by_play(game_id: str) -> list[dict]:
+    """Ordered scoring plays for one game, distilled from the NBA CDN live feed.
+
+    Returns a list of dicts (chronological): {event_num, period, seconds_remaining,
+    scoring_side ('home'|'away'), points, visitor_score, home_score}. Every action
+    carries the running scoreHome/scoreAway; a play is a scoring event when that
+    running score changes. Empty list when the feed is unavailable (pre-2020 games).
+    """
+    r = requests.get(_CDN_PBP_URL.format(game_id=game_id), headers=_CDN_HEADERS, timeout=60)
+    time.sleep(_RATE_LIMIT_DELAY)
+    if r.status_code != 200:
+        return []
+    actions = r.json().get("game", {}).get("actions", [])
+
+    out: list[dict] = []
+    prev_h = prev_v = 0
+    for a in actions:
+        sh, sv = a.get("scoreHome"), a.get("scoreAway")
+        if sh is None or sv is None:
+            continue
+        h, v = int(sh), int(sv)
+        if h == prev_h and v == prev_v:
+            continue
+        side, points = ("home", h - prev_h) if h != prev_h else ("away", v - prev_v)
+        prev_h, prev_v = h, v
+        if points <= 0:   # correction/score-review rows
+            continue
+        out.append({
+            "event_num": a["actionNumber"],
+            "period": a["period"],
+            "seconds_remaining": _parse_iso_clock(a.get("clock")),
+            "scoring_side": side,
+            "points": points,
+            "visitor_score": v,
+            "home_score": h,
+        })
     return out
 
 

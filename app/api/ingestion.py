@@ -45,6 +45,15 @@ def _run_seed(season: str, force: bool) -> None:
         db.close()
 
 
+def _run_play_by_play(season_prefix: str) -> None:
+    from app.ingestion.jobs import ingest_play_by_play
+    db = SessionLocal()
+    try:
+        ingest_play_by_play(db, season_prefix)
+    finally:
+        db.close()
+
+
 def _run_ingest_and_seed(season: str) -> None:
     # Full pipeline (games, season stats, shot locations + tracking defense, team
     # stats, then attribute seeding in the right order). The earlier two-step version
@@ -131,3 +140,17 @@ def ingest_season(season: str, background_tasks: BackgroundTasks):
     """
     background_tasks.add_task(_run_ingest_and_seed, season)
     return {"message": f"Ingesting {season} in background. Check GET /ingestion/seasons for status."}
+
+
+@router.post("/seasons/{season}/play-by-play", status_code=202)
+def ingest_play_by_play_season(season: str, background_tasks: BackgroundTasks):
+    """Backfill distilled scoring events (runs / droughts / lead changes — the
+    game-texture instrument's real side) for every final game of a season.
+
+    One slow call per game to stats.nba.com (~0.7s each, ~1200 games for a full
+    season) — runs in the background and is resume-safe (skips games already
+    populated). season e.g. '2024-25'.
+    """
+    season_prefix = f"002{season.split('-')[0][-2:]}"
+    background_tasks.add_task(_run_play_by_play, season_prefix)
+    return {"message": f"Ingesting play-by-play for {season} ({season_prefix}) in background."}

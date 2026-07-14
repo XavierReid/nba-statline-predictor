@@ -488,21 +488,23 @@ def run_full_ingestion(season: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     db = SessionLocal()
     try:
-        counts["teams"] = ingest_teams(db)
-        counts["players"] = ingest_active_players(db)
-        counts["games"] = ingest_games_for_season(db, season)
-        counts["season_stats"] = ingest_season_stats(db, season)
+        # Commit after each step: the jobs are individually idempotent and were
+        # designed to run against a clean persisted state. Sharing one uncommitted
+        # transaction lets a season-stats autoflush insert a PlayerSeasonStats before
+        # its newly-created Player row (FK violation on unknown historical players).
+        counts["teams"] = ingest_teams(db); db.commit()
+        counts["players"] = ingest_active_players(db); db.commit()
+        counts["games"] = ingest_games_for_season(db, season); db.commit()
+        counts["season_stats"] = ingest_season_stats(db, season); db.commit()
         # Shot locations + defensive matchups MUST land before seeding — the v2
         # interior/defense attributes and the observed-zone-FG% make model derive
         # from these. Without it a season silently runs the pre-reconciliation
         # attribute-band model and over-scores ~+12. Soft-fails for seasons where
         # the endpoints return nothing (pre-2013-14 tracking defense is empty; the
         # job already tolerates that).
-        counts["shot_defense"] = ingest_shot_defense(db, season)
-        counts["team_season_stats"] = ingest_team_season_stats(db, season)
-        db.commit()
-        counts["attributes"] = seed_player_attributes(db, season)
-        db.commit()
+        counts["shot_defense"] = ingest_shot_defense(db, season); db.commit()
+        counts["team_season_stats"] = ingest_team_season_stats(db, season); db.commit()
+        counts["attributes"] = seed_player_attributes(db, season); db.commit()
     except Exception:
         db.rollback()
         raise

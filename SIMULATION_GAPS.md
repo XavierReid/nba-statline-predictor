@@ -794,6 +794,43 @@ avg-score +3 over and the rebound residual. This is the next scoring-realism tar
 from the 3-pt efficiency residual deferred to the ShotChartDetail milestone); measure whether
 the over-efficiency is interior vs perimeter before touching the shot-make model.
 
+**OREB investigated (2026-07-14) — MECHANIC SOUND, was a DATA GAP (not a behavior).** The one
+remaining thread ("modern offensive rebounding looks low") turned out to be measurement
+artifact: 2024-25 had NO `TeamSeasonStats` row, so `use_team_oreb` fell back to the flat
+`OREB_RATE=0.22`, producing sim OREB% 0.22 vs real ~0.29. Proof the mechanic is sound: on
+**2025-26 (which has team OREB data) sim OREB% is 0.310 vs real 0.305** — a match. Closed the
+gap by ingesting 2024-25 `TeamSeasonStats` (30 teams, real OREB% 0.293); sim 2024-25 OREB% is
+now **0.297 vs 0.293** — matched. Side effect (honest): scoring rose ~+0.8 (117.3→118.0, now
++4.2 over) because the correct second chances were previously suppressed by the 0.22 fallback —
+i.e. low OREB was partially MASKING the shot over-efficiency, which is now more visible.
+Rebounds 41.6 (residual still owned by shot efficiency). 3.2 metrics unchanged (blowout 21.1,
+Q4 var 65.5). OREB is NOT an under-modeled behavior — it is data-driven and correct wherever
+team data exists. No constant changed.
+
+---
+
+## ACCOUNTING MILESTONE — BANKED COMPLETE (2026-07-14)
+
+Every meaningful cross-era discrepancy now has a named behavioral explanation, and the
+era-invariant defects that blocked generalization are gone. The accounting layer (`app/analysis/`
+— accounting, decomposition, player_accounting, game_texture, team_boxscore + real PBP/line-score
+data) is now the mechanism for proving the engine behaves for the RIGHT reasons, not just a
+debugger. Closed this milestone: cross-era reconciliation (7 eras); 3.4a/b/c (player allocation,
+turnover economy, assist initiator); 3.2 (comfortable-lead Q4 PROTECT); 3.6 (dismissed — not a
+gap); 3.5 (blocks/steals/rebounds — scoring-neutral bookkeeping reconciliation); OREB (validated,
+data gap closed).
+
+**Documented second-order limitations (deliberately NOT chased — decision):**
+- **Shot over-efficiency** (FG% 0.515 vs 0.476 → avg-score +~4 over, rebound residual). A real
+  owner, next scoring-realism target IF pursued — measure interior-vs-perimeter first.
+- **3-pt efficiency residual** — deliberately NOT chased. It sits inside interactions between
+  home advantage, contest effects and already-calibrated systems; at this point that is
+  interacting-constant tuning that risks a new cancellation / overfit and would trade away the
+  stronger property already achieved (one engine generalizing across eras from behaviors, not
+  accumulated constants). Only revisit MEASURED via the ShotChartDetail milestone, never tuned.
+- **3.4d player game-to-game variance** — blocked on `PlayerGameLog` ingestion (unmeasured).
+- **Fouls (pf)** — no real per-team anchor in PlayerSeasonStats.
+
 ### 3.6 — Lead changes — ✅ DISMISSED (2026-07-14): NOT A GAP under consistent measurement
 Flagged for years at "sim ~6.8 vs real ~9-10". That real anchor was LITERATURE/memory, never
 measured from our data with our definition. With real PBP now ingested, `game_texture.py`

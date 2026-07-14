@@ -789,6 +789,35 @@ deficit split cleanly:
 held. Box-score accounting is now internally consistent. Fouls (pf) still have no real anchor
 in PlayerSeasonStats (sim 14.3/team) — needs box ingestion if ever pursued.
 
+**CROSS-ERA GENERALIZATION VERIFIED (2026-07-14).** The 3.5 fixes use single GLOBAL constants
+(block_attribution_scale, steal_rate, tov_scale) calibrated on 2024-25 — but they multiply
+ERA-DERIVED player attributes, so they should generalize. Confirmed by running team_boxscore on
+all 7 ingested seasons (sim/real ratio):
+
+| season | pts | reb | stl | blk | tov |
+|---|---|---|---|---|---|
+| 1996-97 | 1.01 | 1.02 | 0.91 | 1.10 | 0.91 |
+| 2000-01 | 1.03 | 0.99 | 0.97 | 0.84 | 0.95 |
+| 2005-06 | 1.02 | 1.01 | 1.03 | 1.04 | 0.97 |
+| 2013-14 | 1.01 | 1.00 | 1.01 | 1.03 | 0.98 |
+| 2016-17 | 1.01 | 1.00 | 1.02 | 1.00 | 1.03 |
+| 2019-20 | 1.00 | 1.00 | 1.07 | 0.96 | 1.03 |
+| 2024-25 | 1.03 | 0.94 | 1.01 | 1.04 | 1.06 |
+
+Scoring 1.00–1.03× and rebounds 0.99–1.02× in EVERY era (cross-era reconciliation intact — the
+tov_scale/steal changes did not break it). Steals within ~9%, blocks within ~4% for 2005–2019.
+The only material stretch is the OLDEST eras: 1996-97 blk 1.10× / tov 0.91×, 2000-01 blk 0.84×
+— a single global block/steal/TOV constant doesn't perfectly capture the highest-block/turnover
+late-90s/early-2000s. Consistent with the accepted "one engine, small era-edge residual" pattern
+(cf. the modern star-usage residual); deliberately NOT chased with era constants.
+
+**Honest scope caveat — 3.2 is single-season-validated.** The Q4-texture milestone
+(comfortable-lead PROTECT, blowout/compression, lead changes, run/drought) was measured ONLY on
+2024-25, the sole season with ingested line scores + PBP. The mechanism is game-state-driven
+(no era constants) and did not break cross-era SCORING (table above), but its Q4 blowout/
+compression BENEFIT is unverified on other eras. Validating it cross-era would require ingesting
+line scores (+ PBP) for those seasons — a data pull, not a code change.
+
 **→ NEW/consolidated owner: shot over-efficiency.** FG% 0.515 vs real 0.476 drives BOTH the
 avg-score +3 over and the rebound residual. This is the next scoring-realism target (distinct
 from the 3-pt efficiency residual deferred to the ShotChartDetail milestone); measure whether

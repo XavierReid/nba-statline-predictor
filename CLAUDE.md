@@ -57,6 +57,20 @@ possessions — see possession accounting in SIMULATION_GAPS.md §1.4.
 - Defensive assignments should plug into the contest level input that `resolve_possession` already exposes.
 - Nothing should introduce a parallel resolution path that skips `resolve_possession`.
 
+### 7. Player attributes that drive in-possession events are PER-OPPORTUNITY, not per-minute
+
+Whenever a player attribute drives an event inside a possession (a shot make, a
+turnover, a foul drawn, an assist), its natural unit is "per opportunity" (per
+possession / per attempt), not "per 36" or "per game". Per-minute/per-game stats are
+VOLUME — they scale with how often the player is involved — and reading them as an
+intrinsic rate silently inflates high-usage players. This exact bug was found and
+fixed three times: shot make (observed zone FG% not a percentile band), three-point
+rate (real 0.0 not a fallback), and turnovers (tov_per_poss not TOV/36, gap 3.4b).
+Derive the per-opportunity form at roster load (like `ft_prob`, the zone probs,
+`tov_per_poss`); anchor the aggregate with one league constant if needed. Usage
+concentration (γ) makes any residual volume-as-rate error visible, so it must be
+caught here first.
+
 ---
 
 ## Architectural decisions (locked)

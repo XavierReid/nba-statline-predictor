@@ -558,12 +558,14 @@ each with its own validation harness (the 7-era tier reconciliation):
   Swept: zeroes the oldest era, reduces star-under bias in every era, over-corrects none, team
   scoring still reconciles. Star Δpts e.g. 2016-17 -3.51→-0.42. Scope deliberately NOT expanded —
   over-cranking γ just trades one residual for another; the modern residual has *other* causes.
-- **3.4b Turnover ownership — open.** Concentrating possessions inflated star TOV (2016-17 2.8→4.1):
-  turnover probability is modeled at the possession level, not the individual ball handler.
-- **3.4c Playmaker / assist generation — open (recommended next).** Routing more possessions through
-  stars doesn't route *passes* through primary creators; attribution rate flat ~0.585. Owner is
-  passer selection / assist attribution, distinct from ownership. The decision pipeline already
-  separates ball-handler / shooter / passer, so this is expressive to model.
+- **3.4b Turnover ownership — ✅ DONE (commit 1ba1e07).** Sim INVERTED the turnover economy
+  (stars 0.17-0.18/used-poss vs real flat ~0.12) because unforced TOV used TOV/36 (volume) as a
+  per-possession rate. Fix: observed `tov_per_poss` derived at load; one anchor `tov_scale=0.9`.
+  Economy now flat, team TOV reconciles. → CLAUDE.md guardrail #7 (per-opportunity not per-36).
+- **3.4c Playmaker / assist generation — ✅ DONE (commit 1f4bf82).** Root: assist was a random
+  post-make draw among non-shooters (lead creators capped ~5.9 ast/36). Fix: a possession INITIATOR
+  role (assist-weighted, independent of shooter); assisted make credits the initiator, self-creates
+  unassisted; rate re-derived 0.85/0.66 to hold AST/FGM ~0.60. Playmaker share now within 1-2% of real.
 - **3.4d Player game-to-game variance — future.** Does a 25-ppg scorer have realistic spread
   (ties into `player_variance`)? Not yet measured.
 

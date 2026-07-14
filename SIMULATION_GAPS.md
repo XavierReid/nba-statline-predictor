@@ -513,18 +513,48 @@ vs real, and check whether the sim over-produces high-variance outcomes (threes,
 relative to real in ALL phases (the gap only *shows* in Q4 because that's where real tightens).
 Guardrail: the sim's Q1-Q3 variance already matches real — do not break it.
 
+**INSTRUMENT BUILT + OWNER IDENTIFIED (2026-07-14, `app/analysis/game_texture.py`, 4th
+analysis pillar).** Quarter-granular real-vs-sim from line scores (`Game.home_qN` / sim
+`quarter_scores`), 2024-25, real n=1190 / sim n=2450. Result is decisive and REJECTS the
+structural per-possession hypothesis quoted above:
+
+| quarter point-diff VARIANCE | Q1 | Q2 | Q3 | Q4 |
+|---|---|---|---|---|
+| real | 74.1 | 69.2 | 79.8 | **62.6** |
+| sim | 69.4 | 75.0 | 71.3 | **74.1** |
+
+The sim is NOT hot in every quarter — Q1/Q3 sim variance runs *below* real (69.4<74.1,
+71.3<79.8). Per-possession randomness is fine. The whole gap is that **real basketball
+COMPRESSES in Q4 (79.8→62.6, −22%) and the sim stays flat (71.3→74.1)**. Corroborated by
+two independent views:
+- **Q4 transition Δ|margin|**: sim never mean-reverts — enter 0-5 sim +4.65 vs real +3.35
+  (over-extends), enter 11-20 sim −0.06 vs real −1.12 (real compresses, sim doesn't), 21+
+  sim −0.54 vs real −0.84.
+- **Lead changes/game: sim 6.8 vs real ~9.5** (the 3.6 metric) — same missing rubber-band.
+- Per-possession pts by sub-type: threes var ~2.1 vs twos ~1.0 is just 3-vs-2 arithmetic;
+  three share 0.39 is plausible — nothing over-produced. Confirms it is NOT the shot model.
+
+**OWNER = missing within-game mean-reversion (the 3.2-OLD hypothesis, now proven).** Real Q4
+compression is BROAD (whole quarter, present at entering-margin 11-20), not a clutch-window
+effect — so it is not owned by endgame pacing / COMPETITIVE_LATE (those fire in the final 2
+min only). The behavior the engine lacks: leading teams ease / trailing teams surge across
+the whole second half (starter rest when comfortably ahead, defensive keying, effort
+asymmetry). Everything in the sim is positive-feedback (team_defense_factor, momentum);
+nothing pulls toward the mean until late-Q4 catch-up. This one owner plausibly closes 3.2
+(blowout 25.1→22.9, close 24.8→27.2), 3.6 (lead changes), and helps 3.3 (more close games →
+more OT). **Fix NOT started — next milestone.** Guardrail: whatever mechanic is added must
+LEAVE Q1-Q3 variance alone (it already matches) and only compress the second half.
+
 ---
 
-## Gap 3.2-OLD — Mid-game dispersion / games blowing open (SUPERSEDED by the above)
+## Gap 3.2-OLD — Mid-game dispersion (CONFIRMED as the 3.2 owner — see instrument above)
 
-**Status:** open — owns the residual blowout excess (26 vs 22.9)
-**Evidence:** measured Q2/Q3 dispersion runs slightly hot (Q2 sim 9.89 vs real 9.21, Q3
-12.18 vs 11.58); blowout% invariant to signal_gain, so it is not team separation. The 0-5
-Q4 over-growth (+6.06 vs +3.35 — no close-game rubber-banding) is likely the same root:
-the sim lacks mean-reversion within a game, so mid-game runs over-extend. Candidate
-mechanisms: a mild negative-feedback / run-stopper (timeout-like), or momentum tuning.
-**Do not start** until instrumented the same way Q4 was (measure which quarters/game-states
-create the over-extension before adding a mechanic).
+**Status:** CONFIRMED root (2026-07-14). The "sim lacks within-game mean-reversion"
+hypothesis is now proven by `game_texture.py`: Q1-Q3 variance matches real, only Q4 fails to
+compress, and lead changes run 6.8 vs 9.5. Merged into gap 3.2 above as the identified owner.
+Candidate mechanisms to measure next (do NOT pick blind): a broad second-half leading-team
+easing / trailing-team urgency (not just the final 2 min), momentum-cap tuning, or converting
+`team_defense_factor` from a persistent multiplicative edge toward mean-reverting.
 
 ---
 

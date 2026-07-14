@@ -1,7 +1,7 @@
 """Possession resolution — simulate one possession and return an event dict."""
 import random
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from app.services.behavior_profile import NORMAL_PROFILE
 from app.services.modifiers.base import ModifierAdjustments
@@ -363,7 +363,8 @@ def _select_action(ctx, result: dict) -> Action:
         result["fouled_by"] = rng.choice(defense)["id"]
         ft_prob = _free_throw_prob(ball_handler)
         result["fta"] = 2
-        result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
+        result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+        _credit_ft_rebound(ctx, result, last_missed)
         return Action(ball_handler, terminal=True)
 
     # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
@@ -433,6 +434,25 @@ def _assign_rebound(ctx, result: dict) -> None:
         result["is_oreb"] = True
     else:
         result["rebounded_by"] = rng.choices(
+            ctx.defense, weights=[p["dreb_rate"] for p in ctx.defense]
+        )[0]["id"]
+
+
+def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool]:
+    """Sample n free throws; return (makes, last_missed). Draws n rng values in the
+    same order as the old inline generator, so the FT outcomes are RNG-identical; the
+    last-FT flag is what lets us credit the live rebound on a missed final FT."""
+    makes = [rng.random() < ft_prob for _ in range(n)]
+    return sum(makes), not makes[-1]
+
+
+def _credit_ft_rebound(ctx, result: dict, last_missed: bool) -> None:
+    """A missed LAST free throw is a live rebound (gap 3.5). The possession already
+    flips to the defense in the game loop (no OREB-off-FT is modeled), so credit a
+    DEFENSIVE rebounder — is_oreb stays False, so this adds only the box-score credit
+    that was missing and cannot trigger a second chance (scoring/possession-neutral)."""
+    if last_missed:
+        result["rebounded_by"] = ctx.rng.choices(
             ctx.defense, weights=[p["dreb_rate"] for p in ctx.defense]
         )[0]["id"]
 
@@ -549,19 +569,21 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"] = 1 if rng.random() < ft_prob else 0
+            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 3
-            result["ftm"] = sum(1 for _ in range(3) if rng.random() < ft_prob)
+            result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
+        _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
     elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"] = 1 if rng.random() < ft_prob else 0
+            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 2
-            result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
+            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+        _credit_ft_rebound(ctx, result, last_missed)
 
     # assist on a make — credited to the possession INITIATOR when a teammate scored.
     # A self-created basket (initiator == shooter) is unassisted. The assist rate is

@@ -765,11 +765,34 @@ they survived every scoring-calibration pass.
 - Guardrails: scoring ~neutral (117.4 vs pre-fix 116.8), 3.2 metrics unchanged/slightly better
   (blowout 20.1 vs real 20.5, close 26.7 vs 27.2), 296 tests green (OT_SEED 37→27).
 
-**REMAINING (secondary): rebounds 0.88×** (38.5 vs real 44.0). Known contributor: a live miss
-credits a `rebounded_by` only when `fta==0`, so MISSED LAST FREE THROWS credit nobody (~half
-the gap); the rest needs a count of sim missed-FG vs credited rebounds to locate. The fix must
-credit the rebounder WITHOUT changing the OREB/DREB split (which drives second chances /
-possession flow). Fouls (pf) have no real anchor in PlayerSeasonStats (sim 14.3/team).
+**REBOUNDS RECONCILED (2026-07-14) — credit-assignment fix + residual reassigned. GAP 3.5
+CLOSED.** Instrumented first (opportunities vs credits): **credited rebounds (38.45) == live
+FG-miss opportunities (38.45)** — every live FG miss was already credited, zero dropped. The
+deficit split cleanly:
+- **Credit-assignment part (FIXED):** missed LAST free throws credited nobody (`_resolve_outcome`
+  only rebounded live misses with `fta==0`). Now `_shoot_free_throws` tracks the last FT and
+  `_credit_ft_rebound` credits a DEFENSIVE rebounder on a missed final FT (all three FT sites:
+  bonus foul, 2PT/3PT shooting fouls, incl. missed and-1s). Defensive → `is_oreb` stays False →
+  cannot trigger a second chance; the possession already flipped to defense, so it's purely the
+  box-score credit that was missing. Rebounds 38.5→41.4. Neutrality verified: OREB count
+  unchanged (8.56 — offensive-rebound rate / second-chance mechanism untouched), scoring neutral
+  (117.3), possessions unchanged, 296 tests green (OT_SEED 27→163).
+- **Residual REASSIGNED, not chased (0.94×, 41.4 vs 44.0):** the sim has fewer missed FGs than
+  real because its **FG% is 0.515 vs real 0.476** (85.8 FGA, 41.6 misses vs real ~46.4). Fewer
+  misses → fewer rebounds. That is the SHOT-EFFICIENCY / over-scoring owner (same root as the
+  pre-existing avg-score +3), NOT rebound crediting — per the instrument-first guardrail we do
+  NOT manufacture misses to close it. The sim's rebound accounting is now INTERNALLY CONSISTENT
+  (every miss it produces is credited a rebounder).
+
+**Gap 3.5 is a scoring-neutral bookkeeping reconciliation, COMPLETE:** blocks 1.03×, steals
+1.01×, rebounds internally consistent (residual owned by shot efficiency), assists 1.00×, TOV
+held. Box-score accounting is now internally consistent. Fouls (pf) still have no real anchor
+in PlayerSeasonStats (sim 14.3/team) — needs box ingestion if ever pursued.
+
+**→ NEW/consolidated owner: shot over-efficiency.** FG% 0.515 vs real 0.476 drives BOTH the
+avg-score +3 over and the rebound residual. This is the next scoring-realism target (distinct
+from the 3-pt efficiency residual deferred to the ShotChartDetail milestone); measure whether
+the over-efficiency is interior vs perimeter before touching the shot-make model.
 
 ### 3.6 — Lead changes — ✅ DISMISSED (2026-07-14): NOT A GAP under consistent measurement
 Flagged for years at "sim ~6.8 vs real ~9-10". That real anchor was LITERATURE/memory, never

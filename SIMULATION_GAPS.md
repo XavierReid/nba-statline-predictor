@@ -818,10 +818,21 @@ late-90s/early-2000s. Consistent with the accepted "one engine, small era-edge r
 compression BENEFIT is unverified on other eras. Validating it cross-era would require ingesting
 line scores (+ PBP) for those seasons — a data pull, not a code change.
 
-**→ NEW/consolidated owner: shot over-efficiency.** FG% 0.515 vs real 0.476 drives BOTH the
-avg-score +3 over and the rebound residual. This is the next scoring-realism target (distinct
-from the 3-pt efficiency residual deferred to the ShotChartDetail milestone); measure whether
-the over-efficiency is interior vs perimeter before touching the shot-make model.
+**→ "shot over-efficiency" INVESTIGATED (2026-07-14) — a 2024-25 DATA GAP, not an engine
+behavior.** The +0.039 FG% (0.515 vs 0.476) looked like a shot-model owner, but zone
+decomposition on a COMPLETE-data season proves the engine is correctly calibrated: **2016-17
+interior FG% 0.604 vs real 0.612 (sim UNDER), mid 0.419 vs 0.407, three 0.372 vs 0.358, shot
+mix matched, scoring +0.9.** The over-efficiency is specific to 2024-25 because its
+`PlayerSeasonStats` is incomplete: **`ra_fga` non-null = 0 (NO zone data) and only 431 players
+(vs 486 in 2016-17).** With no observed zone FG% to read, `roster.py` falls back to the
+attribute-derived make probs (which run hot), and the missing worse-shooting fringe players
+lift the pool. This ONE root explains all three 2024-25 residuals — over-FG% → over-scoring
+(+4) → fewer misses → rebound 0.94×. The calibrated observed-zone path is sound; there is NO
+engine over-efficiency to fix. **Resolution = complete the 2024-25 shot-location ingest
+(populate `ra_fga` etc. + full rosters), same class as the OREB data gap.** That is a data
+task; it re-seeds 2024-25 attributes, so it re-touches the 2024-25-specific 3.2/3.5 numbers
+(the GLOBAL constants are validated cross-era regardless — see CROSS_ERA_VALIDATION.md) and
+should be its own careful pass, not folded in here.
 
 **OREB investigated (2026-07-14) — MECHANIC SOUND, was a DATA GAP (not a behavior).** The one
 remaining thread ("modern offensive rebounding looks low") turned out to be measurement

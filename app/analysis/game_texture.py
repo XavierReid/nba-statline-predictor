@@ -269,6 +269,64 @@ def _run_drought(sequences: List[List[Tuple[str, int, float]]]) -> dict:
     }
 
 
+def _lag1_autocorr(series: List[float]) -> Optional[float]:
+    xs, ys = series[:-1], series[1:]
+    if len(xs) < 2:
+        return None
+    mx, my = mean(xs), mean(ys)
+    num = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+    dx = sum((a - mx) ** 2 for a in xs)
+    dy = sum((b - my) ** 2 for b in ys)
+    if dx == 0 or dy == 0:
+        return None
+    return num / math.sqrt(dx * dy)
+
+
+def _response_stats(sequences: List[List[Tuple[str, int, float]]],
+                    bin_s: int = 120, n_bins: int = 24,
+                    run_min: int = 8, window_s: int = 180, counter_min: int = 6) -> dict:
+    """Run RESPONSE (the refined 3.2 owner): does a scoring surge get answered?
+
+    (1) lag-1 autocorrelation of per-window signed margins — negative means a hot
+        window is followed by a cold one (runs answered / rubber-band); ~0 means
+        memoryless. (2) answered-run rate — after a team's >=run_min unanswered run,
+        the opponent posts a >=counter_min counter within window_s.
+    """
+    autocorrs: List[float] = []
+    triggers = answered = 0
+    for seq in sequences:
+        m = [0.0] * n_bins
+        for side, pts, t in seq:
+            b = int(t // bin_s)
+            if 0 <= b < n_bins:
+                m[b] += pts if side == "home" else -pts
+        r = _lag1_autocorr(m)
+        if r is not None:
+            autocorrs.append(r)
+        # answered-run: find unanswered runs >= run_min, scan the next window_s
+        cur_side, cur_pts, break_t = None, 0, None
+        for i, (side, pts, t) in enumerate(seq):
+            if side == cur_side:
+                cur_pts += pts
+                continue
+            if cur_pts >= run_min:   # run by cur_side just ended at time t
+                opp = cur_side
+                run_side = cur_side
+                net = 0
+                for s2, p2, t2 in seq[i:]:
+                    if t2 > t + window_s:
+                        break
+                    net += p2 if s2 != run_side else -p2
+                triggers += 1
+                answered += net >= counter_min
+            cur_side, cur_pts = side, pts
+    return {
+        "autocorr": mean(autocorrs) if autocorrs else 0.0,
+        "answered_rate": answered / triggers if triggers else 0.0,
+        "triggers_pg": triggers / len(sequences),
+    }
+
+
 def compare_run_drought(real_seq, sim_seq) -> None:
     w = 78
     r, s = _run_drought(real_seq), _run_drought(sim_seq)
@@ -282,6 +340,12 @@ def compare_run_drought(real_seq, sim_seq) -> None:
     print(f"    {'runs >=10 / game':28}{_fmt(r['runs_10_pg'], s['runs_10_pg'])}")
     print(f"    {'mean scoring drought (s)':28}{_fmt(r['mean_drought'], s['mean_drought'], '{:.1f}')}")
     print(f"    {'p90 scoring drought (s)':28}{_fmt(r['p90_drought'], s['p90_drought'], '{:.1f}')}")
+
+    rr, sr = _response_stats(real_seq), _response_stats(sim_seq)
+    print("\n  run RESPONSE (the refined owner — is a surge answered?):")
+    print(f"    {'lag-1 margin autocorr':28}{_fmt(rr['autocorr'], sr['autocorr'], '{:+.3f}')}")
+    print(f"    {'answered-run rate (>=8->>=6)':28}{_fmt(rr['answered_rate'], sr['answered_rate'], '{:.3f}')}")
+    print(f"    {'>=8 runs / game (triggers)':28}{_fmt(rr['triggers_pg'], sr['triggers_pg'], '{:.2f}')}")
     print("=" * w + "\n")
 
 

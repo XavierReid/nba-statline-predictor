@@ -569,25 +569,53 @@ statistically. Track it alongside scoring / margin / blowout% / strength slope.
 | runs ≥10 / game | 1.45 | 1.23 | −0.21 |
 | mean scoring drought (s) | 48.5 | 55.1 | +6.6 |
 
-**This FALSIFIES the literal "sim runs over-extend" reading of 3.2-OLD.** The sim does not
-make bigger runs — it makes slightly FEWER and SMALLER ones, with LONGER droughts. Yet its
-blowout rate is higher (25.1 vs 20.5) and Q4 stays wide. The only reconciliation: **real
-basketball has more/bigger runs THAT GET ANSWERED** — a 10-0 run is followed by an opponent
-counter-run, so runs cancel, leads rubber-band, and leads flip often (lead changes 9.5). The
-sim's milder runs are UNANSWERED, so small unidirectional runs accumulate into blowouts and
-leads are sticky (lead changes 6.8). **The owner is run RESPONSE / sequencing, not run
-magnitude and not per-possession variance** — which is exactly the memoryless-pipeline gap:
-nothing in the engine knows a run is underway, so nothing reacts to it (the trailing team
-doesn't surge, the leading team doesn't coast, no timeout-like counter).
+This FALSIFIES the literal "sim runs over-extend" reading — the sim makes slightly FEWER and
+SMALLER runs with LONGER droughts, yet blowout% is higher. That invited a "runs go unanswered"
+(response/sequencing) hypothesis, which the confirming instrument then TESTED AND FALSIFIED.
 
-Three angles now agree on ONE owner: (1) Q4 variance doesn't compress, (2) lead changes too
-few, (3) runs aren't answered. The behavioral generator is a **run-response coupling**.
+**RUN-RESPONSE HYPOTHESIS FALSIFIED (2026-07-14, `game_texture.py` response metrics +
+phase split).** Lag-1 autocorrelation of 2-min windowed margins and answered-run rate
+(after a ≥8-0 run, opponent ≥6-0 within 3 min), whole-game and split Q1-3 vs Q4:
 
-**Confirming measurement still worth adding before implementation:** an explicit "answered-run
-rate" / scoring autocorrelation — after a team's ≥8-0 run, does the opponent respond with a
-≥6-0 run within ~3 min, real vs sim. The magnitude/drought numbers imply the sim under-answers;
-this would measure it directly and give the fix its validation target. THEN design the behavior
-(a GameFlow/CompetitiveState run-response coupling), not before. Do NOT touch `team_defense_factor`.
+| | real | sim |
+|---|---|---|
+| answered-run rate, Q1-3 | 0.200 | 0.172 |
+| answered-run rate, **Q4** | 0.170 | **0.172** |
+| lag-1 autocorr, Q1-3 | −0.079 | −0.087 |
+| lag-1 autocorr, **Q4** | −0.214 | **−0.208** |
+
+Both real AND sim strengthen mean-reversion in Q4 (−0.08 → −0.21) and the sim MATCHES real in
+every phase. **The sim already answers runs at the right rate; scoring sequencing is not the
+owner.** Run-response / memoryless-coupling is ruled out alongside per-possession variance,
+run magnitude, and team_defense_factor.
+
+**WHAT SURVIVES — a Q4-specific LEVEL effect (not a sequencing effect).** The robust,
+un-falsified signal is the Q4 transition-delta table: the sim over-grows the Q4 margin by
+~+1 pt at EVERY competitive entering-margin band, while real is more stabilizing:
+
+| entering Q4 | real Δ\|m\| | sim Δ\|m\| | sim excess |
+|---|---|---|---|
+| 0-5 | +3.35 | +4.65 | +1.31 |
+| 6-10 | +1.16 | +2.07 | +0.91 |
+| 11-20 | −1.12 | −0.06 | +1.06 |
+| 21+ | −0.84 | −0.54 | +0.30 |
+
+Real Q4 is a net margin STABILIZER across 0-20; the sim keeps expanding. Note the STRUCTURAL
+coverage gap: the sim's Q4 behaviors act only at ≤8 (COMPETITIVE_LATE objectives) and ≥20
+(garbage rotation) — the 9-19 "comfortable but not garbage" band has NO Q4 behavior, and that
+is exactly where the miss is largest (11-20: +1.06). This is a LEVEL/rate effect (how much the
+leading vs trailing team scores in Q4), not a sequencing effect — consistent with sequencing
+metrics matching while the differential variance/level differs.
+
+**NEXT MEASUREMENT (still pre-implementation): split Q4 scoring by team ROLE.** Measure real
+Q4 points (and shot rate / pace) for the LEADING vs TRAILING team across entering-margin bands,
+vs sim. Hypothesis to test: the real leading team eases in Q4 across the 9-20 band (and/or the
+trailing team pushes) and the sim does not. That locates the generator and gives the fix its
+validation target. Only then design the Q4 behavior (leading-team ease / trailing-team push in
+the moderate-lead band, whole-Q4 not final-2-min). Owner remains a Q4 game-state behavior; the
+memoryless-pipeline note stands, but the mechanism is a per-role Q4 LEVEL adjustment, NOT a
+run-response coupling. Do NOT touch `team_defense_factor`; do NOT reach for per-possession
+variance (Q1-3 already match).
 
 ---
 

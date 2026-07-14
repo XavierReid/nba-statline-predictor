@@ -219,6 +219,19 @@ flushed out the era-invariant-constant/data-gap defects that blocked generalizat
 SIMULATION_GAPS.md milestone section. This validates the direction: future work is "find the
 behavior responsible for this residual," not "tune another constant until totals match."
 
+## Player realism (gap 3.4) — decomposed into independent owners
+
+`app/analysis/player_accounting.py` (the third analysis pillar) turned "player realism" from
+one blob into independent behavioral owners, each validated by the 7-era tier reconciliation:
+- **3.4a Offensive possession ownership — ✅ DONE** (usage-concentration γ=1.6). Scope closed;
+  do NOT over-crank γ to chase the modern residual (it has other causes).
+- **3.4b Turnover ownership** — per-possession TOV doesn't track the ball handler.
+- **3.4c Playmaker / assist generation** — passer selection / attribution (recommended next).
+- **3.4d Player game-to-game variance** — future.
+Full detail in SIMULATION_GAPS.md §3.4. This is the model for future work: one behavioral owner,
+one harness, one milestone at a time — Team Identity / coaching / lineup behavior plug into the
+same accounting framework rather than adding new calibration loops.
+
 ## Data enrichment (demand-driven — not a stage)
 
 New nba_api sources are pulled in only when a milestone needs them, each with an

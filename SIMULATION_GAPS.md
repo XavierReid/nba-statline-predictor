@@ -544,17 +544,30 @@ Closes out the margin/blowout distribution work.
 Sim ~3.7% vs real (measured) 4.8%. Partly downstream of 3.2 (more close games → more ties
 → more OT). Re-measure after 3.2 before deciding whether an OT-specific gap remains.
 
-### 3.4 — Player-level stat realism (MEASUREMENT PHASE COMPLETE 2026-07-14; fix not started)
-All calibration to date is team-aggregate. Built `app/analysis/player_accounting.py` (third
-analysis pillar) — per-player possession accounting with tier aggregation and Δ Points / Δ
-Assists decompositions. Run across all 7 ingested eras. **ONE behavioral root: offensive load
-is allocated too democratically.** Stars lose FGA + FT trips + assists to the bench and gain
-turnovers; bench gains points every era. Universal, magnitude scales with era star-
-concentration (star usage term -1.5 in 90s/00s → -3.2 in 2025-26). Assist deficit is
-ALLOCATION not attribution (team AST/FGM only ~2-7% low). Address of the fix: `_select_action`
-(possession.py) — ball-handler chosen by `usage_rate` weights that concentrate too weakly.
-Proposed: a global usage-concentration transform (one measured constant, NO player bonuses),
-validated by the 7-era tier reconciliation. See project-player-allocation-diagnosis memory.
+### 3.4 — Player-level stat realism (DECOMPOSED into independent owners; measured via `player_accounting.py`)
+All prior calibration was team-aggregate; team scoring can be exactly right while the
+distribution ACROSS players is wrong. Built `app/analysis/player_accounting.py` (third analysis
+pillar) — per-player possession accounting with tier aggregation (star/primary/secondary/
+rotation/bench by real usage rank) and Δ Points / Δ Assists decompositions, run across all 7
+eras. The instrument turned one vague "player realism" item into independent behavioral owners,
+each with its own validation harness (the 7-era tier reconciliation):
+
+- **3.4a Offensive possession ownership — ✅ DONE (2026-07-14, commit c477d2b).** Root: ball-handler
+  chosen by *linear* `usage_rate` weights allocated load too democratically (stars under, bench
+  over, every era). Fix: `usage_rate ** usage_concentration`, one global constant, DRAMA_M3 γ=1.6.
+  Swept: zeroes the oldest era, reduces star-under bias in every era, over-corrects none, team
+  scoring still reconciles. Star Δpts e.g. 2016-17 -3.51→-0.42. Scope deliberately NOT expanded —
+  over-cranking γ just trades one residual for another; the modern residual has *other* causes.
+- **3.4b Turnover ownership — open.** Concentrating possessions inflated star TOV (2016-17 2.8→4.1):
+  turnover probability is modeled at the possession level, not the individual ball handler.
+- **3.4c Playmaker / assist generation — open (recommended next).** Routing more possessions through
+  stars doesn't route *passes* through primary creators; attribution rate flat ~0.585. Owner is
+  passer selection / assist attribution, distinct from ownership. The decision pipeline already
+  separates ball-handler / shooter / passer, so this is expressive to model.
+- **3.4d Player game-to-game variance — future.** Does a 25-ppg scorer have realistic spread
+  (ties into `player_variance`)? Not yet measured.
+
+See project-player-allocation-diagnosis memory.
 
 ### 3.5 — Team box-score aggregates
 Team assists, rebounds, steals, blocks, turnovers per game vs real team averages. Only

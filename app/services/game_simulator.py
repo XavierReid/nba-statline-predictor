@@ -526,7 +526,8 @@ def simulate_game(
             else:
                 oreb_depth = 0
                 current_is_home = not current_is_home
-                if cfg.use_fast_break and event.get("steal_by") is not None:
+                if (cfg.use_fast_break and event.get("steal_by") is not None
+                        and rng.random() < cfg.steal_fastbreak_prob):
                     next_is_fastbreak = True
 
     for reg_q in range(4):

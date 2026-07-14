@@ -143,7 +143,25 @@ class SimConfig:
     # this. The player value sets the relative economy (flat across usage tiers);
     # this one league anchor keeps aggregate team TOV correct (steal / offensive-foul
     # paths also contribute, so <1). Swept against the turnover-economy harness.
-    tov_scale: float = 1.0
+    tov_scale: float = 1.0  # DRAMA_M3 lowers this (0.9→0.44) to hold TOTAL TOV as steals rose (3.5, composition-only)
+    # Block attribution (gap 3.5): a block is a KIND of missed FG, so beyond the
+    # possession-ending rim-protection path (which forces a miss pre-draw), missed
+    # block-eligible shots are relabeled as blocked at this rate × the blocker's block
+    # attribute. Scoring/possession-neutral (only labels existing misses). Swept so
+    # blocks/team/game ≈ real 4.9 (sim was ~1.0 from the forced-miss path alone). 0 =
+    # off (pre-3.5 behavior).
+    block_attribution_scale: float = 0.60
+    # Steal rate (gap 3.5): live-ball steal prob = best on-ball defender's steal attr /
+    # 100 × this. Raised from the old 0.034 so steals ≈ real 8.1/team (was ~3.0); total
+    # TOV is held at real ~13.4 by lowering tov_scale in tandem (a steal and an unforced
+    # turnover are both a turnover charged to the ball handler — composition shift, not
+    # more turnovers). Real steals are ~60% of TOV; the sim was ~20%.
+    steal_rate: float = 0.093
+    # Only a FRACTION of steals lead to a transition possession — decouples the (now
+    # realistic) steal COUNT from fast-break frequency so the measured possession/pace
+    # budget (fastbreak_poss_frac) still holds. Set so fast breaks stay ~constant vs the
+    # pre-3.5 steal rate. Real: not every steal is a fast break.
+    steal_fastbreak_prob: float = 0.37
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05
@@ -172,7 +190,7 @@ DRAMA_M3 = SimConfig(
     use_lineup_quality=True,
     use_behavior_profile=True,
     usage_concentration=1.6,
-    tov_scale=0.9,
+    tov_scale=0.44,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

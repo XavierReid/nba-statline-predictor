@@ -366,9 +366,10 @@ def _select_action(ctx, result: dict) -> Action:
         result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
         return Action(ball_handler, terminal=True)
 
-    # steal (~1.7%): best on-ball defender
+    # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
+    # volume; total TOV held via tov_scale). Still charges the ball handler a turnover.
     best_defender = max(defense, key=lambda p: p["steal"])
-    if rng.random() < (best_defender["steal"] / 100.0) * 0.034:
+    if rng.random() < (best_defender["steal"] / 100.0) * cfg.steal_rate:
         result["turnover_by"] = ball_handler["id"]
         result["steal_by"] = best_defender["id"]
         return Action(ball_handler, terminal=True)
@@ -575,6 +576,19 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             ast_rate = 0.85 if coarse_type in ("three", "mid") else 0.66
             if rng.random() < ast_rate:
                 result["assisted_by"] = initiator["id"]
+
+    # block attribution on a missed rim shot (gap 3.5): a block is a KIND of missed FG.
+    # The forced-miss rim-protection path (_resolve_matchup) ends possessions; this
+    # relabels the REST of the missed block-eligible shots so total blocks reach real
+    # ~4.9. Pure box-score relabel — the shot already missed, so scoring/possession and
+    # the rebound below are untouched.
+    block_eligible = (sub_type in _BLOCK_ELIGIBLE) if cfg.use_shot_subtypes else (coarse_type != "three")
+    if (not result["made"] and result["fta"] == 0 and not ctx.is_fastbreak
+            and block_eligible and cfg.block_attribution_scale > 0):
+        blocker = max(ctx.defense, key=lambda p: p["block"])
+        bmult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
+        if rng.random() < (blocker["block"] / 100.0) * cfg.block_attribution_scale * bmult:
+            result["block_by"] = blocker["id"]
 
     # rebound on a live miss (no free throws pending)
     if not result["made"] and result["fta"] == 0:

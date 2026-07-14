@@ -749,12 +749,27 @@ then matches known 2024-25 averages. Sim from a schedule replay's box scores (n=
 **Owners: blocks (5× under) and steals (~2.7× under); rebounds ~13% low a secondary.**
 These are box-score realism gaps that DON'T touch team scoring (a block is still a miss, a
 steal is still a turnover, a rebound re-assigns an already-counted possession), which is why
-they survived every scoring-calibration pass. Hypotheses to test when fixing (NOT started):
-blocks — the shot model flags too few misses as blocked (real ~4.9 ≈ 11% of missed 2pts);
-steals — too few turnovers attributed as live-ball steals (sim 3.0/14.7 = 20% of TOV vs real
-8.1/13.4 = 60%); rebounds — some misses credit no `rebounded_by` (a tracking gap). Fouls (pf)
-have no real anchor in PlayerSeasonStats (sim 14.3/team). Each is a per-opportunity attribution
-rate, calibratable without disturbing scoring/possessions.
+they survived every scoring-calibration pass.
+
+**BLOCKS + STEALS FIXED (2026-07-14) — pure scoring-neutral attribution.**
+- **Blocks 0.20×→1.03×** (5.05 vs real 4.90). A block is a KIND of missed FG, so beyond the
+  possession-ending rim-protection path, `_resolve_outcome` now RELABELS already-missed
+  block-eligible (rim) shots as blocked at `block_attribution_scale=0.60 ×` the blocker's
+  block attribute. The shot already missed → scoring, possessions, and the rebound untouched.
+- **Steals 0.37×→1.01×** (8.16 vs real 8.08). Composition shift, NOT more turnovers: raised
+  `steal_rate` 0.034→0.093 and lowered `tov_scale` 0.9→0.44 so TOTAL TOV is held at the
+  pre-fix level (14.3) — a steal and an unforced TOV are both a turnover charged to the ball
+  handler, so the 3.4b per-player economy is preserved. Decoupled fast breaks
+  (`steal_fastbreak_prob=0.37`) so the realistic steal COUNT doesn't inflate fast-break
+  frequency / the possession budget (real: not every steal is a fast break).
+- Guardrails: scoring ~neutral (117.4 vs pre-fix 116.8), 3.2 metrics unchanged/slightly better
+  (blowout 20.1 vs real 20.5, close 26.7 vs 27.2), 296 tests green (OT_SEED 37→27).
+
+**REMAINING (secondary): rebounds 0.88×** (38.5 vs real 44.0). Known contributor: a live miss
+credits a `rebounded_by` only when `fta==0`, so MISSED LAST FREE THROWS credit nobody (~half
+the gap); the rest needs a count of sim missed-FG vs credited rebounds to locate. The fix must
+credit the rebounder WITHOUT changing the OREB/DREB split (which drives second chances /
+possession flow). Fouls (pf) have no real anchor in PlayerSeasonStats (sim 14.3/team).
 
 ### 3.6 — Lead changes — ✅ DISMISSED (2026-07-14): NOT A GAP under consistent measurement
 Flagged for years at "sim ~6.8 vs real ~9-10". That real anchor was LITERATURE/memory, never

@@ -607,15 +607,36 @@ is exactly where the miss is largest (11-20: +1.06). This is a LEVEL/rate effect
 leading vs trailing team scores in Q4), not a sequencing effect — consistent with sequencing
 metrics matching while the differential variance/level differs.
 
-**NEXT MEASUREMENT (still pre-implementation): split Q4 scoring by team ROLE.** Measure real
-Q4 points (and shot rate / pace) for the LEADING vs TRAILING team across entering-margin bands,
-vs sim. Hypothesis to test: the real leading team eases in Q4 across the 9-20 band (and/or the
-trailing team pushes) and the sim does not. That locates the generator and gives the fix its
-validation target. Only then design the Q4 behavior (leading-team ease / trailing-team push in
-the moderate-lead band, whole-Q4 not final-2-min). Owner remains a Q4 game-state behavior; the
-memoryless-pipeline note stands, but the mechanism is a per-role Q4 LEVEL adjustment, NOT a
-run-response coupling. Do NOT touch `team_defense_factor`; do NOT reach for per-possession
-variance (Q1-3 already match).
+**ROLE-SPLIT MEASUREMENT DONE (2026-07-14) — OWNER CONFIRMED + VALIDATION TARGET SET.**
+Q4 points by team role (leading vs trailing entering Q4), by entering-margin band, real vs sim:
+
+| entering Q4 | real lead / trail | sim lead / trail | real NET(L−T) | sim NET(L−T) | miss |
+|---|---|---|---|---|---|
+| 0-5 | 27.36 / 27.79 | 30.44 / 31.04 | −0.43 | −0.60 | −0.17 |
+| 6-10 | 26.40 / 27.07 | 30.28 / 30.06 | **−0.67** | **+0.22** | +0.90 |
+| 11-20 | 27.21 / 28.66 | 29.33 / 29.76 | **−1.46** | **−0.42** | +1.03 |
+| 21+ | 27.24 / 28.15 | 28.69 / 29.23 | −0.91 | −0.54 | +0.36 |
+
+**Confirmed owner: the real LEADING team eases its Q4 scoring, concentrated in the 6-20
+"comfortable lead" band, and the sim does not.** Real NET(lead−trail) is negative in every
+band (the trailing team outscores the leader in Q4 = the compression); the sim fails to
+reproduce it and even flips the sign at 6-10 (+0.22). The miss is larger on the LEADING team
+(11-20: leader +2.13 over real vs trailer +1.09), so the dominant generator is leading-team
+Q4 easing, not trailing-team push. This sits exactly in the coverage gap between
+COMPETITIVE_LATE (≤8) and garbage rotation (≥20).
+
+**Secondary (level, not margin): sim Q4 is over-paced** — total Q4 points run +3 to +6 over
+real per band (real Q4 ~55, sim ~60); real Q4 slows for BOTH teams and the sim doesn't. Not
+the margin driver (both teams inflate together) but a texture note; full-game scoring still
+reconciles, so sim Q1-3 must run correspondingly under.
+
+**VALIDATION TARGET for the fix (design next milestone, NOT now):** reproduce real
+NET(lead−trail) by band — ≈ −0.4 / −0.7 / −1.5 / −0.9 for 0-5 / 6-10 / 11-20 / 21+ — while
+holding Q1-3, full-game scoring, and the sequencing metrics (autocorr, answered-run) that
+already match. Mechanism: a whole-Q4 (not final-2-min) leading-team ease in the 9-20 band,
+plugged into the GamePhase/Objectives layer (the memoryless-pipeline note). Do NOT touch
+`team_defense_factor`; do NOT reach for per-possession variance or a run-response coupling
+(both falsified). **Gap 3.2 measurement phase COMPLETE — owner identified, target set.**
 
 ---
 

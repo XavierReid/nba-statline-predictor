@@ -50,7 +50,7 @@ def make_team(id_offset: int) -> list:
 HOME = make_team(0)
 AWAY = make_team(100)
 SEED = 42
-OT_SEED = 33   # verified: produces OT with HOME/AWAY above under the clock path
+OT_SEED = 37   # verified: produces OT with HOME/AWAY above (re-found after initiator RNG shift)
 
 
 # ---------------------------------------------------------------------------

@@ -251,6 +251,8 @@ class Action:
     terminal: bool                      # possession ended with no live shot (foul / turnover)
     coarse_type: Optional[str] = None   # three / mid / close
     sub_type: Optional[str] = None      # corner_three / layup / ... (or coarse when sub-types off)
+    initiator: Optional[dict] = None    # who ran the possession; credited the assist if a
+                                        # teammate scores (not automatically the shooter)
 
 
 @dataclass
@@ -347,6 +349,14 @@ def _select_action(ctx, result: dict) -> Action:
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 
+    # initiator — who ran the possession (usage + playmaking), drawn independently of
+    # the shooter. Credited the assist when a TEAMMATE scores; if the initiator also
+    # takes the shot it is self-created (no assist). Decoupling this from the shooter
+    # is what lets a lead creator accumulate real assist share (gap 3.4c), and keeps
+    # it stable under usage_concentration (which only concentrates the shooter).
+    init_weights = [p["assist_rate"] for p in offense]
+    initiator = rng.choices(offense, weights=init_weights)[0]
+
     # bonus foul (non-shooting)
     if rng.random() < _bonus_foul_prob(ctx, ball_handler):
         result["scorer"] = ball_handler["id"]
@@ -398,7 +408,8 @@ def _select_action(ctx, result: dict) -> Action:
 
     result["shot_type"] = sub_type
     result["scorer"] = ball_handler["id"]
-    return Action(ball_handler, terminal=False, coarse_type=coarse_type, sub_type=sub_type)
+    return Action(ball_handler, terminal=False, coarse_type=coarse_type,
+                  sub_type=sub_type, initiator=initiator)
 
 
 # --- stage 2: resolve_matchup (rim protection + on-ball assignment) ----------
@@ -544,15 +555,19 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             result["fta"] = 2
             result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
 
-    # assist on a make
+    # assist on a make — credited to the possession INITIATOR when a teammate scored.
+    # A self-created basket (initiator == shooter) is unassisted. The assist rate is
+    # unchanged (gap 3.4c fix is allocation, not attribution); who receives it now
+    # follows who ran the possession rather than a random draw among leftovers.
     if result["made"]:
-        ast_rate = 0.65 if coarse_type in ("three", "mid") else 0.50
-        if rng.random() < ast_rate:
-            passers = [p for p in ctx.offense if p["id"] != ball_handler["id"]]
-            if passers:
-                result["assisted_by"] = rng.choices(
-                    passers, weights=[p["assist_rate"] for p in passers]
-                )[0]["id"]
+        initiator = action.initiator
+        if initiator is not None and initiator["id"] != ball_handler["id"]:
+            # rate re-derived for the initiator model: a made shot is assisted only
+            # when a teammate created it (self-creates are unassisted), so the base
+            # rate is scaled up to keep team AST/FGM at real ~0.60.
+            ast_rate = 0.85 if coarse_type in ("three", "mid") else 0.66
+            if rng.random() < ast_rate:
+                result["assisted_by"] = initiator["id"]
 
     # rebound on a live miss (no free throws pending)
     if not result["made"] and result["fta"] == 0:

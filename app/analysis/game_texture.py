@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from app.analysis.decomposition import simulate_schedule
 from app.database import SessionLocal
 from app.models.game import Game
+from app.models.scoring_event import ScoringEvent
 from app.services.roster import load_roster
 from app.services.sim_config import DRAMA_M3
 from sqlalchemy import select
@@ -190,18 +191,120 @@ def compare(real: TextureAccount, sim: TextureAccount,
     print("=" * w + "\n")
 
 
-def run(season: str, sims_per_game: int, config=DRAMA_M3) -> None:
+# --------------------------------------------------------------------------------
+# Run & drought analysis (gap 3.2 triangulation — third angle after Q4 variance and
+# lead changes). A "scoring sequence" is the ordered list of made scores for one game
+# as (side, points, elapsed_seconds); real comes from ScoringEvent, sim from events.
+# --------------------------------------------------------------------------------
+
+def _elapsed(period: int, seconds_remaining: int) -> float:
+    """Absolute game-clock seconds since tip (regulation 720s/period, OT 300s)."""
+    if period <= 4:
+        return (period - 1) * 720 + (720 - seconds_remaining)
+    return 4 * 720 + (period - 5) * 300 + (300 - seconds_remaining)
+
+
+def real_sequences(db, season: str) -> List[List[Tuple[str, int, float]]]:
+    year = season.split("-")[0][-2:]
+    rows = db.execute(
+        select(ScoringEvent).join(Game, ScoringEvent.game_id == Game.id)
+        .where(Game.id.like(f"002{year}%"))
+        .order_by(ScoringEvent.game_id, ScoringEvent.event_num)
+    ).scalars().all()
+    by_game: Dict[str, List[Tuple[str, int, float]]] = {}
+    for e in rows:
+        by_game.setdefault(e.game_id, []).append(
+            (e.scoring_side, e.points, _elapsed(e.period, e.seconds_remaining))
+        )
+    return list(by_game.values())
+
+
+def sim_sequences(sims: List[dict]) -> List[List[Tuple[str, int, float]]]:
+    out = []
+    for gsm in sims:
+        seq = []
+        for ev in gsm.get("events", []):
+            if ev["pts"] > 0:
+                side = "home" if ev["is_home"] else "away"
+                seq.append((side, ev["pts"], _elapsed(ev["quarter"], ev["game_clock_seconds"])))
+        out.append(seq)
+    return out
+
+
+def _run_drought(sequences: List[List[Tuple[str, int, float]]]) -> dict:
+    """Unanswered-run lengths, big-run frequency, and interior scoring droughts."""
+    run_lengths: List[int] = []
+    runs_6 = runs_8 = runs_10 = 0
+    droughts: List[float] = []
+    n_games = len(sequences)
+    for seq in sequences:
+        cur_side, cur_pts = None, 0
+        last_score_time = {"home": None, "away": None}
+        for side, pts, t in seq:
+            # unanswered run: accumulate until the other side scores
+            if side == cur_side:
+                cur_pts += pts
+            else:
+                if cur_pts:
+                    run_lengths.append(cur_pts)
+                cur_side, cur_pts = side, pts
+            # interior drought: gap since this team last scored
+            if last_score_time[side] is not None:
+                droughts.append(t - last_score_time[side])
+            last_score_time[side] = t
+        if cur_pts:
+            run_lengths.append(cur_pts)
+    # big-run counts per game (per team-run event, normalized to per game)
+    for r in run_lengths:
+        runs_6 += r >= 6
+        runs_8 += r >= 8
+        runs_10 += r >= 10
+    return {
+        "mean_run": mean(run_lengths) if run_lengths else 0.0,
+        "runs_6_pg": runs_6 / n_games,
+        "runs_8_pg": runs_8 / n_games,
+        "runs_10_pg": runs_10 / n_games,
+        "mean_drought": mean(droughts) if droughts else 0.0,
+        "p90_drought": sorted(droughts)[int(len(droughts) * 0.9)] if droughts else 0.0,
+    }
+
+
+def compare_run_drought(real_seq, sim_seq) -> None:
+    w = 78
+    r, s = _run_drought(real_seq), _run_drought(sim_seq)
+    print("\n" + "=" * w)
+    print(f"  Run & drought analysis   (real games={len(real_seq)}, sim games={len(sim_seq)})")
+    print("=" * w)
+    print(f"  {'metric':30}{'real':>10}{'sim':>10}{'diff':>10}")
+    print(f"    {'mean unanswered run (pts)':28}{_fmt(r['mean_run'], s['mean_run'])}")
+    print(f"    {'runs >=6 / game':28}{_fmt(r['runs_6_pg'], s['runs_6_pg'])}")
+    print(f"    {'runs >=8 / game':28}{_fmt(r['runs_8_pg'], s['runs_8_pg'])}")
+    print(f"    {'runs >=10 / game':28}{_fmt(r['runs_10_pg'], s['runs_10_pg'])}")
+    print(f"    {'mean scoring drought (s)':28}{_fmt(r['mean_drought'], s['mean_drought'], '{:.1f}')}")
+    print(f"    {'p90 scoring drought (s)':28}{_fmt(r['p90_drought'], s['p90_drought'], '{:.1f}')}")
+    print("=" * w + "\n")
+
+
+def run(season: str, sims_per_game: int, config=DRAMA_M3, runs: bool = False) -> None:
     db = SessionLocal()
     real = real_texture(db, season)
     sims = simulate_schedule(db, season, config, sims_per_game)
     sim, lead_changes, pts_by_subtype = sim_texture(f"{season} sim", sims)
-    db.close()
     compare(real, sim, lead_changes, pts_by_subtype)
+    if runs:
+        real_seq = real_sequences(db, season)
+        if not real_seq:
+            print("  [run/drought] no real scoring events ingested — run the "
+                  "/seasons/{season}/play-by-play ingest first.\n")
+        else:
+            compare_run_drought(real_seq, sim_sequences(sims))
+    db.close()
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--season", default="2025-26")
+    p.add_argument("--season", default="2024-25")
     p.add_argument("--sims", type=int, default=1)
+    p.add_argument("--runs", action="store_true", help="include run & drought analysis")
     args = p.parse_args()
-    run(args.season, args.sims)
+    run(args.season, args.sims, runs=args.runs)

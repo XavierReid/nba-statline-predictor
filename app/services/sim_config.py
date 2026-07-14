@@ -112,6 +112,15 @@ class SimConfig:
     # (real 24.5). Blowout% is invariant to gain here, confirming the residual is
     # mid-game dispersion, not team over-separation. Sweep: 1.10→slope 1.20, 1.15→1.25.
     signal_gain: float = 1.0
+    # Ball-handler usage concentration exponent (gap 3.4): possession ownership
+    # weight = usage_rate ** this. 1.0 = linear allocated offensive load too
+    # democratically (stars under, bench over). Swept 2026-07-14 against the 7-era
+    # player-line tier reconciliation: 1.6 zeroes the oldest era (the one-engine
+    # baseline), reduces the star-under bias in every era, over-corrects none, and
+    # keeps team scoring reconciled. Modern retains a smaller residual (real usage
+    # is more concentrated than a single exponent captures) — a named follow-up, not
+    # a reason to over-crank gamma. Default 1.0 stays behavior-neutral for tests.
+    usage_concentration: float = 1.0
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05
@@ -139,6 +148,7 @@ DRAMA_M3 = SimConfig(
     use_garbage_rotation=True,
     use_lineup_quality=True,
     use_behavior_profile=True,
+    usage_concentration=1.6,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

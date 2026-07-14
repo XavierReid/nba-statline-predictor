@@ -116,13 +116,17 @@ def real_accounts(db: Session, season: str) -> Dict[int, PlayerAccount]:
 
 
 def sim_accounts(db: Session, season: str, tiers: Dict[int, str],
-                 config=DRAMA_M3, sims_per_game: int = 1) -> Dict[int, PlayerAccount]:
+                 config=DRAMA_M3, sims_per_game: int = 1, max_games=None) -> Dict[int, PlayerAccount]:
     """Per-game sim accounts from a schedule replay. `tiers` (from real_accounts)
-    are inherited so a player is compared within the role he actually held."""
+    are inherited so a player is compared within the role he actually held.
+    max_games samples the schedule (every Nth game) for fast gamma sweeps."""
     year = season.split("-")[0][-2:]
     games = db.execute(select(Game).where(
         Game.id.like(f"002{year}%"), Game.status == "final", Game.home_score.isnot(None))
     ).scalars().all()
+    if max_games and len(games) > max_games:
+        step = len(games) // max_games
+        games = games[::step]
     rosters = {}
     for t in db.execute(select(Team)).scalars().all():
         r = load_roster(db, t.id, season)
@@ -298,12 +302,17 @@ def tier_report(real: Dict[int, PlayerAccount], sim: Dict[int, PlayerAccount], s
     print("=" * W + "\n")
 
 
-def run(season: str, sims_per_game: int = 1, config=DRAMA_M3) -> None:
+def run(season: str, sims_per_game: int = 1, gamma: float = None, max_games=None) -> None:
+    from dataclasses import replace
     from app.database import SessionLocal
+    config = replace(DRAMA_M3, usage_concentration=gamma) if gamma is not None else DRAMA_M3
     db = SessionLocal()
     real = real_accounts(db, season)
-    sim = sim_accounts(db, season, {pid: a.tier for pid, a in real.items()}, config, sims_per_game)
+    sim = sim_accounts(db, season, {pid: a.tier for pid, a in real.items()},
+                       config, sims_per_game, max_games)
     db.close()
+    if gamma is not None:
+        print(f"  (usage_concentration gamma={gamma})")
     tier_report(real, sim, season)
 
 
@@ -312,5 +321,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--season", default="2016-17")
     p.add_argument("--sims", type=int, default=1)
+    p.add_argument("--gamma", type=float, default=None)
+    p.add_argument("--max-games", type=int, default=None)
     args = p.parse_args()
-    run(args.season, args.sims)
+    run(args.season, args.sims, args.gamma, args.max_games)

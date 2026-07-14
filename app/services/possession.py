@@ -337,8 +337,13 @@ def _select_action(ctx, result: dict) -> Action:
     offensive foul) end the possession terminally; otherwise a shot type is chosen."""
     rng, offense, defense, cfg = ctx.rng, ctx.offense, ctx.defense, ctx.cfg
 
-    # ball handler — weighted by usage rate
-    usage_weights = [p["usage_rate"] for p in offense]
+    # ball handler — weighted by usage rate, concentrated by usage_concentration.
+    # Linear (gamma=1) allocated offensive load too democratically: stars lost FGA/
+    # FT/assists to the bench (player_accounting.py, gap 3.4). gamma>1 routes
+    # disproportionately more possessions to high-usage players — no player-specific
+    # bonuses; a star scores more because the engine runs more through him.
+    g = cfg.usage_concentration
+    usage_weights = [p["usage_rate"] ** g for p in offense]
     total_usage = sum(usage_weights)
     ball_handler = rng.choices(offense, weights=[w / total_usage for w in usage_weights])[0]
 

@@ -544,15 +544,17 @@ Closes out the margin/blowout distribution work.
 Sim ~3.7% vs real (measured) 4.8%. Partly downstream of 3.2 (more close games → more ties
 → more OT). Re-measure after 3.2 before deciding whether an OT-specific gap remains.
 
-### 3.4 — Player-level stat realism (NEVER DONE — likely highest product value)
-All calibration to date is team-aggregate. Team scoring can be exactly right while the
-distribution ACROSS players is wrong. Unvalidated questions: do stars score realistic PPG
-(25-30)? do rebounds concentrate on bigs? do playmakers get 8-10 assists? do usage/minutes
-produce believable individual lines? does anyone post a realistic triple-double? The RFC
-lists "player stat realism spot-checks" as a deferred DoD item. Needs a per-player
-distribution harness comparing simulated season box scores to real `PlayerSeasonStats`.
-Arguably more important to the product ("does Jokić post a triple-double?") than shaving
-3% off blowout rate.
+### 3.4 — Player-level stat realism (MEASUREMENT PHASE COMPLETE 2026-07-14; fix not started)
+All calibration to date is team-aggregate. Built `app/analysis/player_accounting.py` (third
+analysis pillar) — per-player possession accounting with tier aggregation and Δ Points / Δ
+Assists decompositions. Run across all 7 ingested eras. **ONE behavioral root: offensive load
+is allocated too democratically.** Stars lose FGA + FT trips + assists to the bench and gain
+turnovers; bench gains points every era. Universal, magnitude scales with era star-
+concentration (star usage term -1.5 in 90s/00s → -3.2 in 2025-26). Assist deficit is
+ALLOCATION not attribution (team AST/FGM only ~2-7% low). Address of the fix: `_select_action`
+(possession.py) — ball-handler chosen by `usage_rate` weights that concentrate too weakly.
+Proposed: a global usage-concentration transform (one measured constant, NO player bonuses),
+validated by the 7-era tier reconciliation. See project-player-allocation-diagnosis memory.
 
 ### 3.5 — Team box-score aggregates
 Team assists, rebounds, steals, blocks, turnovers per game vs real team averages. Only

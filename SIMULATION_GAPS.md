@@ -556,14 +556,38 @@ with tuning. If a future behavioral change raises lead changes toward real AND p
 compression, that is strong evidence we modeled something real rather than compensated
 statistically. Track it alongside scoring / margin / blowout% / strength slope.
 
-**NEXT (measurement, not implementation): run & drought analysis.** Before designing any
-behavior, complete the texture picture — unanswered run lengths, distribution of 6-0 / 8-0 /
-10-0 runs, scoring-drought durations, possessions-between-scores, sim vs real. If runs/droughts
-point the same way as the Q4-variance and lead-change diagnostics, the missing behavior is
-triangulated from three independent angles and we design it with confidence. **NOTE: real
-possession-level data is NOT ingested (only quarter line scores), so the real side of
-run/drought requires either ingesting PlayByPlayV2 or an external anchor — open decision.**
-Do NOT implement a behavioral change until this measurement is in.
+**RUN & DROUGHT ANALYSIS DONE (2026-07-14) — refines the owner from "magnitude" to
+"response".** Ingested real scoring events via the NBA CDN play-by-play feed (new
+`game_scoring_events` table, 1225 games; stats.nba.com playbyplayv2 now returns empty {}).
+`game_texture.py --runs` builds scoring sequences for real and sim:
+
+| run/drought | real | sim | diff |
+|---|---|---|---|
+| mean unanswered run (pts) | 3.42 | 3.33 | −0.09 |
+| runs ≥6 / game | 8.88 | 8.48 | −0.40 |
+| runs ≥8 / game | 3.60 | 3.27 | −0.33 |
+| runs ≥10 / game | 1.45 | 1.23 | −0.21 |
+| mean scoring drought (s) | 48.5 | 55.1 | +6.6 |
+
+**This FALSIFIES the literal "sim runs over-extend" reading of 3.2-OLD.** The sim does not
+make bigger runs — it makes slightly FEWER and SMALLER ones, with LONGER droughts. Yet its
+blowout rate is higher (25.1 vs 20.5) and Q4 stays wide. The only reconciliation: **real
+basketball has more/bigger runs THAT GET ANSWERED** — a 10-0 run is followed by an opponent
+counter-run, so runs cancel, leads rubber-band, and leads flip often (lead changes 9.5). The
+sim's milder runs are UNANSWERED, so small unidirectional runs accumulate into blowouts and
+leads are sticky (lead changes 6.8). **The owner is run RESPONSE / sequencing, not run
+magnitude and not per-possession variance** — which is exactly the memoryless-pipeline gap:
+nothing in the engine knows a run is underway, so nothing reacts to it (the trailing team
+doesn't surge, the leading team doesn't coast, no timeout-like counter).
+
+Three angles now agree on ONE owner: (1) Q4 variance doesn't compress, (2) lead changes too
+few, (3) runs aren't answered. The behavioral generator is a **run-response coupling**.
+
+**Confirming measurement still worth adding before implementation:** an explicit "answered-run
+rate" / scoring autocorrelation — after a team's ≥8-0 run, does the opponent respond with a
+≥6-0 run within ~3 min, real vs sim. The magnitude/drought numbers imply the sim under-answers;
+this would measure it directly and give the fix its validation target. THEN design the behavior
+(a GameFlow/CompetitiveState run-response coupling), not before. Do NOT touch `team_defense_factor`.
 
 ---
 

@@ -373,10 +373,17 @@ def _select_action(ctx, result: dict) -> Action:
         result["steal_by"] = best_defender["id"]
         return Action(ball_handler, terminal=True)
 
-    # unforced turnover — phase profile scales the base tendency; modifier delta adds on top
+    # unforced turnover — driven by the player's observed per-possession turnover
+    # economy (tov_per_poss), so it does NOT inflate under usage concentration the way
+    # TOV/36 did (gap 3.4b). Phase profile scales it; modifier delta adds on top.
+    # Fallback to the legacy TOV/36 formula for synthetic rosters without the economy.
     profile = _profile(ctx)
     tov_delta = ctx.adjustments.tov_prob_delta if ctx.adjustments else 0.0
-    base_tov = (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 * profile.turnover_mult
+    tpp = ball_handler.get("tov_per_poss")
+    if tpp is not None:
+        base_tov = tpp * cfg.tov_scale * profile.turnover_mult
+    else:
+        base_tov = (ball_handler["turnover_rate"] / LEAGUE_AVG_TOV_PER36) * 0.13 * profile.turnover_mult
     tov_prob = max(0.02, base_tov + tov_delta)
     if rng.random() < tov_prob:
         result["turnover_by"] = ball_handler["id"]

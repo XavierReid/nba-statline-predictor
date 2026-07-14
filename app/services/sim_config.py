@@ -121,6 +121,11 @@ class SimConfig:
     # is more concentrated than a single exponent captures) — a named follow-up, not
     # a reason to over-crank gamma. Default 1.0 stays behavior-neutral for tests.
     usage_concentration: float = 1.0
+    # Unforced-turnover scale (gap 3.4b): unforced TOV prob = player tov_per_poss *
+    # this. The player value sets the relative economy (flat across usage tiers);
+    # this one league anchor keeps aggregate team TOV correct (steal / offensive-foul
+    # paths also contribute, so <1). Swept against the turnover-economy harness.
+    tov_scale: float = 1.0
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05
@@ -149,6 +154,7 @@ DRAMA_M3 = SimConfig(
     use_lineup_quality=True,
     use_behavior_profile=True,
     usage_concentration=1.6,
+    tov_scale=0.9,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

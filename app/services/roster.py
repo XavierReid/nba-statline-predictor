@@ -211,6 +211,13 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
         players[-1]["ft_prob"] = round(
             (ftm_total + LEAGUE_FT_PCT * _FT_SHRINK_PRIOR_ATTEMPTS)
             / (fta_total + _FT_SHRINK_PRIOR_ATTEMPTS), 4)
+        # Turnover ECONOMY (per used possession), not per-36. TOV/36 is a volume stat
+        # inflated by usage — reading it as a per-possession rate gave stars an
+        # inverted turnover economy (gap 3.4b). Real TOV/used-poss is ~flat (~0.12-0.14,
+        # slightly lower for stars). Drives the unforced-turnover event in possession.py.
+        used_poss = (s.fga or 0.0) + 0.44 * (s.fta or 0.0) + (s.turnovers or 0.0)
+        if used_poss > 0:
+            players[-1]["tov_per_poss"] = round((s.turnovers or 0.0) / used_poss, 4)
         # Observed zone make probabilities (rim/paint/mid) — the shot's era-embedded
         # difficulty. Absent when the season has no shot-location data; _evaluate_shot
         # then falls back to the attribute-derived band.

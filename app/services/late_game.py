@@ -130,7 +130,7 @@ def derive_objective(is_leading, margin_abs, clock_seconds, q_idx, cfg):
     return (TeamObjective.PROTECT if is_leading else TeamObjective.CHASE), intensity
 
 
-def objective_adjustments(objective, intensity, cfg) -> "ModifierAdjustments":
+def objective_adjustments(objective, intensity, cfg, margin_abs: int = 0) -> "ModifierAdjustments":
     """Translate an objective+intensity into behavior.
 
     We first tried behavior-only (shot-selection + tempo, efficiency emerging). The
@@ -143,16 +143,26 @@ def objective_adjustments(objective, intensity, cfg) -> "ModifierAdjustments":
     objective, not an arbitrary nerf. CHASE stays efficiency-neutral urgency (tempo
     only) — chasing teams offset rushed shots with transition and offensive glass.
 
+    PROTECT has two regimes (gap 3.1 clutch vs gap 3.2 comfortable lead), chosen by
+    `margin_abs`: a comfortable but not-decided lead (> competitive_late_margin, i.e.
+    9-20) is managed HARDER than a one-possession clutch lead — real leading teams
+    trade aggression for clock management across the whole comfortable band. Default
+    margin_abs=0 keeps the clutch constants (backward-compatible).
+
     Tempo (pace_multiplier) is auto-suppressed for endgame-window possessions by
     the game loop (possession_time_override owns tempo there) — no gating needed here.
     """
     if objective == TeamObjective.NEUTRAL or intensity <= 0:
         return ModifierAdjustments()
     if objective == TeamObjective.PROTECT:
+        comfortable = margin_abs > cfg.competitive_late_margin
+        cost = cfg.comfortable_lead_efficiency_cost if comfortable else cfg.protect_efficiency_cost
+        three = cfg.comfortable_lead_three_shift if comfortable else cfg.protect_three_shift
+        pace = cfg.comfortable_lead_pace_bonus if comfortable else cfg.protect_pace_bonus
         return ModifierAdjustments(
-            shot_prob_delta=-cfg.protect_efficiency_cost * intensity,   # clock-priority = worse shots
-            three_rate_override=-cfg.protect_three_shift * intensity,   # fewer threes (variance ↓)
-            pace_multiplier=1.0 + cfg.protect_pace_bonus * intensity,   # milk clock
+            shot_prob_delta=-cost * intensity,          # clock-priority = worse shots
+            three_rate_override=-three * intensity,     # fewer threes (variance ↓)
+            pace_multiplier=1.0 + pace * intensity,     # milk clock
         )
     return ModifierAdjustments(  # CHASE — efficiency-neutral urgency, tempo only
         three_rate_override=cfg.chase_three_shift * intensity,         # variance ↑ (default 0)

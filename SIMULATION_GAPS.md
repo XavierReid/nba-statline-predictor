@@ -638,6 +638,39 @@ plugged into the GamePhase/Objectives layer (the memoryless-pipeline note). Do N
 `team_defense_factor`; do NOT reach for per-possession variance or a run-response coupling
 (both falsified). **Gap 3.2 measurement phase COMPLETE — owner identified, target set.**
 
+**FIX IMPLEMENTED (2026-07-14) — comfortable-lead Q4 PROTECT.** The objectives layer already
+spanned 6-20 (derive_objective fires PROTECT for any Q4 margin ≥6) but at clutch strength it
+was far too weak there. Rather than retune the shared ≤8 clutch constants (gap 3.1), added a
+SEPARATE stronger PROTECT regime for the comfortable band (margin > competitive_late_margin,
+i.e. 9-20): `objective_adjustments` selects `comfortable_lead_efficiency_cost` (0.22) /
+`_three_shift` (0.12) / `_pace_bonus` (0.16) when margin_abs is comfortable, else the clutch
+constants. Pure GamePhase/Objectives-layer change; possession engine untouched; the leading
+team trades aggression for worse shots + fewer threes + milked clock, and the compression
+EMERGES. Leading-team-only (CHASE unchanged — the miss was the leader). Swept against the NET
+target (`scratch/q4_role_split.py`). Results (2024-25, sim n=2450 vs real n=1190):
+
+| metric | before | after | real |
+|---|---|---|---|
+| Q4 Δ\|m\|, enter 6-10 | +2.07 | **+1.26** | +1.16 |
+| Q4 Δ\|m\|, enter 11-20 | −0.06 | **−1.13** | −1.12 |
+| Q4 Δ\|m\|, enter 21+ | −0.54 | −0.97 | −0.84 |
+| blowout% (20+) | 25.1 | **22.0** | 20.5 |
+| close% (≤5) | 24.8 | **25.3** | 27.2 |
+| Q4 diff variance | 74.1 | **69.6** | 62.6 |
+| Q4 \|margin\| | 13.85 | **13.18** | 12.39 |
+
+The core target — Q4 transition deltas at 6-10 and 11-20 — now MATCH real. Blowout excess cut
+from +4.6 to +1.5; Q4-variance excess roughly halved. **Guardrails HELD:** Q1-3 variance
+unchanged (69/75/71), runs/drought/autocorr/answered-run unchanged (sequencing intact), 296
+tests green, full-game scoring not worsened (the fix only removes points; the residual
+2024-25 sim +3.7 over real is the pre-existing modern over-scoring, a separate gap, and the
+fix nudged it slightly down). **Partial residuals (honest):** (1) Q4 variance improved but not
+fully closed (69.6 vs 62.6); (2) **lead changes did NOT move (6.8 vs 9.5)** — this Q4
+comfortable-lead behavior cannot create lead changes (a 12→8 lead never crosses zero); lead
+changes are a mid-game/closeness property with a DIFFERENT owner (likely Q1-3 dispersion,
+which still runs slightly hot). Gap 3.2 blowout/Q4-compression: SUBSTANTIALLY CLOSED; lead
+changes (3.6) remain open and now clearly separated.
+
 ---
 
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)

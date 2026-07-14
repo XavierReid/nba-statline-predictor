@@ -61,6 +61,24 @@ class SimConfig:
     chase_three_shift: float = 0.0       # trailing variance (off by default — costs efficiency here)
     protect_pace_bonus: float = 0.10     # leading team: max +10% possession time (milk)
     chase_pace_bonus: float = 0.10       # trailing team: max -10% possession time (hurry)
+    # --- comfortable-lead PROTECT (gap 3.2; margin 9-20 in Q4, above competitive_late_margin) ---
+    # The clutch constants above own <=8 (gap 3.1) and are frozen. The 9-20 band is a
+    # DIFFERENT regime: a team protecting a comfortable (not decided) fourth-quarter
+    # lead manages the game harder — trades aggression for clock management and
+    # lower-risk possessions. Measured owner of gap 3.2: real NET(lead-trail) Q4 is
+    # negative every band (trailing team outscores leader = compression), strongest at
+    # 11-20 (-1.46); the sim's clutch-strength PROTECT was far too weak here (sim -0.42,
+    # even +0.22 at 6-10). These are a stronger, independently-calibrated PROTECT applied
+    # only in the comfortable band, swept against the NET(lead-trail) target. 0 would fall
+    # back to clutch strength (behavior-neutral vs pre-3.2). Leading-team-only: CHASE is
+    # unchanged (measurement showed the miss is dominated by the leader).
+    # Swept 2026-07-14 against the real Q4 NET(lead-trail) target (scratch/q4_role_split.py):
+    # cost 0.22 lands 11-20 at -1.54 (real -1.46), 21+ -0.99 (-0.91), 6-10 -0.50 (-0.67) —
+    # all bands within ~1 SE of the (noisy, single-season) real NET. Efficiency cost is the
+    # primary NET lever; pace/three milk the clock and pull Q4 totals toward real (~55).
+    comfortable_lead_efficiency_cost: float = 0.22  # worse leader shots (primary NET lever)
+    comfortable_lead_three_shift: float = 0.12      # fewer leader threes (lower risk)
+    comfortable_lead_pace_bonus: float = 0.16       # milk clock harder (also slows Q4 total)
 
     # --- M3e tuning constants ---
     # Naively 0.055 / 0.22 = 0.25 would match the old flat rate for a league-average

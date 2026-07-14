@@ -26,7 +26,7 @@ class ObjectiveModifier(GameStateModifier):
         objective, intensity = derive_objective(
             off_margin > 0, abs(off_margin), game_state.clock_seconds, q_idx, self._cfg
         )
-        return objective_adjustments(objective, intensity, self._cfg)
+        return objective_adjustments(objective, intensity, self._cfg, abs(off_margin))
 
     def update(self, event: dict, is_home: bool, game_state: GameSnapshot) -> None:
         pass

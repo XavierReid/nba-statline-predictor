@@ -302,7 +302,52 @@ def tier_report(real: Dict[int, PlayerAccount], sim: Dict[int, PlayerAccount], s
     print("=" * W + "\n")
 
 
-def run(season: str, sims_per_game: int = 1, gamma: float = None, max_games=None) -> None:
+# playmaker buckets by REAL assist rank within team (usage-tiers wash these out)
+_PM_BY_RANK = ["primary", "secondary", "tertiary", "tertiary",
+               "minimal", "minimal", "minimal", "minimal", "minimal", "minimal"]
+
+
+def playmaker_report(real: Dict[int, PlayerAccount], sim: Dict[int, PlayerAccount], season: str) -> None:
+    """Assist lens: bucket by real assist rank so lead creators aren't averaged away.
+    Separates allocation (assist SHARE of team) from attribution (team AST/FGM)."""
+    # rank real players by assists within team -> playmaker bucket
+    by_team: Dict[int, list] = {}
+    for a in real.values():
+        by_team.setdefault(a.team_id, []).append(a)
+    bucket_of: Dict[int, str] = {}
+    for rows in by_team.values():
+        for rank, a in enumerate(sorted(rows, key=lambda x: -x.ast)):
+            bucket_of[a.player_id] = _PM_BY_RANK[min(rank, 9)]
+
+    groups: Dict[str, list] = {b: [] for b in ("primary", "secondary", "tertiary", "minimal")}
+    for pid, r in real.items():
+        s = sim.get(pid)
+        if s:
+            groups[bucket_of[pid]].append((r, s))
+
+    W = 74
+    print("\n" + "=" * W)
+    print(f"  Assist / playmaker lens — by real assist rank  ({season})")
+    print("=" * W)
+    print(f"  {'bucket':<12}{'n':>4}{'AST/g r/s':>16}{'AST share r/s':>18}{'AST/36 r/s':>16}")
+    for b in ("primary", "secondary", "tertiary", "minimal"):
+        pairs = groups[b]
+        if not pairs:
+            continue
+        n = len(pairs)
+        ar = sum(r.ast for r, s in pairs) / n
+        as_ = sum(s.ast for r, s in pairs) / n
+        shr = sum(r.ast_share for r, s in pairs) / n
+        shs = sum(s.ast_share for r, s in pairs) / n
+        p36r = sum(r.ast / (r.minutes or 1) * 36 for r, s in pairs) / n
+        p36s = sum(s.ast / (s.minutes or 1) * 36 for r, s in pairs) / n
+        print(f"  {b:<12}{n:>4}{ar:>8.1f}/{as_:>5.1f}{shr*100:>10.0f}%/{shs*100:>4.0f}%"
+              f"{p36r:>9.1f}/{p36s:>4.1f}")
+    print("=" * W + "\n")
+
+
+def run(season: str, sims_per_game: int = 1, gamma: float = None, max_games=None,
+        playmaker: bool = False) -> None:
     from dataclasses import replace
     from app.database import SessionLocal
     config = replace(DRAMA_M3, usage_concentration=gamma) if gamma is not None else DRAMA_M3
@@ -313,7 +358,10 @@ def run(season: str, sims_per_game: int = 1, gamma: float = None, max_games=None
     db.close()
     if gamma is not None:
         print(f"  (usage_concentration gamma={gamma})")
-    tier_report(real, sim, season)
+    if playmaker:
+        playmaker_report(real, sim, season)
+    else:
+        tier_report(real, sim, season)
 
 
 if __name__ == "__main__":
@@ -323,5 +371,6 @@ if __name__ == "__main__":
     p.add_argument("--sims", type=int, default=1)
     p.add_argument("--gamma", type=float, default=None)
     p.add_argument("--max-games", type=int, default=None)
+    p.add_argument("--playmaker", action="store_true")
     args = p.parse_args()
-    run(args.season, args.sims, args.gamma, args.max_games)
+    run(args.season, args.sims, args.gamma, args.max_games, args.playmaker)

@@ -64,16 +64,33 @@ if __name__ == "__main__":
         print("Home and away must be different teams.")
         sys.exit(1)
 
+    from app.services.franchise import resolve_abbreviation, team_identity
+
+    def _resolve_team(abbr, season):
+        # Season-aware: 'SEA' resolves the SuperSonics franchise for 1996-97 even
+        # though the teams table only stores today's 'OKC' identity.
+        fid = resolve_abbreviation(abbr, season)
+        if fid is not None:
+            t = db.get(Team, fid)
+            if t:
+                return t
+        return db.execute(select(Team).where(Team.abbreviation == abbr.upper())).scalar_one_or_none()
+
+    def _era_name(team, season):
+        city, nick, _ = team_identity(team.id, season, (team.city, team.nickname, team.abbreviation))
+        return f"{city} {nick}"
+
     db = SessionLocal()
-    home_team = db.execute(select(Team).where(Team.abbreviation == HOME_ABBR)).scalar_one_or_none()
-    away_team = db.execute(select(Team).where(Team.abbreviation == AWAY_ABBR)).scalar_one_or_none()
+    home_team = _resolve_team(HOME_ABBR, SEASON)
+    away_team = _resolve_team(AWAY_ABBR, SEASON)
 
     if not home_team or not away_team:
         print(f"Team not found. Check abbreviations.")
         sys.exit(1)
 
+    home_name, away_name = _era_name(home_team, SEASON), _era_name(away_team, SEASON)
     print(f"\nSeason: {SEASON}")
-    print(f"Loading rosters for {home_team.city} {home_team.nickname} vs {away_team.city} {away_team.nickname}...")
+    print(f"Loading rosters for {home_name} vs {away_name}...")
     home_players = load_roster(db, home_team.id, SEASON)
     away_players = load_roster(db, away_team.id, SEASON)
 
@@ -92,11 +109,11 @@ if __name__ == "__main__":
 
     qs = result["quarter_scores"]
     print(f"  {'':25} {'Q1':>4} {'Q2':>4} {'Q3':>4} {'Q4':>4} {'TOT':>5}")
-    print(f"  {home_team.city + ' ' + home_team.nickname:<25} {qs['home'][0]:>4} {qs['home'][1]:>4} {qs['home'][2]:>4} {qs['home'][3]:>4} {result['home_score']:>5}")
-    print(f"  {away_team.city + ' ' + away_team.nickname:<25} {qs['away'][0]:>4} {qs['away'][1]:>4} {qs['away'][2]:>4} {qs['away'][3]:>4} {result['away_score']:>5}")
+    print(f"  {home_name:<25} {qs['home'][0]:>4} {qs['home'][1]:>4} {qs['home'][2]:>4} {qs['home'][3]:>4} {result['home_score']:>5}")
+    print(f"  {away_name:<25} {qs['away'][0]:>4} {qs['away'][1]:>4} {qs['away'][2]:>4} {qs['away'][3]:>4} {result['away_score']:>5}")
 
-    print_box_score(all_by_id, result["box_score"], f"{home_team.city} {home_team.nickname} (Home)", home_ids)
-    print_box_score(all_by_id, result["box_score"], f"{away_team.city} {away_team.nickname} (Away)", away_ids)
+    print_box_score(all_by_id, result["box_score"], f"{home_name} (Home)", home_ids)
+    print_box_score(all_by_id, result["box_score"], f"{away_name} (Away)", away_ids)
 
     if SHOW_PBP:
         print("\n  Play-by-play")

@@ -1004,13 +1004,25 @@ drifts +~1.5 (to the shot-efficiency owner). (2) foul-trouble benching softened 
 5 fouls (one from foul-out) until Q4" (was 3/4/5 by quarter) — keeps foul-outs in Q4 (before-Q4
 0%) while leaving 3-4-foul starters on the floor (Tatum 13→27-28 min in the common case). Both
 address named owners (league PF too high; foul trouble pulling rotation players too early)
-without touching the foul MODEL. OPEN follow-up (measure-first, NOT started): shooting-foul
-CONCENTRATION — a starter occasionally fouls out from a cluster (seed 59). Before any weighted
-redistribution, measure league-wide: PF distribution by role/tier real vs sim, 5-/6-foul game
-frequency by tier, whether the matchup defender systematically absorbs too many shooting fouls,
-and concentration-vs-tail. Only redistribute if the distribution is unrealistic, not merely
-high-variance. Needs a dedicated harness (per-game real data → PlayerGameLog for the tier
-frequencies).
+without touching the foul MODEL. **Shooting-foul CONCENTRATION — MEASURED, NO FIX JUSTIFIED (2026-07-15).** A starter
+occasionally fouls out from a foul cluster (seed 59 Tatum). Rather than redistribute on one ugly
+seed, measured the sim's league-wide foul distribution by tier (2025-26): **foul-outs by tier
+starters 0.05/game vs others 0.24/game** — the REAL pattern (starters rarely foul out; role
+players/bigs more), so a starter foul-out is a ~1-in-20-games TAIL, not systematic. Starter
+PF/36 mean 2.80 (real ~2.3-2.5, only mildly hot) and 5+ foul games 8%; the mild elevation is more
+plausibly the residual league-PF over (2025-26 ~20 vs real ~18-19) than an attribution bug. The
+bench PF/36 (mean 5.23, max 37) is a low-minutes denominator artifact, not concentration. So the
+data supports "legitimate high-variance tail," NOT a wrong attribution rule → **no weighted
+redistribution** (would mask variance). Engine side CLOSED. A definitive verdict would need real
+per-player PF (NOT ingested — `PlayerSeasonStats` has no fouls field; available from nba_api
+`LeagueDashPlayerStats`); revisit with a real-vs-sim harness only if that is ingested.
+
+**PBP presentation (2026-07-15):** a pre-bonus non-shooting foul now prints as its own play-by-play
+line (`foul_description` on the event; `describe_nonshooting_foul`) before the resumed play, instead
+of being folded into one line. Presentation-only — the event stream (used by the analysis pillars)
+is unchanged.
+
+**Gap 3.7 COMPLETE.**
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

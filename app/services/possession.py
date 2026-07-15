@@ -198,14 +198,20 @@ def _free_throw_prob(player: dict) -> float:
 
 
 def describe_event(event: dict, name_map: dict) -> str:
-    """Human-readable description. A pre-bonus non-shooting foul (shot-clock reset) is
-    prefixed to the possession's outcome, since the possession continues after it."""
-    core = _describe_outcome(event, name_map)
+    """Human-readable description of the possession's OUTCOME. A pre-bonus non-shooting
+    foul is a DISCRETE basketball event and gets its own PBP line
+    (describe_nonshooting_foul) rather than being folded into the resumed play."""
+    return _describe_outcome(event, name_map)
+
+
+def describe_nonshooting_foul(event: dict, name_map: dict) -> Optional[str]:
+    """PBP line for a pre-bonus non-shooting foul (shot-clock reset), else None. The
+    possession continues after it, so it prints on its own line before the resumed play."""
     nsf = event.get("nonshooting_foul_by")
-    if nsf:
-        who = name_map.get(nsf, f"Player {nsf}")
-        return f"non-shooting foul by {who} (shot clock reset to 14) — {core}"
-    return core
+    if nsf is None:
+        return None
+    who = name_map.get(nsf, f"Player {nsf}")
+    return f"non-shooting foul by {who} (shot clock reset to 14)"
 
 
 def _describe_outcome(event: dict, name_map: dict) -> str:
@@ -299,6 +305,9 @@ def _empty_result() -> dict:
 def _finish(ctx, result: dict) -> dict:
     if ctx.name_map is not None:
         result["description"] = describe_event(result, ctx.name_map)
+        foul = describe_nonshooting_foul(result, ctx.name_map)
+        if foul is not None:
+            result["foul_description"] = foul
     return result
 
 

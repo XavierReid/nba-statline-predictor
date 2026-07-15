@@ -914,6 +914,21 @@ anchor is retired. Lesson: an unmeasured cross-source anchor is not a calibratio
 measure real and sim the same way before declaring a gap. (This also voids the "lead changes
 stuck at 6.8" residual noted under the 3.2 fix — it was already correct.)
 
+### 3.7 — Foul & bonus model — OPEN (identified 2026-07-14): no team-foul/bonus system
+The engine has NO team-foul counter, bonus threshold, or penalty situation. The only
+non-shooting foul path (`_bonus_foul_prob`) ALWAYS awards 2 FTs — it assumes every team is
+already in the bonus. So only three foul outcomes exist, all of which draw FTs: shooting foul,
+"bonus" foul (mis-named — no threshold check), and offensive foul (→ turnover). **Common
+non-shooting defensive fouls that draw NO FTs (reach-ins / loose-ball / off-ball fouls before
+the 5th team foul of a quarter) are not modeled at all.** This is the ROOT of two measured
+residuals: sim PF **~14.3/team vs real ~19-20** (the ~5 missing fouls are exactly these
+pre-bonus non-FT fouls) and foul-outs **0.22/game vs real ~0.4** (fewer fouls → fewer foul-outs).
+Fix is a real milestone, not a patch: (1) per-quarter team-foul counter (reset each quarter/OT);
+(2) a non-shooting-foul rate that increments personal + team fouls WITHOUT FTs until the bonus,
+then awards 2 FTs; (3) recalibrate so total FTA/scoring stay reconciled while PF → ~19-20 and
+foul-outs → ~0.4. Also unlocks a correct late-game penalty situation (intentional-foul value).
+Not started.
+
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether
 individual stat lines feel like real NBA.

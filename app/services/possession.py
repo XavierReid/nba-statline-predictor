@@ -211,7 +211,7 @@ def describe_nonshooting_foul(event: dict, name_map: dict) -> Optional[str]:
     if nsf is None:
         return None
     who = name_map.get(nsf, f"Player {nsf}")
-    return f"non-shooting foul by {who} (shot clock reset to 14)"
+    return f"Non-shooting foul by {who} (shot clock reset to 14)"
 
 
 def _describe_outcome(event: dict, name_map: dict) -> str:

@@ -14,6 +14,7 @@ class SimConfig:
     use_fatigue: bool = False         # heavy-minutes lineup efficiency decay
     use_foul_trouble: bool = False    # defense softens when players have 4+ fouls
     use_foul_trouble_subs: bool = False  # bench a player in foul trouble until safe (Q4 plays through)
+    use_bonus_system: bool = False    # team-foul/bonus: pre-bonus non-shooting fouls draw no FTs (reset shot clock), bonus (>=5) awards 2 FTs
     use_clutch: bool = False          # clutch_rating boosts late close-game efficiency
     use_player_variance: bool = False # per-game form factor drawn from player-specific distribution
     use_team_oreb: bool = False       # per-team OREB% from TeamSeasonStats replaces flat 22% constant
@@ -88,6 +89,22 @@ class SimConfig:
     # compensates for that correlation (measured: FTA/team/gm 21.6 baseline) so total
     # bonus foul volume stays at pre-M3e levels while distribution shifts to stars.
     foul_draw_scale: float = 0.19
+    # --- team-foul / bonus model (gap 3.7 step 2b) ---
+    bonus_foul_threshold: int = 5     # defensive team fouls per period before the bonus (2 FTs on non-shooting fouls)
+    # Non-shooting foul rate is scaled up under the bonus system: pre-bonus ones draw NO
+    # FTs, so more fouls are needed to keep FTA (~21.8) while total PF rises to real ~19-20.
+    # Swept in Stage 1 (basketball counts) — see SIMULATION_GAPS 3.7.
+    nonshooting_foul_scale: float = 1.0
+    # Shooting-foul rate multiplier. The old always-FT "bonus" fouls masked that shooting
+    # fouls under-produced FTA; with the bonus system gating non-shooting FTs, real FTA
+    # (~21.8, mostly shooting fouls) needs this >1. Swept in Stage 1.
+    shooting_foul_scale: float = 1.0
+    # A pre-bonus non-shooting foul resets the shot clock to 14s: the possession continues
+    # and consumes this much ADDITIONAL game clock (analog of second_chance_time). Stage 1
+    # applies it UNCOMPENSATED and instruments the pace impact; Stage 2 adds one clock-budget
+    # compensation constant only if measurement shows one is needed.
+    foul_reset_time_mean: float = 10.0
+    foul_reset_time_std: float = 2.5
     foul_draw_late_zone1_clock: int = 120   # seconds: heightened intensity window
     foul_draw_late_zone1_margin: int = 8    # max margin for zone 1
     foul_draw_late_zone1_mult: float = 1.3
@@ -193,6 +210,9 @@ DRAMA_M3 = SimConfig(
     usage_concentration=1.6,
     tov_scale=0.44,
     use_foul_trouble_subs=True,
+    use_bonus_system=True,
+    nonshooting_foul_scale=1.1,
+    shooting_foul_scale=1.65,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

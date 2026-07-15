@@ -950,7 +950,21 @@ Q4 76%→0%** (now cluster in Q4, matching real); SCORING-NEUTRAL (toggle OFF/ON
 protects players) — the COUNT is restored by step 2b (bonus/non-FT foul volume). The
 `<30 min-played` flag still trips (mean ~25 min): foul-out players legitimately sat in trouble;
 expected to ease in 2b as more total fouls spread foul-outs to higher-minute players.
-**Next: step 2b — the team-foul / bonus model (the volume + non-FT fouls).**
+
+**Step 2b Stage 1 DONE (2026-07-15) — team-foul / bonus model (basketball rules + calibration;
+NO pace compensation, that is Stage 2).** `use_bonus_system` (on in DRAMA_M3), gated so default
+config stays byte-identical (296 tests green). Implemented: `GameState.{home,away}_quarter_fouls`
+reset each period; defensive team in bonus at ≥5 fouls; shooting + non-shooting defensive fouls
+count toward it; a PRE-BONUS non-shooting foul draws NO FTs, increments PF + team fouls, and
+RESETS the shot clock to 14 (possession continues, consumes extra clock via `foul_reset_time`);
+an IN-BONUS non-shooting foul awards 2 FTs (terminal). This exposed that the old always-FT
+"bonus" fouls masked UNDER-produced shooting-foul FTA → added a `shooting_foul_scale` lever.
+Calibrated (`nonshooting_foul_scale=1.1`, `shooting_foul_scale=1.65`): **PF 20.4 (real ~19-20),
+FTA 21.1 (real 21.8), foul-outs 0.40/game and only 2% before Q4** (were 0.22 & 76%) — the 3.7
+goal met. **Observed uncompensated pace drift: possessions 102.7/team (+~2.7 over budget), score
+119.9** (pre-bonus fouls 8.8/gm, reset time 87s/gm) — the clean Stage-2 handoff. Residual:
+`<30 min-played` foul-outs still 82% (benching compresses foul-trouble minutes) — secondary.
+**Next: Stage 2 — measure & compensate the pace drift with one clock-budget constant if needed.**
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

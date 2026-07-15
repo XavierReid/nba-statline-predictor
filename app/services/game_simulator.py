@@ -180,6 +180,7 @@ def simulate_game(
         adjustments: Optional[ModifierAdjustments] = None,
         quarter_clock: float = 720.0,
         behavior_profile: object = None,
+        defense_in_bonus: bool = False,
     ):
         # gs is a captured object; mutating its attributes needs no `nonlocal`.
         gs.game_clock += sec_per_poss
@@ -215,6 +216,7 @@ def simulate_game(
             clock_seconds=quarter_clock,
             score_margin=gs.home_score - gs.away_score if is_home else gs.away_score - gs.home_score,
             behavior_profile=behavior_profile if behavior_profile is not None else NORMAL_PROFILE,
+            defense_in_bonus=defense_in_bonus,
         )
         event = resolve_possession(ctx)
 
@@ -303,6 +305,8 @@ def simulate_game(
         # gs is captured; attribute mutation needs no `nonlocal`.
         quarter_clock = float(period_seconds)
         current_is_home = period_tip_is_home
+        gs.home_quarter_fouls = 0   # team fouls reset each period (bonus tracking)
+        gs.away_quarter_fouls = 0
         oreb_depth = 0
         next_is_fastbreak = False
 
@@ -477,6 +481,9 @@ def simulate_game(
             diag.record_possession(poss_category, poss_time)
 
             poss_profile = profile_for_phase(phase, cfg) if cfg.use_behavior_profile else NORMAL_PROFILE
+            # the DEFENSIVE team (not on offense) is in the bonus at the team-foul limit
+            def_fouls_now = gs.away_quarter_fouls if current_is_home else gs.home_quarter_fouls
+            defense_in_bonus = cfg.use_bonus_system and def_fouls_now >= cfg.bonus_foul_threshold
             fouled_out_pid, event = _apply_possession(
                 home_active_ids, away_active_ids, current_is_home,
                 poss_time, poss_time / 60.0, q_idx,
@@ -486,6 +493,7 @@ def simulate_game(
                 adjustments=poss_adjustments,
                 quarter_clock=quarter_clock,
                 behavior_profile=poss_profile,
+                defense_in_bonus=defense_in_bonus,
             )
             behavior.update(event, current_is_home, game_state)
 
@@ -499,12 +507,34 @@ def simulate_game(
             for pid in away_active_ids:
                 if pid in away_player_gs:
                     away_player_gs[pid].minutes_played += poss_minutes
-            foul_pid = event.get("fouled_by")
-            if foul_pid is not None:
+            for foul_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
+                if foul_pid is None:
+                    continue
                 if foul_pid in home_player_gs:
                     home_player_gs[foul_pid].fouls += 1
                 elif foul_pid in away_player_gs:
                     away_player_gs[foul_pid].fouls += 1
+
+            # team fouls this period (bonus tracking) — only DEFENSIVE fouls count. A
+            # shooting/bonus foul has fouled_by != turnover_by (offensive fouls set both
+            # to the ball handler); a pre-bonus non-shooting foul is always defensive.
+            if cfg.use_bonus_system:
+                def_committed = int(
+                    event.get("fouled_by") is not None
+                    and event.get("fouled_by") != event.get("turnover_by")
+                ) + int(event.get("nonshooting_foul_by") is not None)
+                if current_is_home:
+                    gs.away_quarter_fouls += def_committed
+                else:
+                    gs.home_quarter_fouls += def_committed
+                # a pre-bonus foul reset the shot clock to 14 — the possession consumed
+                # extra game clock (Stage 1: uncompensated, instrumented via diag)
+                if event.get("shot_clock_reset"):
+                    reset_t = min(quarter_clock, max(0.0, rng.gauss(
+                        cfg.foul_reset_time_mean, cfg.foul_reset_time_std)))
+                    quarter_clock -= reset_t
+                    diag.foul_reset_time += reset_t
+                    diag.pre_bonus_fouls += 1
 
             if fouled_out_pid:
                 if fouled_out_pid in home_by_id:

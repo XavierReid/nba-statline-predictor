@@ -198,7 +198,17 @@ def _free_throw_prob(player: dict) -> float:
 
 
 def describe_event(event: dict, name_map: dict) -> str:
-    """Return a human-readable description of a possession event."""
+    """Human-readable description. A pre-bonus non-shooting foul (shot-clock reset) is
+    prefixed to the possession's outcome, since the possession continues after it."""
+    core = _describe_outcome(event, name_map)
+    nsf = event.get("nonshooting_foul_by")
+    if nsf:
+        who = name_map.get(nsf, f"Player {nsf}")
+        return f"non-shooting foul by {who} (shot clock reset to 14) — {core}"
+    return core
+
+
+def _describe_outcome(event: dict, name_map: dict) -> str:
     def name(pid: Optional[int]) -> str:
         return name_map.get(pid, f"Player {pid}") if pid else "Unknown"
 
@@ -282,6 +292,7 @@ def _empty_result() -> dict:
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
+        "nonshooting_foul_by": None, "shot_clock_reset": False,
     }
 
 
@@ -314,11 +325,13 @@ def resolve_possession(ctx: "PossessionContext") -> dict:
 
 # --- stage 1: select_action -------------------------------------------------
 
-def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
-    """Non-shooting (over-the-limit) foul probability for this ball handler.
+def _nonshooting_foul_prob(ctx, ball_handler: dict) -> float:
+    """Non-shooting defensive foul probability for this ball handler.
 
     use_foul_drawing: player-specific rate (FTA/FGA x scale), floored at the league
     average and escalated late in close games. Otherwise the flat pre-M3e 5.5%.
+    Scaled by nonshooting_foul_scale under the bonus system (pre-bonus fouls draw no
+    FTs, so more fouls are needed to hold FTA while total PF rises to real ~19-20).
     """
     cfg = ctx.cfg
     if not cfg.use_foul_drawing:
@@ -339,7 +352,7 @@ def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
             prob *= cfg.foul_draw_late_zone2_mult
         elif margin <= cfg.foul_draw_late_zone1_margin:
             prob *= cfg.foul_draw_late_zone1_mult
-    return prob
+    return prob * cfg.nonshooting_foul_scale
 
 
 def _select_action(ctx, result: dict) -> Action:
@@ -365,15 +378,22 @@ def _select_action(ctx, result: dict) -> Action:
     init_weights = [p["assist_rate"] for p in offense]
     initiator = rng.choices(offense, weights=init_weights)[0]
 
-    # bonus foul (non-shooting)
-    if rng.random() < _bonus_foul_prob(ctx, ball_handler):
-        result["scorer"] = ball_handler["id"]
-        result["fouled_by"] = rng.choice(defense)["id"]
-        ft_prob = _free_throw_prob(ball_handler)
-        result["fta"] = 2
-        result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
-        _credit_ft_rebound(ctx, result, last_missed)
-        return Action(ball_handler, terminal=True)
+    # non-shooting defensive foul. In the bonus (or when the bonus system is off — the
+    # pre-3.7 behavior) it awards 2 FTs and ends the possession. Before the bonus it is a
+    # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14 — the
+    # possession CONTINUES (falls through to the shot) and consumes extra game clock.
+    if rng.random() < _nonshooting_foul_prob(ctx, ball_handler):
+        fouler = rng.choice(defense)["id"]
+        if ctx.defense_in_bonus or not cfg.use_bonus_system:
+            result["scorer"] = ball_handler["id"]
+            result["fouled_by"] = fouler
+            ft_prob = _free_throw_prob(ball_handler)
+            result["fta"] = 2
+            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            _credit_ft_rebound(ctx, result, last_missed)
+            return Action(ball_handler, terminal=True)
+        result["nonshooting_foul_by"] = fouler
+        result["shot_clock_reset"] = True
 
     # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
     # volume; total TOV held via tov_scale). Still charges the ball handler a turnover.
@@ -567,7 +587,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
 
     result["made"] = rng.random() < quality.make_prob
     ft_prob = _free_throw_prob(ball_handler)
-    shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0
+    shoot_foul_mult = (_FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0) * cfg.shooting_foul_scale
     # NB: the phase foul boost lives on the non-shooting bonus foul (which REPLACES a shot
     # with a low-variance FT trip). Boosting shooting fouls instead adds and-1s — higher
     # variance — so it is deliberately NOT applied here.

@@ -927,7 +927,16 @@ Fix is a real milestone, not a patch: (1) per-quarter team-foul counter (reset e
 (2) a non-shooting-foul rate that increments personal + team fouls WITHOUT FTs until the bonus,
 then awards 2 FTs; (3) recalibrate so total FTA/scoring stay reconciled while PF → ~19-20 and
 foul-outs → ~0.4. Also unlocks a correct late-game penalty situation (intentional-foul value).
-Not started.
+
+**Step-1 instrument done (2026-07-15) — foul-out TIMING is wrong, not just the rate** (now a
+permanent check in `player_distribution.py`). Measured 2024-25 + 2020-21: **~76% of foul-outs
+happen BEFORE Q4** (real cluster in Q4) and **~81-87% of players who foul out had logged <30
+minutes** (real 30-40+); mean minutes-played at foul-out ~24, mean game-minute ~29.5/48. Yet
+PF/36 averages a healthy 2.20 — so this is **foul CONCENTRATION** (6 fouls in ~24 min = 9/36 for
+the fouled-out player), the same class as the steal/block bug, most likely the shooting-foul →
+positional-matchup defender path piling fouls on whoever guards the opposing star's position.
+TWO linked threads to fix in this milestone: (a) total fouls too LOW (missing bonus/non-FT
+fouls) and (b) the fouls that occur landing too CONCENTRATED/EARLY. Next: step 2 (model).
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

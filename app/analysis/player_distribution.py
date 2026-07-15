@@ -33,11 +33,14 @@ def measure(sims) -> dict:
     ng = len(sims)
     stl, blk, pts, ast, reb, tov, pf36 = [], [], [], [], [], [], []
     foulouts_per_game = []
+    fo_total = fo_before_q4 = fo_early_min = 0  # foul-out TIMING (real ones cluster late)
     for g in sims:
         fo = 0
         for st in g["box_score"].values():
             if st.get("fouled_out"):
                 fo += 1
+                if st.get("min", 0) < 30:
+                    fo_early_min += 1
             m = st.get("min", 0)
             if m < _MIN_MINUTES:
                 continue
@@ -46,7 +49,23 @@ def measure(sims) -> dict:
             reb.append(st.get("reb", 0)); tov.append(st.get("tov", 0))
             pf36.append(st.get("pf", 0) * 36 / m)
         foulouts_per_game.append(fo)
+        # reconstruct the quarter each foul-out happened in (6th personal foul)
+        pf_count: dict = {}
+        seen: set = set()
+        for e in g.get("events", []):
+            fb = e.get("fouled_by")
+            if fb is None:
+                continue
+            pf_count[fb] = pf_count.get(fb, 0) + 1
+            if pf_count[fb] == 6 and fb not in seen:
+                seen.add(fb)
+                fo_total += 1
+                if e["quarter"] < 4:
+                    fo_before_q4 += 1
+    n_fo = sum(foulouts_per_game)
     return {
+        "foulout_before_q4_pct": 100 * fo_before_q4 / fo_total if fo_total else 0.0,
+        "foulout_early_min_pct": 100 * fo_early_min / n_fo if n_fo else 0.0,
         "player_games": len(stl), "games": ng,
         "stl_max": max(stl), "stl_ge5_pct": _pct(stl, 5), "stl_ge3_pct": _pct(stl, 3),
         "blk_max": max(blk), "blk_ge5_pct": _pct(blk, 5), "blk_ge3_pct": _pct(blk, 3),
@@ -71,6 +90,10 @@ _CHECKS = [
     ("PF/36 mean",                 "pf36_mean",        3.5, "{:.2f}"),
     ("foul-outs / game",           "foulouts_per_game",0.6, "{:.2f}"),
     ("3+ foul-outs game %",        "foulouts_ge3_pct", 0.5, "{:.2f}"),
+    # foul-out TIMING — real foul-outs cluster in Q4 after heavy minutes. These are
+    # "should be low" bounds: most foul-outs should NOT be pre-Q4 / low-minute.
+    ("foul-outs before Q4 %",      "foulout_before_q4_pct", 50, "{:.0f}"),
+    ("foul-outs <30 min played %", "foulout_early_min_pct", 40, "{:.0f}"),
 ]
 
 

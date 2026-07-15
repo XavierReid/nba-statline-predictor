@@ -74,10 +74,12 @@ class RosterProvider(ABC):
         """SQLAlchemy filter selecting this team's players for the season."""
 
     def load(self, db: Session, team_id: int, season: str) -> list[dict]:
-        """Load top 10 players by minutes for a team in a given season.
+        """Load the top 10 players by minutes for a team in a given season.
 
-        Minutes are normalized so the 10 players sum to 240 (5 players × 48 min).
-        Returns an empty list if no stats exist for that team/season combination.
+        Minutes are games-weighted (see _build_roster) so each player keeps their real
+        per-game share of 240 (5 players × 48 min). (Loading 15 was tried for bench depth
+        but the garbage-time rotation over-benched stars with a deeper bench; 10 keeps
+        actual star minutes near real.) Empty list if no stats exist for that team/season.
         """
         rows = db.execute(
             select(Player, PlayerAttributes, PlayerTendencies, PlayerSeasonStats)
@@ -172,6 +174,7 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
             "name": p.full_name,
             "position": p.position or "F",
             "minutes": s.minutes_per_game,
+            "games_played": s.games_played or 0,
             "is_starter": False,
             # attributes (0-100 scale)
             "three_point": a.three_point,
@@ -250,9 +253,15 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
     for i, p in enumerate(players):
         p["is_starter"] = i < 5
 
-    total = sum(p["minutes"] for p in players)
+    # Games-weight real per-game minutes (MPG × games_played) so each player keeps their real
+    # SHARE of the 240 team-minutes. Raw MPG is per game PLAYED, so it sums above 240 for the
+    # top players; the old normalize-raw-MPG-to-240 therefore shaved every star ~5% (e.g.
+    # Westbrook 34.6→32.9). Games-weighting corrects for missed games (a 40-game 34-MPG player
+    # contributes less than an 82-game 34-MPG one) and restores real starter minutes.
+    weights = [p["minutes"] * p["games_played"] for p in players]
+    total = sum(weights)
     if total > 0:
-        for p in players:
-            p["minutes"] = round(p["minutes"] / total * 240, 1)
+        for p, w in zip(players, weights):
+            p["minutes"] = round(w / total * 240, 1)
 
     return players

@@ -357,9 +357,3 @@ def fetch_play_by_play(game_id: str) -> list[dict]:
             "home_score": h,
         })
     return out
-
-
-def fetch_box_score(game_id: int) -> list[dict]:
-    """Pull per-player box scores for a single game."""
-    # TODO: implement using nba_api.stats.endpoints.boxscoretraditionalv2
-    raise NotImplementedError

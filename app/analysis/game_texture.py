@@ -30,7 +30,6 @@ from app.analysis.decomposition import simulate_schedule
 from app.database import SessionLocal
 from app.models.game import Game
 from app.models.scoring_event import ScoringEvent
-from app.services.roster import load_roster
 from app.services.sim_config import DRAMA_M3
 from sqlalchemy import select
 
@@ -73,7 +72,6 @@ class TextureAccount:
 
     def add(self, hq: List[int], aq: List[int]) -> None:
         margins = _cumulative_margins(hq, aq)
-        prev = 0
         for k in range(4):
             self.abs_margin[k].append(abs(margins[k]))
             self.quarter_diff[k].append(hq[k] - aq[k])
@@ -308,13 +306,12 @@ def _response_stats(sequences: List[List[Tuple[str, int, float]]],
         if r is not None:
             autocorrs.append(r)
         # answered-run: find unanswered runs >= run_min, scan the next window_s
-        cur_side, cur_pts, break_t = None, 0, None
+        cur_side, cur_pts = None, 0
         for i, (side, pts, t) in enumerate(seq):
             if side == cur_side:
                 cur_pts += pts
                 continue
             if cur_pts >= run_min:   # run by cur_side just ended at time t
-                opp = cur_side
                 run_side = cur_side
                 net = 0
                 for s2, p2, t2 in seq[i:]:

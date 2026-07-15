@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 from app.services.behavior_profile import NORMAL_PROFILE
-from app.services.modifiers.base import ModifierAdjustments
 
 
 def _profile(ctx):

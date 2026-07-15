@@ -7,7 +7,6 @@ Public surface (unchanged for callers):
 import random
 from typing import Optional
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats

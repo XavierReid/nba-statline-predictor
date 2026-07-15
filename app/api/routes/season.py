@@ -1,6 +1,5 @@
 """Season simulation routes — create, start, inspect, list, delete, and events."""
 import random
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException

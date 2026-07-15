@@ -12,7 +12,6 @@ individual defense (defensive-matchup plus-minus). Only physical estimates
 """
 from dataclasses import dataclass
 from typing import Optional
-import math
 
 
 # ---------------------------------------------------------------------------

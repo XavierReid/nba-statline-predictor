@@ -20,7 +20,7 @@ from app.database import SessionLocal
 from app.models.game import Game
 from app.models.player_season_stats import PlayerSeasonStats
 from app.services.sim_config import DRAMA_M3
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 _STATS = ["pts", "ast", "reb", "stl", "blk", "tov", "pf"]
 # PlayerSeasonStats field name per box key (pf/fouls not stored real-side).

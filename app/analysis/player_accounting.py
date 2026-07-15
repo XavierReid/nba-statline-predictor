@@ -23,7 +23,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
-from app.models.player import Player
 from app.models.player_season_stats import PlayerSeasonStats
 from app.models.team import Team
 from app.services.game_simulator import simulate_game
@@ -265,7 +264,7 @@ def tier_report(real: Dict[int, PlayerAccount], sim: Dict[int, PlayerAccount], s
               f"{pt[0]:>7.1f}/{pt[1]:>4.1f}{at[0]:>7.1f}/{at[1]:>4.1f}"
               f"{rb[0]:>7.1f}/{rb[1]:>4.1f}{tv[0]:>6.1f}/{tv[1]:>4.1f}")
 
-    print(f"\n  Δ POINTS per player, by tier (minutes / usage / efficiency / ft = total):")
+    print("\n  Δ POINTS per player, by tier (minutes / usage / efficiency / ft = total):")
     for t in TIERS:
         pairs = tiers[t]
         if not pairs:
@@ -278,7 +277,7 @@ def tier_report(real: Dict[int, PlayerAccount], sim: Dict[int, PlayerAccount], s
         print(f"    {t:<10}{agg['minutes']/n:>+7.2f}{agg['usage']/n:>+7.2f}"
               f"{agg['efficiency']/n:>+7.2f}{agg['ft']/n:>+7.2f}  = {agg['total']/n:>+6.2f}")
 
-    print(f"\n  Δ ASSISTS per player, by tier (team-makes / attribution / ball-handler = total):")
+    print("\n  Δ ASSISTS per player, by tier (team-makes / attribution / ball-handler = total):")
     for t in TIERS:
         pairs = tiers[t]
         if not pairs:

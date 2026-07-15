@@ -696,9 +696,17 @@ hypothesize → fix → validate.
 See section above. Owns blowout 26.1 vs 22.9, close 23.2 vs 24.5, avg margin 14.1 vs 13.3.
 Closes out the margin/blowout distribution work.
 
-### 3.3 — OT rate
-Sim ~3.7% vs real (measured) 4.8%. Partly downstream of 3.2 (more close games → more ties
-→ more OT). Re-measure after 3.2 before deciding whether an OT-specific gap remains.
+### 3.3 — OT rate — RE-MEASURED (2026-07-14): a distinct TIE-GENERATION owner, NOT downstream of 3.2
+Sim OT rate **1.92% vs real 4.8%** (2024-25, n=2450) — still ~2.5× under after the 3.2 close-game
+improvement, so NOT downstream of 3.2. Diagnosis via end-of-regulation margin distribution:
+`|margin|≤2` is **12.0% (matches real ~12–13%)** — the sim produces the right number of
+ultra-close finishes — but it lands on an EXACT tie only 1.92% (real 4.8%), with margins of 1–2
+correspondingly too high (4.5% / 5.6%). So the close-game DISTRIBUTION is right; the sim just
+doesn't spike at zero. **Owner: end-of-regulation tie generation** — real trailing teams shoot
+specifically TO TIE in the final possession (down 3 → a three; down 2 → a two), producing a
+spike at margin 0; the sim plays generic possessions and lands at 1–2 instead. A clean,
+self-contained future milestone (endgame shot-selection keyed to the exact deficit), distinct
+from the close-game distribution work. Not started.
 
 ### 3.4 — Player-level stat realism (DECOMPOSED into independent owners; measured via `player_accounting.py`)
 All prior calibration was team-aggregate; team scoring can be exactly right while the

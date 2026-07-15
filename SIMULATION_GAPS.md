@@ -936,7 +936,21 @@ PF/36 averages a healthy 2.20 — so this is **foul CONCENTRATION** (6 fouls in 
 the fouled-out player), the same class as the steal/block bug, most likely the shooting-foul →
 positional-matchup defender path piling fouls on whoever guards the opposing star's position.
 TWO linked threads to fix in this milestone: (a) total fouls too LOW (missing bonus/non-FT
-fouls) and (b) the fouls that occur landing too CONCENTRATED/EARLY. Next: step 2 (model).
+fouls) and (b) the fouls that occur landing too CONCENTRATED/EARLY.
+
+**Step 2a DONE (2026-07-15) — foul-trouble benching.** ROOT of the early foul-outs wasn't
+attribution concentration (shooting fouls already spread across the position group) — it was
+that the engine NEVER benched a player in foul trouble; whoever accumulated fouls just kept
+playing and fouled out early (FoulTroubleModifier only softened defense; rotation only reacted
+to foul-OUTS). Added foul-trouble benching in `resolve_lineup` (`use_foul_trouble_subs`, on in
+DRAMA_M3): sit a scheduled player at 3 fouls in Q1 / 4 in Q2 / 5 in Q3 for the best available
+bench player; Q4 & OT play through. Deterministic (no RNG added). Result: **foul-outs before
+Q4 76%→0%** (now cluster in Q4, matching real); SCORING-NEUTRAL (toggle OFF/ON: 2016-17
+107.0/107.0, 2024-25 118.7/118.9); 296 tests green. Foul-outs/game dropped 0.22→0.08 (benching
+protects players) — the COUNT is restored by step 2b (bonus/non-FT foul volume). The
+`<30 min-played` flag still trips (mean ~25 min): foul-out players legitimately sat in trouble;
+expected to ease in 2b as more total fouls spread foul-outs to higher-minute players.
+**Next: step 2b — the team-foul / bonus model (the volume + non-FT fouls).**
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

@@ -411,10 +411,12 @@ def simulate_game(
                     diag.record_garbage_possession()
             home_active_ids = resolve_lineup(
                 home_rotation, current_minute, home_by_min, box,
-                MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED)
+                MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED,
+                foul_trouble_subs=cfg.use_foul_trouble_subs)
             away_active_ids = resolve_lineup(
                 away_rotation, current_minute, away_by_min, box,
-                MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED)
+                MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED,
+                foul_trouble_subs=cfg.use_foul_trouble_subs)
             in_mismatch = gs.home_conceded != gs.away_conceded
             pre_poss_margin = abs(gs.home_score - gs.away_score)
 

@@ -5,6 +5,14 @@ GAME_MINUTES = 48
 SUB_VARIANCE = 2.0  # σ in minutes for substitution timing (Normal dist)
 
 
+def _in_foul_trouble(pf: int, minute: int) -> bool:
+    """Coach heuristic (modern-lenient): sit a player at 3 fouls in Q1, 4 in Q2, 5 in
+    Q3. Q4 and OT play through (finish with your best). Prevents the pre-Q4 foul-outs
+    without over-benching starters (the strict '2 in Q1' rule cost too many minutes)."""
+    q = minute // 12   # 0-based quarter; >= 3 is Q4/OT
+    return q < 3 and pf >= q + 3
+
+
 def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
     """Build a 48-slot minute schedule with 5 player IDs per slot.
 
@@ -57,17 +65,38 @@ def resolve_lineup(
     players_by_min: list,
     box: dict,
     mode: str,
+    foul_trouble_subs: bool = False,
 ) -> list:
     """Answer "who should be on the floor?" for the current rotation mode.
 
-    MODE_SCHEDULED: the pre-built minute schedule, exactly as before.
+    MODE_SCHEDULED: the pre-built minute schedule, exactly as before — unless
+    foul_trouble_subs, which benches a scheduled player whose fouls exceed the stage
+    threshold (2 in Q1, 3 in Q2, 4 in Q3; Q4/OT plays through) for the best available
+    bench player. This is why real foul-outs cluster in Q4 (a coach sits a trouble
+    player until it's safe) instead of the player fouling out early.
     MODE_GARBAGE: empty the bench according to the coach's rotation — the five
     players deepest in the planned rotation hierarchy (players_by_min order),
     skipping foul-outs and backfilling up the hierarchy if the bench is short.
     Deterministic: hierarchy order, not accumulated in-game minutes.
     """
     if mode == MODE_SCHEDULED:
-        return rotation[minute]
+        lineup = rotation[minute]
+        if not foul_trouble_subs:
+            return lineup
+        result: list = []
+        for pid in lineup:
+            if not _in_foul_trouble(box[pid]["pf"], minute):
+                result.append(pid)
+                continue
+            repl = next(
+                (p["id"] for p in players_by_min
+                 if p["id"] not in lineup and p["id"] not in result
+                 and not box[p["id"]]["fouled_out"]
+                 and not _in_foul_trouble(box[p["id"]]["pf"], minute)),
+                None,
+            )
+            result.append(repl if repl is not None else pid)
+        return result
 
     eligible = [p["id"] for p in players_by_min if not box[p["id"]]["fouled_out"]]
     # deepest five in the rotation hierarchy; backfill happens naturally by

@@ -2,7 +2,7 @@
 
 Every mechanic that affects possessions, clock, or lineup quality reports its
 contribution here (CLAUDE.md guardrail 5). The dict shape returned by as_dict()
-is the public contract consumed by scratch/diagnose_calibration.py and API
+is the public contract consumed by the analysis pillar (app/analysis/) and API
 callers via result["possession_accounting"] — extend it, don't reshape it.
 """
 from typing import Dict

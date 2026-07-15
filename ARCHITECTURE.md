@@ -133,11 +133,13 @@ and mismatch-window tracking, lineup-defense factor distribution. Principle:
 **no feature silently changes possessions, clock, or quality — it must report
 its contribution.**
 
-Three analysis tools consume this (details in RUNBOOK.md):
+Analysis tools consume this (details in RUNBOOK.md):
 - `scratch/calibrate_simulator.py` — headline metrics, fixed matchups
-- `scratch/diagnose_calibration.py` — mechanism-level diagnostics
 - `scratch/replay_schedule.py` — replays the real season schedule; the gold
   standard (no matchup bias; per-team strength slopes)
+- `app/analysis/` — the analysis pillar: `decomposition.py` (scoring/possession
+  accounting), `game_texture.py` (margin walk, Q4 compression, run/drought),
+  `team_boxscore.py` (box aggregates), `player_accounting.py` (per-player)
 
 ## Try it yourself
 

@@ -213,7 +213,7 @@ def describe_event(event: dict, name_map: dict) -> str:
 
     if not event.get("shot_type"):
         ftm, fta = event.get("ftm", 0), event.get("fta", 0)
-        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul)"
+        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul by {name(event.get('fouled_by'))})"
 
     shot_labels = {
         "three": "3-pointer", "mid": "mid-range jumper", "close": "layup/close shot",
@@ -232,14 +232,14 @@ def describe_event(event: dict, name_map: dict) -> str:
             reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
             desc += f" — {name(event['rebounded_by'])} ({reb_type})"
         if event.get("fta"):
-            desc += f" — shooting foul, {event['ftm']}/{event['fta']} FTs"
+            desc += f" — shooting foul by {name(event.get('fouled_by'))}, {event['ftm']}/{event['fta']} FTs"
         return desc
 
     desc = f"{name(scorer)} hits a {shot}"
     if event.get("assisted_by"):
         desc += f" (assisted by {name(event['assisted_by'])})"
     if event.get("fta"):
-        desc += f" — and-1, {event['ftm']}/1 FT"
+        desc += f" — and-1 (foul by {name(event.get('fouled_by'))}), {event['ftm']}/1 FT"
     return desc
 
 

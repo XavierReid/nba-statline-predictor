@@ -91,6 +91,7 @@ class SimConfig:
     foul_draw_scale: float = 0.19
     # --- team-foul / bonus model (gap 3.7 step 2b) ---
     bonus_foul_threshold: int = 5     # defensive team fouls per period before the bonus (2 FTs on non-shooting fouls)
+    last2min_clock: int = 120         # NBA rule: in the last 2:00 the 2nd team foul draws FTs (even if under threshold)
     # Non-shooting foul rate is scaled up under the bonus system: pre-bonus ones draw NO
     # FTs, so more fouls are needed to keep FTA (~21.8) while total PF rises to real ~19-20.
     # Swept in Stage 1 (basketball counts) — see SIMULATION_GAPS 3.7.
@@ -99,12 +100,21 @@ class SimConfig:
     # fouls under-produced FTA; with the bonus system gating non-shooting FTs, real FTA
     # (~21.8, mostly shooting fouls) needs this >1. Swept in Stage 1.
     shooting_foul_scale: float = 1.0
+    # Multiplier on the shooting-foul rate when the shot was MADE (and-1). <1 thins
+    # and-1s toward the real ~25% share (vs the sim's ~50% from make-independent rolls),
+    # so FTA can be raised via 2-shot fouls on misses without inflating scoring. 1.0 = off.
+    and1_rate_factor: float = 1.0
     # A pre-bonus non-shooting foul resets the shot clock to 14s: the possession continues
     # and consumes this much ADDITIONAL game clock (analog of second_chance_time). Stage 1
     # applies it UNCOMPENSATED and instruments the pace impact; Stage 2 adds one clock-budget
     # compensation constant only if measurement shows one is needed.
     foul_reset_time_mean: float = 10.0
     foul_reset_time_std: float = 2.5
+    # Stage 2 pace compensation: fraction of distinct possessions that get a pre-bonus
+    # shot-clock reset. Folded into the halfcourt possession-time budget (like
+    # fastbreak_poss_frac) to offset the reset time and hold pace. MEASURED 2026-07-15
+    # from diag.pre_bonus_fouls (8.8/game) ÷ ~190 distinct poss/game. 0.0 = uncompensated.
+    foul_reset_poss_frac: float = 0.075
     foul_draw_late_zone1_clock: int = 120   # seconds: heightened intensity window
     foul_draw_late_zone1_margin: int = 8    # max margin for zone 1
     foul_draw_late_zone1_mult: float = 1.3
@@ -211,8 +221,9 @@ DRAMA_M3 = SimConfig(
     tov_scale=0.44,
     use_foul_trouble_subs=True,
     use_bonus_system=True,
-    nonshooting_foul_scale=1.1,
-    shooting_foul_scale=1.65,
+    nonshooting_foul_scale=1.6,
+    shooting_foul_scale=1.9,
+    and1_rate_factor=0.4,
 )
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(

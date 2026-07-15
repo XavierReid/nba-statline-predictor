@@ -592,8 +592,13 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     # with a low-variance FT trip). Boosting shooting fouls instead adds and-1s — higher
     # variance — so it is deliberately NOT applied here.
 
+    # and-1s (a foul on a MADE shot) are rarer than fouls that cause a miss — real
+    # shooting fouls skew to contested misses/drives. Rolling the foul independent of
+    # make over-produced and-1s (3-pt-ish plays), inflating points per FTA. This factor
+    # thins the foul rate on makes so FTA can reach real levels at neutral scoring (3.7 2b).
+    and1 = cfg.and1_rate_factor if result["made"] else 1.0
     # 3PT shooting foul (~2% x sub-type multiplier)
-    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult:
+    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
@@ -603,7 +608,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
-    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult:
+    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1

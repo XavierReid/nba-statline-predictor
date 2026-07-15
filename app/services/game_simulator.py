@@ -294,7 +294,10 @@ def simulate_game(
     f_fb = cfg.fastbreak_poss_frac if cfg.use_fast_break else 0.0
     if cfg.use_catch_up:
         target_mean *= 1.0 + cfg.catch_up_clock_frac
-    mean_poss_time_clock = (target_mean - f_fb * cfg.fastbreak_time_mean) / (1.0 - f_fb)
+    # pre-bonus shot-clock resets extend possessions (gap 3.7 2b); reclaim that time from
+    # the halfcourt mean so distinct-possession pace holds (Stage 2 compensation).
+    reset_comp = cfg.foul_reset_poss_frac * cfg.foul_reset_time_mean if cfg.use_bonus_system else 0.0
+    mean_poss_time_clock = (target_mean - f_fb * cfg.fastbreak_time_mean - reset_comp) / (1.0 - f_fb)
     def _run_clock_period(q_idx: int, period_seconds: float, period_tip_is_home: bool) -> None:
         """One timed period (regulation quarter or OT) — identical mechanics either way.
 
@@ -307,6 +310,8 @@ def simulate_game(
         current_is_home = period_tip_is_home
         gs.home_quarter_fouls = 0   # team fouls reset each period (bonus tracking)
         gs.away_quarter_fouls = 0
+        gs.home_last2_fouls = 0
+        gs.away_last2_fouls = 0
         oreb_depth = 0
         next_is_fastbreak = False
 
@@ -481,9 +486,15 @@ def simulate_game(
             diag.record_possession(poss_category, poss_time)
 
             poss_profile = profile_for_phase(phase, cfg) if cfg.use_behavior_profile else NORMAL_PROFILE
-            # the DEFENSIVE team (not on offense) is in the bonus at the team-foul limit
+            # the DEFENSIVE team (not on offense) is in the bonus at the team-foul limit,
+            # OR (NBA last-2:00 rule) once it has already committed a foul in the window,
+            # so its next (2nd) foul there draws FTs.
             def_fouls_now = gs.away_quarter_fouls if current_is_home else gs.home_quarter_fouls
-            defense_in_bonus = cfg.use_bonus_system and def_fouls_now >= cfg.bonus_foul_threshold
+            def_last2_now = gs.away_last2_fouls if current_is_home else gs.home_last2_fouls
+            defense_in_bonus = cfg.use_bonus_system and (
+                def_fouls_now >= cfg.bonus_foul_threshold
+                or (quarter_clock <= cfg.last2min_clock and def_last2_now >= 1)
+            )
             fouled_out_pid, event = _apply_possession(
                 home_active_ids, away_active_ids, current_is_home,
                 poss_time, poss_time / 60.0, q_idx,
@@ -523,10 +534,15 @@ def simulate_game(
                     event.get("fouled_by") is not None
                     and event.get("fouled_by") != event.get("turnover_by")
                 ) + int(event.get("nonshooting_foul_by") is not None)
+                in_last2 = quarter_clock <= cfg.last2min_clock
                 if current_is_home:
                     gs.away_quarter_fouls += def_committed
+                    if in_last2:
+                        gs.away_last2_fouls += def_committed
                 else:
                     gs.home_quarter_fouls += def_committed
+                    if in_last2:
+                        gs.home_last2_fouls += def_committed
                 # a pre-bonus foul reset the shot clock to 14 — the possession consumed
                 # extra game clock (Stage 1: uncompensated, instrumented via diag)
                 if event.get("shot_clock_reset"):

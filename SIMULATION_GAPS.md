@@ -964,7 +964,38 @@ FTA 21.1 (real 21.8), foul-outs 0.40/game and only 2% before Q4** (were 0.22 & 7
 goal met. **Observed uncompensated pace drift: possessions 102.7/team (+~2.7 over budget), score
 119.9** (pre-bonus fouls 8.8/gm, reset time 87s/gm) — the clean Stage-2 handoff. Residual:
 `<30 min-played` foul-outs still 82% (benching compresses foul-trouble minutes) — secondary.
-**Next: Stage 2 — measure & compensate the pace drift with one clock-budget constant if needed.**
+**Step 2b Stage 2 DONE + calibration reopened (2026-07-15) — pace compensation + last-2-min
+rule + and-1 thinner; MILESTONE COMPLETE.** Stage 2 measured the reset-time pace drift by
+isolating it (reset on vs off): −3.0 distinct possessions from the 87s/game of shot-clock
+resets. Added ONE measured constant `foul_reset_poss_frac` (0.075 at the final foul volume)
+folded into the halfcourt possession-time budget — pace restored to the ~95 reset-off baseline.
+
+Validating that exposed a scoring rise, which we did NOT paper over — we decomposed it (the
+project's instrument-first discipline) and it FALSIFIED the "foul system regresses scoring"
+reading. On complete-data 2016-17, attributing every excess point: it is **+3.0 FG points from
++2.87 FGA**, with FT points DOWN (−1.15) and pace unchanged. The old always-FT "bonus" fouls
+were EATING shots — pre-3.7 FGA was 82.7 vs real 85.4. The bonus system, by continuing pre-bonus
+foul possessions to a shot, **restores FGA to real (85.5 ≈ 85.4) AND FTA to real (24.3 vs
+23.1)**. The residual +2.6 over real is fully explained by the pre-existing **shot over-efficiency
+(FG% 0.466 vs real 0.457, 3P% 0.370 vs 0.358)** — 0.009×85.5×2 + 0.012×26×3 ≈ +2.4 — a SEPARATE,
+already-deferred owner, now applied to the (correct, higher) shot volume that the old model
+suppressed. So the calibration was reopened (last-2-min bonus rule + `and1_rate_factor` to thin
+and-1s + cross-era-re-derived scales) and the foul work is CORRECT — it improves realism.
+
+**OWNERSHIP CHAIN (documented so future-us doesn't "re-fix" this):**
+- **Gap 3.7 owns:** foul rules, bonus behavior, foul-out timing, the FGA/FTA MIX, and possession
+  accounting. Final DRAMA_M3: `use_bonus_system`+`use_foul_trouble_subs`, `bonus_foul_threshold=5`,
+  `last2min_clock=120`, `nonshooting_foul_scale=1.6`, `shooting_foul_scale=1.9`,
+  `and1_rate_factor=0.4`, `foul_reset_poss_frac=0.075`. Validated on complete-data eras: FGA≈real,
+  FTA≈real, FT%≈real, foul-outs cluster in Q4 (before-Q4 1-3%).
+- **Shot-efficiency owns:** FG%, 3P%, and therefore the remaining +2-3 scoring residual. FG% 0.466
+  vs real 0.457 is now the clean, isolated next scoring target.
+- **The pre-3.7 baseline is RETIRED as the scoring reference** — it hit its total through
+  COMPENSATING ERRORS (FGA too low 82.7 × FG% too high 0.466 ≈ right total). Compare to REAL, not
+  to pre-3.7. Residuals: PF runs a touch high on older eras (pre-bonus foul rate) — scoring-neutral,
+  same cross-era-constant category as blocks/steals; 2024-25 metrics distorted by its data gaps.
+296 tests green (default config byte-identical). Instrument: `player_distribution.py` foul-out
+timing + `possession_accounting` (`pre_bonus_fouls`, `foul_reset_time`).
 
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether

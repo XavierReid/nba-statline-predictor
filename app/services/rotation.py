@@ -6,11 +6,12 @@ SUB_VARIANCE = 2.0  # σ in minutes for substitution timing (Normal dist)
 
 
 def _in_foul_trouble(pf: int, minute: int) -> bool:
-    """Coach heuristic (modern-lenient): sit a player at 3 fouls in Q1, 4 in Q2, 5 in
-    Q3. Q4 and OT play through (finish with your best). Prevents the pre-Q4 foul-outs
-    without over-benching starters (the strict '2 in Q1' rule cost too many minutes)."""
-    q = minute // 12   # 0-based quarter; >= 3 is Q4/OT
-    return q < 3 and pf >= q + 3
+    """Coach heuristic: sit a player who is ONE foul from fouling out (5 fouls) until Q4,
+    so early foul-outs move to Q4 without benching 3-4-foul stars. Q4/OT play through
+    (finish with your best). Modern-lenient: only the about-to-foul-out sit, so a player
+    who catches an early cluster keeps playing until genuinely at risk."""
+    q = minute // 12   # 0-based quarter; >= 3 is Q4/OT (play through)
+    return q < 3 and pf >= 5
 
 
 def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:

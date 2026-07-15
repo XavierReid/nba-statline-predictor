@@ -221,7 +221,7 @@ DRAMA_M3 = SimConfig(
     tov_scale=0.44,
     use_foul_trouble_subs=True,
     use_bonus_system=True,
-    nonshooting_foul_scale=1.6,
+    nonshooting_foul_scale=1.3,
     shooting_foul_scale=1.9,
     and1_rate_factor=0.4,
 )

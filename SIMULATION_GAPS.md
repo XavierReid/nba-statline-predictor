@@ -997,6 +997,21 @@ and-1s + cross-era-re-derived scales) and the foul work is CORRECT — it improv
 296 tests green (default config byte-identical). Instrument: `player_distribution.py` foul-out
 timing + `possession_accounting` (`pre_bonus_fouls`, `foul_reset_time`).
 
+**Post-milestone refinement (2026-07-15, hands-on CLI testing).** Two measured fixes: (1)
+`nonshooting_foul_scale` 1.6→1.3 — the 1.6 matched FGA exactly but over-produced PF (22-23 vs
+real ~19-20), cascading into excess foul trouble; 1.3 lands PF ~20-21, FTA still ~real, FGA
+drifts +~1.5 (to the shot-efficiency owner). (2) foul-trouble benching softened to "sit only at
+5 fouls (one from foul-out) until Q4" (was 3/4/5 by quarter) — keeps foul-outs in Q4 (before-Q4
+0%) while leaving 3-4-foul starters on the floor (Tatum 13→27-28 min in the common case). Both
+address named owners (league PF too high; foul trouble pulling rotation players too early)
+without touching the foul MODEL. OPEN follow-up (measure-first, NOT started): shooting-foul
+CONCENTRATION — a starter occasionally fouls out from a cluster (seed 59). Before any weighted
+redistribution, measure league-wide: PF distribution by role/tier real vs sim, 5-/6-foul game
+frequency by tier, whether the matchup defender systematically absorbs too many shooting fouls,
+and concentration-vs-tail. Only redistribute if the distribution is unrealistic, not merely
+high-variance. Needs a dedicated harness (per-game real data → PlayerGameLog for the tier
+frequencies).
+
 **Framing:** after 3.2/3.3 (game outcomes) the next real frontier is 3.4/3.5 (player &
 box-score realism) — a category we have not started, and the one that most affects whether
 individual stat lines feel like real NBA.

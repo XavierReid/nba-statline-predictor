@@ -787,6 +787,14 @@ Foul-outs measured in the same pass: **0.22/game (below real ~0.4-0.5), 3+ foul-
 0.1% of games, PF/36 mean 2.20** — NOT systematically high; a single-game 3-foul-out report was
 a rare (~0.1%) variance tail, not a bug.
 
+**GUARD ADDED: `app/analysis/player_distribution.py`** (6th analysis pillar). Per-player-game
+distribution check — game-highs (steals/blocks/points), ≥5-steal/≥5-block rates, ≥8-TOV rate,
+PF/36, foul-outs/game — flagged against generous real-NBA sanity ceilings. This is the check
+that would have auto-caught the steal/block concentration (max steals 16 and ≥5-steal 7.2%
+both trip it); it PASSES now. A GUARDRAIL for the 3.4d class of per-player distribution defects
+that team-level aggregates (team_boxscore.py) are blind to — precise per-game calibration still
+needs PlayerGameLog.
+
 **REBOUNDS RECONCILED (2026-07-14) — credit-assignment fix + residual reassigned. GAP 3.5
 CLOSED.** Instrumented first (opportunities vs credits): **credited rebounds (38.45) == live
 FG-miss opportunities (38.45)** — every live FG miss was already credited, zero dropped. The

@@ -139,7 +139,9 @@ Analysis tools consume this (details in RUNBOOK.md):
   standard (no matchup bias; per-team strength slopes)
 - `app/analysis/` — the analysis pillar: `decomposition.py` (scoring/possession
   accounting), `game_texture.py` (margin walk, Q4 compression, run/drought),
-  `team_boxscore.py` (box aggregates), `player_accounting.py` (per-player)
+  `team_boxscore.py` (team box aggregates), `player_accounting.py` (per-player
+  reconciliation), `player_distribution.py` (per-player-game distribution guard —
+  game-highs / foul-outs vs sanity ceilings; catches concentration bugs team totals hide)
 
 ## Try it yourself
 

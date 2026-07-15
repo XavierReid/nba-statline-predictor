@@ -10,6 +10,15 @@ def _profile(ctx):
     """The active BehaviorProfile for this possession (identity when none set)."""
     return ctx.behavior_profile or NORMAL_PROFILE
 
+
+def _credit_defender(defense, attr, rng):
+    """Credit a steal/block to a defender, chosen WEIGHTED by their ability rather than
+    always the single best on the floor. The event RATE is still gated by the best
+    defender (team totals unchanged), but crediting only the max funneled a team's entire
+    steal/block total onto one player — producing 16-steal / 11-block box lines. Real
+    defensive stats spread across the lineup, led by the specialist. gap 3.4d."""
+    return rng.choices(defense, weights=[p[attr] for p in defense])[0]["id"]
+
 OREB_RATE = 0.22            # offensive rebound rate on missed shots (NBA avg ~22%)
 LEAGUE_AVG_TOV_PER36 = 2.5  # used to normalize per-player turnover rates
 
@@ -371,7 +380,7 @@ def _select_action(ctx, result: dict) -> Action:
     best_defender = max(defense, key=lambda p: p["steal"])
     if rng.random() < (best_defender["steal"] / 100.0) * cfg.steal_rate:
         result["turnover_by"] = ball_handler["id"]
-        result["steal_by"] = best_defender["id"]
+        result["steal_by"] = _credit_defender(defense, "steal", rng)
         return Action(ball_handler, terminal=True)
 
     # unforced turnover — driven by the player's observed per-possession turnover
@@ -467,7 +476,7 @@ def _resolve_matchup(ctx, action: Action, result: dict) -> Matchup:
         block_mult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
         best_blocker = max(defense, key=lambda p: p["block"])
         if rng.random() < (best_blocker["block"] / 100.0) * 0.04 * block_mult:
-            result["block_by"] = best_blocker["id"]
+            result["block_by"] = _credit_defender(defense, "block", rng)
             _assign_rebound(ctx, result)
             return Matchup(defender=None, blocked=True)
 
@@ -609,7 +618,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
         blocker = max(ctx.defense, key=lambda p: p["block"])
         bmult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
         if rng.random() < (blocker["block"] / 100.0) * cfg.block_attribution_scale * bmult:
-            result["block_by"] = blocker["id"]
+            result["block_by"] = _credit_defender(ctx.defense, "block", rng)
 
     # rebound on a live miss (no free throws pending)
     if not result["made"] and result["fta"] == 0:

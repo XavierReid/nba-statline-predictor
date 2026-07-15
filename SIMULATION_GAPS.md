@@ -773,6 +773,20 @@ they survived every scoring-calibration pass.
 - Guardrails: scoring ~neutral (117.4 vs pre-fix 116.8), 3.2 metrics unchanged/slightly better
   (blowout 20.1 vs real 20.5, close 26.7 vs 27.2), 296 tests green (OT_SEED 37→27).
 
+**DISTRIBUTION FIX (2026-07-14) — steal/block CREDIT was over-concentrated (surfaced by CLI
+testing).** Team totals were right but every steal/block was credited to the single best
+defender on the floor (`max(defense, key=steal/block)`), funneling a team's whole total onto
+one player — 16-steal / 11-block box lines; ≥5-steal games in 7.2% of player-games, ≥5-block in
+2.5%. Raising steal/block VOLUME to real team totals (this milestone) amplified it. Fix:
+`_credit_defender` distributes the credit WEIGHTED by ability (`rng.choices(defense, weights=
+[p[attr]])`) — the RATE is still gated by the best defender so team totals are unchanged
+(STL 8.22 / BLK 5.04, matched). Result: max steals 16→7, ≥5 7.2%→0.33%; max blocks 11→6,
+≥5 2.5%→0.06% — realistic single-game highs, led by the specialist. This is a 3.4d
+(per-player distribution) defect caught WITHOUT PlayerGameLog, via hands-on single-game testing.
+Foul-outs measured in the same pass: **0.22/game (below real ~0.4-0.5), 3+ foul-outs in only
+0.1% of games, PF/36 mean 2.20** — NOT systematically high; a single-game 3-foul-out report was
+a rare (~0.1%) variance tail, not a bug.
+
 **REBOUNDS RECONCILED (2026-07-14) — credit-assignment fix + residual reassigned. GAP 3.5
 CLOSED.** Instrumented first (opportunities vs credits): **credited rebounds (38.45) == live
 FG-miss opportunities (38.45)** — every live FG miss was already credited, zero dropped. The

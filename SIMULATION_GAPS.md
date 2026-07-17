@@ -1028,6 +1028,56 @@ is unchanged.
 box-score realism) — a category we have not started, and the one that most affects whether
 individual stat lines feel like real NBA.
 
+## Gap 3.8 — Foul attribution / concentration (identified & largely fixed 2026-07-16)
+
+**Symptom (league-wide, 2005-06 LAL/DET + 4 more matchups, 150 games):** foul-outs 0.99/game
+with **91% belonging to starters** — the opposite of the real NBA, where stars foul out least.
+13.8% of player-games reached 5+ PF. Team PF/game was already correct (22.3 vs real ~22-23).
+
+**Owner (measure → own → fix):** a "correct total, wrong allocation" problem — the SAME shape as
+usage/assists/steals/blocks. Fouls were attributed with a UNIFORM `rng.choice(defense)`, giving
+every on-court defender equal foul propensity per possession → whoever plays the most minutes
+(stars) accumulates the most fouls → fouls out. Two experiments isolated the owner:
+1. **Non-shooting path reweighted first** (PF-weighted draw) → foul-outs 0.99→0.97, starter share
+   91→90%. Barely moved → the non-shooting path is NOT the owner.
+2. **Path composition:** shooting fouls are ~63% of all fouls, attributed to the contest defender
+   (`possession.py:519`, uniform). That path owns the concentration.
+
+**Selection vs conversion (the key measurement, real 2016-17, 330 players mpg≥15):** decomposed
+`pf/min = (contests/min) × (pf/contest)` using real `d_fga` (defended FGA = real contests) and real
+`pf_per_game`. Stars (high usage) vs low-usage: **contests/min −8%** (nearly flat — uniform contest
+selection is empirically justified), **pf/contest −12%** (the dominant, player-specific signal —
+given the same contest, stars genuinely foul less). So the owner is foul **conversion**, not
+defender selection. This ruled out reweighting contest selection (option A), which would have
+distorted block credit and shot difficulty for only the ~8% opportunity component.
+
+**Fix (option B — conversion, causally honest, totals-invariant):**
+- Ingest measured PF: `LeagueDashPlayerStats` PerGame already returns `PF` (no new pull) → new
+  `PlayerSeasonStats.pf_per_game` (migration `a1f4c2d8e001`), mapped in `jobs.py`.
+- `roster.py` derives `foul_rate = pf_per_game / mpg` (PF/min, per-opportunity per guardrail #7;
+  falls back to league mean 0.09/min when PF absent).
+- **Non-shooting fouls** (`possession.py:395`): uniform draw → PF/min-weighted draw.
+- **Shooting fouls** (`:616`/`:626`): the contest defender still contests AND commits the foul
+  (causal chain preserved), but the foul PROBABILITY is scaled by `foul_rate[contester] /
+  mean(foul_rate of the on-court five)`. Normalizing by the lineup mean keeps the team
+  shooting-foul rate mathematically invariant while redistributing WHO commits fouls.
+
+**Result (150 games, all four invariants hold):** starter share **91→72%**, foul-outs 0.99→0.85;
+team PF 22.0 (held), FTA 24.5, blocks 3.99, FG% 0.476, pts 104.3 — all neutral. **Foul-out TIMING
+confirmed realistic** (separate measurement): 91.4% in Q4, mean 5.2 min / median 4.3 min remaining,
+5.5% before Q4 — the benching logic works and is NOT the residual owner.
+
+**RESIDUAL — DATA GAP, not an engine bug (deferred):** the 5+ PF tail is unchanged (13.8%) and
+foul-outs (0.85/game) may still run ~1.5-2× a physical-era real rate (~0.4-0.6). We have NO measured
+target for the per-player-game 5+/6 distribution — season-average PF can't tell us the tail shape,
+and calibrating variance to a guessed number would violate the measured-constants discipline.
+**Next step is DATA, not behavior:** ingest real per-game PF (`PlayerGameLog` / box scores), then
+build a foul-distribution harness (5+, 6, foul-outs, by tier, by era) and only then decide whether
+the residual is excess variance, attribution, or correct. Earlier "5×/order-of-magnitude" framing
+was overstated (compared to modern rates); the real residual is smaller.
+
+**Gap 3.8 attribution fix COMPLETE; tail is a documented measurement gap.**
+
 ## Change log
 
 | Date | Item | Action |
@@ -1043,5 +1093,6 @@ individual stat lines feel like real NBA.
 | 2026-07-08 | 1.1 | FIXED: OT runs as a real timed period via `_run_clock_period` — all mechanics active in OT. No regulation regression vs baseline. |
 | 2026-07-08 | 1.2 | COMPLETE FOR SCOPE: `late_game.py` LateGameContext + incentive pacing (urgency 9s / milk 20s). Close% 18.9→20.1, tie conversion 9.2→12.2%, OT 2.7→3.7%, slope 0.91. Negative experiment: window widening (8→10→12) does not move blowouts — margin built over first 46 min. Blowout excess re-assigned to gap 2.1 (promoted, target 26.7→22.9). Residual Q1 dispersion on watch list. |
 | 2026-07-08 | 2.1 | COMPLETE FOR SCOPE: rotation modes + asymmetric `should_concede` decision layer (Q3-extended) + `lineup_quality.py`. Behavior verified (star minutes, loser-fights-longer, mismatch window 25 poss). Two documented negative results: symmetric benching preserves margins; defensive starter/bench gap is genuinely small (real gap is offensive). Blowout 26.7→26.3 only → residual excess is early-game dispersion (watch-list item promoted). Next phase: cleanup/docs, then dispersion investigation. |
+| 2026-07-16 | 3.8 | ATTRIBUTION FIX COMPLETE: measured PF (`pf_per_game` from LeagueDashPlayerStats, migration a1f4c2d8e001) → PF/min `foul_rate` in roster; non-shooting fouls PF-weighted, shooting-foul probability scaled by contester foul propensity / lineup mean (contester still fouls — causal chain intact). Starter foul-out share 91→72%, foul-outs 0.99→0.85; team PF/FTA/blocks/FG%/pts all neutral; timing realistic (91% Q4). Selection-vs-conversion decomposition (real 2016-17: contests/min −8%, pf/contest −12%) picked conversion (option B) over defender-selection. Residual 5+/foul-out tail deferred as a DATA gap (needs per-game PF). 296 tests green (OT seed 28→19). |
 | 2026-07-13 | — | Analysis pillar (`app/analysis/`): canonical PossessionAccounting (statistical possession = FGA−OREB+TOV+0.44FTA everywhere) + scoring decomposition. Multi-season Phase 2 (partial): era-aware interior derivation + box-score defense fallback. Pace hypothesis tested and REJECTED (a diagnostic bug, not the engine). |
 | 2026-07-14 | MILESTONE | Cross-era scoring reconciliation (see milestone section above): observed zone-FG% make model, observed non-rim shot split, additive second chances, lineup-centered defense; + falsy-zero `three_point_rate`, era-league `team_defense_factor`, dropped `oreb_pct` on re-ingest. Result +0.4/+1.5/−1.2 across 1996-97/2005-06/2025-26 from +5.2/+7.3/−0.3. One engine, no era constants. |

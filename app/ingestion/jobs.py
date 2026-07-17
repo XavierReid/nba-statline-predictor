@@ -127,6 +127,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
             existing.steals = row['STL']
             existing.blocks = row['BLK']
             existing.turnovers = row['TOV']
+            existing.pf_per_game = row.get('PF')
             existing.fgm = row['FGM']
             existing.fga = row['FGA']
             existing.fg_pct = row['FG_PCT']
@@ -154,6 +155,7 @@ def ingest_season_stats(db: Session, season: str) -> int:
                 steals=row['STL'],
                 blocks=row['BLK'],
                 turnovers=row['TOV'],
+                pf_per_game=row.get('PF'),
                 fgm=row['FGM'],
                 fga=row['FGA'],
                 fg_pct=row['FG_PCT'],

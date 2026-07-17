@@ -392,7 +392,13 @@ def _select_action(ctx, result: dict) -> Action:
     # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14 — the
     # possession CONTINUES (falls through to the shot) and consumes extra game clock.
     if rng.random() < _nonshooting_foul_prob(ctx, ball_handler):
-        fouler = rng.choice(defense)["id"]
+        # A non-shooting foul isn't tied to a specific shot contest, so the fouler is
+        # drawn WEIGHTED by each defender's measured per-minute foul propensity rather
+        # than uniformly. The uniform draw made fouls minutes-driven, funneling foul-outs
+        # onto high-minute starters (91% of DQs) — the opposite of the real NBA, where
+        # stars foul the least per minute. Team foul total is unchanged; only WHO commits
+        # it. Shooting fouls stay tied to the contest defender (causal chain preserved).
+        fouler = rng.choices(defense, weights=[d.get("foul_rate", 0.09) for d in defense])[0]["id"]
         if ctx.defense_in_bonus or not cfg.use_bonus_system:
             result["scorer"] = ball_handler["id"]
             result["fouled_by"] = fouler
@@ -606,8 +612,18 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     # make over-produced and-1s (3-pt-ish plays), inflating points per FTA. This factor
     # thins the foul rate on makes so FTA can reach real levels at neutral scoring (3.7 2b).
     and1 = cfg.and1_rate_factor if result["made"] else 1.0
+    # Foul CONVERSION propensity: the contest defender still contests and (if fouled)
+    # commits the foul, but how often a contest becomes a shooting foul is scaled by that
+    # defender's measured per-minute foul rate, centered on the on-court five. Normalizing
+    # by the lineup mean keeps the TEAM shooting-foul rate invariant (the scale averages to
+    # ~1 over uniform contester selection) while redistributing fouls off high-minute stars
+    # onto the bigs — real players contest ~equally per minute (~8% spread) but foul less
+    # PER CONTEST (measured 2016-17: pf/contest is the dominant star signal). foul_rate is
+    # PF/min from ingested PF, used as an empirical propensity proxy (guardrail #7).
+    lineup_mean_fr = sum(d.get("foul_rate", 0.09) for d in ctx.defense) / len(ctx.defense)
+    foul_conv = (defender.get("foul_rate", 0.09) / lineup_mean_fr) if lineup_mean_fr > 0 else 1.0
     # 3PT shooting foul (~2% x sub-type multiplier)
-    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1:
+    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1 * foul_conv:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
@@ -617,7 +633,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
-    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1:
+    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1

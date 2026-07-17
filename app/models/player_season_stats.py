@@ -23,6 +23,7 @@ class PlayerSeasonStats(Base):
     steals: Mapped[Optional[float]] = mapped_column(Float)
     blocks: Mapped[Optional[float]] = mapped_column(Float)
     turnovers: Mapped[Optional[float]] = mapped_column(Float)
+    pf_per_game: Mapped[Optional[float]] = mapped_column(Float)  # personal fouls committed / game (LeagueDashPlayerStats PF)
 
     fgm: Mapped[Optional[float]] = mapped_column(Float)
     fga: Mapped[Optional[float]] = mapped_column(Float)

@@ -218,6 +218,14 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
         # inflated by usage — reading it as a per-possession rate gave stars an
         # inverted turnover economy (gap 3.4b). Real TOV/used-poss is ~flat (~0.12-0.14,
         # slightly lower for stars). Drives the unforced-turnover event in possession.py.
+        # Foul propensity as a PER-MINUTE rate (guardrail #7): the weighted foul-
+        # attribution draw picks among on-court defenders, so weighting by PF/min gives
+        # each player expected fouls ~ (PF/min x minutes on court) ~ their measured PF.
+        # This is what stops the uniform draw from funneling fouls onto whoever plays the
+        # most minutes (stars), who in reality foul the LEAST per minute. Falls back to the
+        # league mean (~0.09/min = ~22 team PF / 240 min) when PF isn't ingested for a season.
+        mpg = s.minutes_per_game or 0.0
+        players[-1]["foul_rate"] = round((s.pf_per_game / mpg), 4) if (s.pf_per_game and mpg > 0) else 0.09
         used_poss = (s.fga or 0.0) + 0.44 * (s.fta or 0.0) + (s.turnovers or 0.0)
         if used_poss > 0:
             players[-1]["tov_per_poss"] = round((s.turnovers or 0.0) / used_poss, 4)

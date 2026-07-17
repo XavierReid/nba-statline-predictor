@@ -50,7 +50,7 @@ def make_team(id_offset: int) -> list:
 HOME = make_team(0)
 AWAY = make_team(100)
 SEED = 42
-OT_SEED = 28   # verified: produces OT with HOME/AWAY above (re-found after weighted steal/block-credit RNG shift)
+OT_SEED = 19   # verified: produces OT with HOME/AWAY above (re-found after PF-weighted foul-attribution RNG shift)
 
 
 # ---------------------------------------------------------------------------

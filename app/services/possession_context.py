@@ -40,6 +40,7 @@ class PossessionContext:
     name_map: Optional[dict] = None
     behavior_profile: object = None   # BehaviorProfile for this possession's phase
     defense_in_bonus: bool = False    # defensive team over the team-foul limit this period
+    foul_counts: Optional[dict] = None  # live per-player PF (id -> fouls) for the state-dependent foul hazard
 
 
 def make_context(offense, defense, rng, cfg=None, adjustments=None, **overrides):

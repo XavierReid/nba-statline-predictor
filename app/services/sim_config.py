@@ -14,6 +14,7 @@ class SimConfig:
     use_fatigue: bool = False         # heavy-minutes lineup efficiency decay
     use_foul_trouble: bool = False    # defense softens when players have 4+ fouls
     use_foul_trouble_subs: bool = False  # bench a player in foul trouble until safe (Q4 plays through)
+    use_foul_caution: bool = False    # state-dependent foul hazard: a contester in foul trouble converts contests to fouls less often (real basketball is not memoryless)
     use_bonus_system: bool = False    # team-foul/bonus: pre-bonus non-shooting fouls draw no FTs (reset shot clock), bonus (>=5) awards 2 FTs
     use_clutch: bool = False          # clutch_rating boosts late close-game efficiency
     use_player_variance: bool = False # per-game form factor drawn from player-specific distribution
@@ -220,6 +221,7 @@ DRAMA_M3 = SimConfig(
     usage_concentration=1.6,
     tov_scale=0.44,
     use_foul_trouble_subs=True,
+    use_foul_caution=True,
     use_bonus_system=True,
     nonshooting_foul_scale=1.3,
     shooting_foul_scale=1.9,

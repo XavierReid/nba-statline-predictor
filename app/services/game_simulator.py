@@ -217,6 +217,7 @@ def simulate_game(
             score_margin=gs.home_score - gs.away_score if is_home else gs.away_score - gs.home_score,
             behavior_profile=behavior_profile if behavior_profile is not None else NORMAL_PROFILE,
             defense_in_bonus=defense_in_bonus,
+            foul_counts={p["id"]: box[p["id"]]["pf"] for p in defense if p["id"] in box} if cfg.use_foul_caution else None,
         )
         event = resolve_possession(ctx)
 

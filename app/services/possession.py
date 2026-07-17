@@ -120,6 +120,25 @@ _CONTEST_PENALTY: Dict[str, float] = {
     "three":             0.088,
 }
 
+# State-dependent foul hazard (foul-trouble caution). Real basketball is NOT memoryless:
+# a memoryless process with real per-player foul rates predicts ~3x the real foul-out rate,
+# and the sim (memoryless) matches that prediction while real collapses at the 5->6 step
+# (proof 2026-07-16: PF=6 real 0.9%/2.1% vs memoryless 3.1%/5.9%, both eras). Real caution is
+# concentrated at the last foul before fouling out, mild through 3-4. So a contester in foul
+# trouble converts a contest into a shooting foul less often. Applied ONLY to the contester's
+# conversion (the point where the discrepancy was proven) — NOT to contest selection (that
+# would perturb the defensive-matchup model) and NOT redistributed (let team PF drop; measure
+# first). Multiplier by the defender's CURRENT foul count:
+_FOUL_CAUTION: Dict[int, float] = {4: 0.80, 5: 0.35}
+
+
+def _foul_caution(ctx, defender_id) -> float:
+    """Contest->foul conversion multiplier for a defender in foul trouble (1.0 if not enabled
+    or not in trouble). Steep at 5 fouls (avoid fouling out), mild at 4."""
+    if not ctx.cfg.use_foul_caution or not ctx.foul_counts:
+        return 1.0
+    return _FOUL_CAUTION.get(ctx.foul_counts.get(defender_id, 0), 1.0)
+
 # Stage B signal gain — league-average make probability per sub-type, measured from
 # the engine itself (300 games DRAMA_M3, 2026-07-08, post attribute-v2). signal_gain
 # stretches each shot's deviation from these anchors, amplifying player/team
@@ -649,6 +668,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     # PF/min from ingested PF, used as an empirical propensity proxy (guardrail #7).
     lineup_mean_fr = sum(d.get("foul_rate", 0.09) for d in ctx.defense) / len(ctx.defense)
     foul_conv = (defender.get("foul_rate", 0.09) / lineup_mean_fr) if lineup_mean_fr > 0 else 1.0
+    foul_conv *= _foul_caution(ctx, defender["id"])   # state-dependent: a contester in foul trouble converts contests to fouls less often
     # 3PT shooting foul (~2% x sub-type multiplier)
     if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1 * foul_conv:
         result["fouled_by"] = defender["id"]

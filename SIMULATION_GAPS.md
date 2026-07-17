@@ -1127,6 +1127,49 @@ mathematical owner before forcing one combined fix — they may be independent l
 
 **Gap 3.9 three-point contest mechanism COMPLETE.**
 
+## Gap 3.10 — State-dependent foul hazard / foul-trouble caution (identified & fixed 2026-07-16)
+
+**Follow-up to 3.8.** 3.8 fixed foul ATTRIBUTION (who fouls; starter foul-out share 91→72%) but
+deferred the TAIL magnitude as a data gap. Pulled real per-game PF (`PlayerGameLogs`) to close it.
+
+**Measured real targets (foul-outs / team-game):** 2016-17 **0.092**, 2005-06 **0.214** (5+ PF: 5.0% /
+9.3%). Sim (league-schedule, pre-fix): 0.277 / 0.354 → **×3.0 (modern) / ×1.7 (old)**, worse in the
+modern era. (Earlier "5×" and "1.5-2×" framings were both metric-scaling errors — per-game vs
+per-team-game; league-representative ×3.0/×1.7 is the definitive figure.)
+
+**Owner localization (ruled OUT two alternatives, PROVED the third):**
+- **"Wrong who" (over-concentration) RULED OUT.** Per-player PF/36 dispersion: sim std 0.96/0.95 vs
+  real 1.01/1.25 — sim is NOT over-dispersed (slightly compressed). The 3.8 attribution is fine.
+- **Decomposition:** foul-outs = reach-5+ (×1.4/×2.1) × convert-5→6 (×1.2/×1.5). Reaching 5+ dominates.
+- **Memoryless proof (the decisive instrument):** built the Poisson prediction from each player's
+  measured rate × actual game minutes. Real PF=6 is **0.9% / 2.1%** vs a memoryless prediction of
+  **3.1% / 5.9%** (real ≈ ⅓ of memoryless); the SIM (2.8% / 3.6%) TRACKS memoryless. Proves: (1) the
+  sim faithfully implements a memoryless hazard, (2) real basketball is NOT memoryless, (3) the missing
+  behavior is a STATE-DEPENDENT hazard. Real matches memoryless at PF=5 but collapses at 6 → caution is
+  concentrated at the 5→6 threshold, mild through 3-4.
+
+**Fix — state-dependent foul hazard on the CONTESTER'S CONVERSION** (`_foul_caution`, possession.py;
+`use_foul_caution`; live PF threaded via `PossessionContext.foul_counts`). A contester in foul trouble
+converts a contest into a shooting foul less often: `_FOUL_CAUTION = {4: 0.80, 5: 0.35}` (steep at 5,
+mild at 4). Deliberately applied ONLY at the conversion point where the discrepancy was proven — NOT to
+contest SELECTION (would perturb the defensive-matchup model) and NOT redistributed (let PF drop, measure
+first). Gated off in base SimConfig (tests byte-identical).
+
+**Validation (league schedule):** foul-outs/team-game 0.354→**0.260** (×1.7→×1.2, 2005-06, near real
+0.214) and 0.277→**0.195** (×3.0→×2.1, 2016-17). **Team PF PRESERVED** (22.5 vs 22.3; modern 20.9 ≈ real
+~19.9) — NO redistribution mechanism needed (the "let it drop" concern was moot). Caution profile behaves
+as the histogram predicted. 296 tests green.
+
+**TWO NEW OWNERS cleanly isolated (NOT fixed here — independent, one-at-a-time):**
+1. **Modern PF=6 residual ×2.2** — now bounded by the UNTOUCHED non-shooting foul path (32% of fouls,
+   still memoryless). Strengthening the shooting caution further hits diminishing returns against this
+   floor. NEXT STEP (A): extend caution to non-shooting fouls (down-weight in-trouble players in the
+   weighted draw = mild redistribution — the data now justifies it). Then re-measure the full 0-6 histogram.
+2. **PF=5 pile-up** (sim 7.6/9.6 vs real 4.1/7.1) — owned by the sit-at-5 BENCHING rule (parks players at
+   5), NOT the caution mechanism. Evaluate in ISOLATION after (A) lands; may resolve on its own.
+
+**Gap 3.10 state-dependent foul hazard COMPLETE (shooting-foul path).**
+
 ## Change log
 
 | Date | Item | Action |

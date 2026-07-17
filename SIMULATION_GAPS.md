@@ -1078,6 +1078,55 @@ was overstated (compared to modern rates); the real residual is smaller.
 
 **Gap 3.8 attribution fix COMPLETE; tail is a documented measurement gap.**
 
+## Gap 3.9 — Three-point contest mechanism (identified & fixed 2026-07-16)
+
+**Context:** with pace ruled out (see below) the residual scoring gap traced to perimeter FG%.
+Cross-era decomposition (2005-06 + 2016-17): interior FG% NEUTRAL; **mid & three each ~+0.015
+too high**. Deeper instrument added a `contested` flag to shot events (ShotQuality.contested)
+and broke FG% down by contest state.
+
+**Owner localization (the discipline paid off — several candidates ruled OUT):**
+- **Pace/possession-time RULED OUT.** Time-accounting identity closes (Σposs_time + foul_reset
+  = 2881 ≈ 2880, both eras); per-category durations realistic; distinct pace = budget. The
+  decomposition's apparent "+4.6 possessions" is an ARTIFACT of the low sim OREB rate inflating
+  the FGA−OREB+TOV+0.44FTA estimate — not extra/short possessions. Hard counts: FGA only +1.6.
+- **Global multipliers RULED OUT.** signal_gain is already 1.0 (inactive); home_bonus adds only
+  ~+0.007 to contested shots. Neither is the level owner.
+- **Contest reach is fine** (controls contested frequency cleanly); **contest IMPACT is the owner.**
+
+**Real anchors (measured, LeagueDashTeamPtShot defender-distance splits — tracking era only):**
+2016-17 threes: OPEN (4+ft) 3P% 0.369 at 86% of attempts, CONTESTED (0-4ft) 3P% 0.282 at 14%.
+2021-22 (stability): 0.362 / 0.288 / 12%. Mid (10ft-arc): open 0.428 / contested 0.380 (gap
+0.048 — the sim's 0.042 already matches, so MID IS NOT A CONTEST PROBLEM). Aggregate emerges
+(0.86·0.369 + 0.14·0.282 = 0.357).
+
+**Ceiling proof (why constants couldn't fix it):** the jump-shot `defense_penalty` is CENTERED on
+the lineup, and the matchup defender is drawn from that same lineup, so it averages **0.0006**
+for threes. The multiplicative `_CONTEST_IMPACT` scales ~0 → stays ~0: IMPACT=6 moves contested
+3P% by 0.003; hitting the measured 0.282 needs **IMPACT ≈ 128** (and via a degenerate
+attribute-driven distribution). REPRESENTATIONAL limitation, not calibration.
+
+**Fix — additive contest-state term** (`_CONTEST_PENALTY`, possession.py). When contested:
+`defense_penalty = defense_penalty * IMPACT + _CONTEST_PENALTY.get(sub_type, 0.0)`. Threes get an
+additive **0.088** (measured gap); mid/interior carry 0.0 (their attribute-selection separation
+already matches real). Reach lowered for threes (0.65/0.80 → 0.20/0.22) so ~14-18% are contested,
+matching real. Calibrated to CONDITIONAL distributions; aggregate left to emerge.
+
+**Validation (both eras, calibrated on conditionals not aggregate):** 2016-17 three contested
+0.291 (real 0.282), freq 15% (14%), open 0.374 (0.369), **agg 0.361 (0.358)**. Aggregate 3P%
+now 0.359 / 0.363 (2016-17 / 2005-06) vs real 0.358 — matched. Scoring gap +3.6→+2.6 (2016-17),
++4.3→+3.8 (2005-06). 296 tests green; base SimConfig has contest model off so tests are neutral.
+
+**NEXT OWNER (cleanly separated, NOT fixed here): mid + open-three base level lift ~+0.015.**
+The re-measure shows mid FG% (0.414/0.423 vs 0.399/0.407) and open-three (+0.005) are STILL high
+— proving they aren't owned by contest mechanics (one knob didn't hide two problems). Open the
+next pass as a make-model *base* investigation: compare observed zone FG% entering the model vs
+the effective base after shrinkage/centering; locate where the +0.015 is introduced (observed-zone
+baselines / shrinkage / defensive centering). Check whether mid and open-three share the SAME
+mathematical owner before forcing one combined fix — they may be independent level offsets.
+
+**Gap 3.9 three-point contest mechanism COMPLETE.**
+
 ## Change log
 
 | Date | Item | Action |

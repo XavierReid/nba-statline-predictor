@@ -78,14 +78,17 @@ _INTERIOR_TYPES  = frozenset({"layup", "dunk", "close"})
 # Contest probability scaling by sub-type — how reliably a defender can physically reach the shot.
 # Corner threes and floaters are harder to contest (rotation distance, arc).
 _CONTEST_REACH: Dict[str, float] = {
-    "corner_three":      0.65,
-    "above_break_three": 0.80,
+    # Threes: real tracking (LeagueDashTeamPtShot 2016-17) shows only ~14% of threes are
+    # taken with a defender within 4 ft — shooters mostly fire when open. Reach lowered so
+    # ~14-18% are flagged contested (was 0.65/0.80 -> ~53%, far too many).
+    "corner_three":      0.20,
+    "above_break_three": 0.22,
     "mid_range":         0.85,
     "floater":           0.60,
     "layup":             0.90,
     "dunk":              0.75,
     # fallback
-    "three": 0.75, "mid": 0.85, "close": 0.90,
+    "three": 0.22, "mid": 0.85, "close": 0.90,
 }
 
 # When contested: multiplier on the raw defense_penalty (separates reach from impact).
@@ -99,6 +102,22 @@ _CONTEST_IMPACT: Dict[str, float] = {
     "dunk":              1.20,
     # fallback
     "three": 1.00, "mid": 1.00, "close": 1.10,
+}
+
+# Additive contest-state penalty (make-probability points) applied when a shot is contested.
+# The multiplicative _CONTEST_IMPACT above is REPRESENTATIONALLY INCAPABLE of the measured
+# perimeter contest effect: the jump-shot defense_penalty is CENTERED on the lineup, so it
+# averages ~0.0006 for threes, and a multiplier on ~0 stays ~0 (ceiling proof 2026-07-16:
+# IMPACT~128 needed to reach the measured contested 3P% of 0.282). So the contest effect is
+# modeled as an additive term keyed by contest state — today calibrated only for threes from
+# real defender-distance splits (LeagueDashTeamPtShot 2016-17: open 3P% 0.369 vs contested
+# 0.282, ~0.087 gap; ~14% of threes contested). Mid/interior separations already match real
+# via defender-attribute selection, so they carry no additive term (0.0). Extensible: finer
+# contest qualities become more entries here, not a new mechanism.
+_CONTEST_PENALTY: Dict[str, float] = {
+    "corner_three":      0.088,
+    "above_break_three": 0.088,
+    "three":             0.088,
 }
 
 # Stage B signal gain — league-average make probability per sub-type, measured from
@@ -290,6 +309,7 @@ class Matchup:
 class ShotQuality:
     """How likely the attempt is to go in, after everything."""
     make_prob: float
+    contested: Optional[bool] = None   # instrumentation: contest-model outcome for this attempt
 
 
 def _empty_result() -> dict:
@@ -299,6 +319,7 @@ def _empty_result() -> dict:
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
         "nonshooting_foul_by": None, "shot_clock_reset": False,
+        "contested": None,
     }
 
 
@@ -568,13 +589,18 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
         defense_penalty *= 0.80
 
     # contest model — separates whether the defender reaches the shot from its impact
+    is_contested = None
     if cfg.use_contest_model:
         def_attr = (
             defender["perimeter_defense"] if sub_type in _PERIMETER_TYPES
             else defender["interior_defense"]
         )
         is_contested = rng.random() < (def_attr / 100.0) * _CONTEST_REACH[sub_type]
-        defense_penalty *= _CONTEST_IMPACT[sub_type] if is_contested else 1.0
+        if is_contested:
+            # multiplicative IMPACT (interior, where the raw penalty is large enough to matter)
+            # PLUS an additive contest-state penalty (perimeter, where the centered penalty is ~0
+            # and a multiplier is inert — see _CONTEST_PENALTY).
+            defense_penalty = defense_penalty * _CONTEST_IMPACT[sub_type] + _CONTEST_PENALTY.get(sub_type, 0.0)
 
     shot_prob = (base_prob - defense_penalty) * ctx.team_defense_factor
     if cfg.signal_gain != 1.0:
@@ -589,7 +615,7 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
         else 0.0
     )
     make_prob = max(0.05, min(0.95, shot_prob + shot_delta + form_delta))
-    return ShotQuality(make_prob=make_prob)
+    return ShotQuality(make_prob=make_prob, contested=is_contested)
 
 
 # --- stage 4: resolve_outcome -----------------------------------------------
@@ -601,6 +627,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     sub_type, coarse_type = action.sub_type, action.coarse_type
 
     result["made"] = rng.random() < quality.make_prob
+    result["contested"] = quality.contested   # instrumentation only (None when contest model off)
     ft_prob = _free_throw_prob(ball_handler)
     shoot_foul_mult = (_FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0) * cfg.shooting_foul_scale
     # NB: the phase foul boost lives on the non-shooting bonus foul (which REPLACES a shot

@@ -1160,15 +1160,25 @@ first). Gated off in base SimConfig (tests byte-identical).
 ~19.9) — NO redistribution mechanism needed (the "let it drop" concern was moot). Caution profile behaves
 as the histogram predicted. 296 tests green.
 
-**TWO NEW OWNERS cleanly isolated (NOT fixed here — independent, one-at-a-time):**
-1. **Modern PF=6 residual ×2.2** — now bounded by the UNTOUCHED non-shooting foul path (32% of fouls,
-   still memoryless). Strengthening the shooting caution further hits diminishing returns against this
-   floor. NEXT STEP (A): extend caution to non-shooting fouls (down-weight in-trouble players in the
-   weighted draw = mild redistribution — the data now justifies it). Then re-measure the full 0-6 histogram.
-2. **PF=5 pile-up** (sim 7.6/9.6 vs real 4.1/7.1) — owned by the sit-at-5 BENCHING rule (parks players at
-   5), NOT the caution mechanism. Evaluate in ISOLATION after (A) lands; may resolve on its own.
+**(A) DONE — caution extended to the non-shooting path** (2026-07-16). Non-shooting fouls are a
+PF-weighted draw, so caution folds into the WEIGHT: an in-trouble player is down-weighted and the foul
+REDISTRIBUTES to a teammate (total team PF preserved — confirmed 22.5/21.0). Foul-outs/team-game now
+0.161 (2005-06, ×0.8) and 0.127 (2016-17, ×1.4) — the tail now BRACKETS real (was ×1.7-3.0). Modern
+PF=6 residual ×2.2→×1.4. The foul-HAZARD behavioral story is complete (memoryless → state-dependent,
+both foul paths, team PF preserved, tail bracketing real).
 
-**Gap 3.10 state-dependent foul hazard COMPLETE (shooting-foul path).**
+**Accepted cross-era compromise:** a single global caution profile slightly over-corrects old (×0.8) and
+under-corrects modern (×1.4) — real's era spread in foul-outs (0.214→0.092) is wider than the sim's
+(0.161→0.127) because modern coaches manage foul trouble more aggressively. Kept ONE engine (no era-specific
+caution constants), consistent with usage-concentration / blocks-steals compromises.
+
+**REMAINING OWNER (next milestone, framed as "late foul-trouble COACHING behavior", NOT more hazard):**
+**PF=5 pile-up** (sim 10.3/8.0 vs real 7.1/4.1) — caution now parks even more players at exactly 5.
+Hypothesis: the sit-at-5 BENCHING rule. Before changing it, MEASURE its signature: of players who reach 5
+fouls, fraction that foul out vs finish on 5 (real vs sim). A high sim P(finish exactly on 5) is the
+benching fingerprint. Only then revisit sit-at-5.
+
+**Gap 3.10 state-dependent foul hazard COMPLETE (both foul paths).**
 
 ## Change log
 

@@ -438,7 +438,13 @@ def _select_action(ctx, result: dict) -> Action:
         # onto high-minute starters (91% of DQs) — the opposite of the real NBA, where
         # stars foul the least per minute. Team foul total is unchanged; only WHO commits
         # it. Shooting fouls stay tied to the contest defender (causal chain preserved).
-        fouler = rng.choices(defense, weights=[d.get("foul_rate", 0.09) for d in defense])[0]["id"]
+        # Foul-trouble caution also enters HERE (gap 3.10 (A)): a non-shooting foul isn't a
+        # contest, so a player in foul trouble is down-weighted in the draw and the foul
+        # REDISTRIBUTES to a teammate — total team PF preserved, unlike the shooting path
+        # where caution just lowers conversion. Closes the residual non-shooting memoryless
+        # path that bounded the modern PF=6 tail after the shooting-only caution.
+        fouler = rng.choices(defense, weights=[
+            d.get("foul_rate", 0.09) * _foul_caution(ctx, d["id"]) for d in defense])[0]["id"]
         if ctx.defense_in_bonus or not cfg.use_bonus_system:
             result["scorer"] = ball_handler["id"]
             result["fouled_by"] = fouler

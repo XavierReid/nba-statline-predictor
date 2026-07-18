@@ -262,20 +262,9 @@ def _free_throw_prob(player: dict) -> float:
 
 
 def describe_event(event: dict, name_map: dict) -> str:
-    """Human-readable description of the possession's OUTCOME. A pre-bonus non-shooting
-    foul is a DISCRETE basketball event and gets its own PBP line
-    (describe_nonshooting_foul) rather than being folded into the resumed play."""
+    """Human-readable description of the possession event. A pre-bonus non-shooting foul is now
+    its OWN terminal event (OREB-style two-event lifecycle), so it is described here directly."""
     return _describe_outcome(event, name_map)
-
-
-def describe_nonshooting_foul(event: dict, name_map: dict) -> Optional[str]:
-    """PBP line for a pre-bonus non-shooting foul (shot-clock reset), else None. The
-    possession continues after it, so it prints on its own line before the resumed play."""
-    nsf = event.get("nonshooting_foul_by")
-    if nsf is None:
-        return None
-    who = name_map.get(nsf, f"Player {nsf}")
-    return f"Non-shooting foul by {who} (shot clock reset to 14)"
 
 
 def _describe_outcome(event: dict, name_map: dict) -> str:
@@ -290,6 +279,10 @@ def _describe_outcome(event: dict, name_map: dict) -> str:
         if event.get("fouled_by") == event.get("turnover_by"):
             return f"{name(event['turnover_by'])} commits an offensive foul"
         return f"{name(event['turnover_by'])} turns it over"
+
+    if event.get("nonshooting_foul_by"):
+        return (f"Non-shooting foul: {name(event['nonshooting_foul_by'])} on "
+                f"{name(event.get('nonshooting_foul_on'))}")
 
     if not event.get("shot_type"):
         ftm, fta = event.get("ftm", 0), event.get("fta", 0)
@@ -363,7 +356,7 @@ def _empty_result() -> dict:
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
-        "nonshooting_foul_by": None, "shot_clock_reset": False,
+        "nonshooting_foul_by": None, "nonshooting_foul_on": None, "shot_clock_reset": False,
         "contested": None,
     }
 
@@ -371,9 +364,6 @@ def _empty_result() -> dict:
 def _finish(ctx, result: dict) -> dict:
     if ctx.name_map is not None:
         result["description"] = describe_event(result, ctx.name_map)
-        foul = describe_nonshooting_foul(result, ctx.name_map)
-        if foul is not None:
-            result["foul_description"] = foul
     return result
 
 
@@ -455,10 +445,15 @@ def _select_action(ctx, result: dict) -> Action:
 
     # non-shooting defensive foul. In the bonus (or when the bonus system is off — the
     # pre-3.7 behavior) it awards 2 FTs and ends the possession. Before the bonus it is a
-    # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14 — the
-    # possession CONTINUES (falls through to the shot) and consumes extra game clock.
-    ns_prob = _nonshooting_foul_prob(ctx, ball_handler)
-    if cfg.use_foul_rate_level:
+    # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14. It ENDS this
+    # event (returns terminal) and the game loop re-runs the possession for the resumed shot —
+    # the same OREB-style two-event lifecycle (the foul is a discrete dead-ball event; the
+    # offense keeps the ball and its objective, only the ball handler is re-drawn).
+    # At most ONE pre-shot non-shooting foul opportunity per offensive possession: a resumed shot
+    # (after such a foul reset the clock) already had it, so it is skipped here — the possession
+    # otherwise re-enters the pipeline normally (shot selection, steals, turnovers, shooting fouls).
+    ns_prob = 0.0 if ctx.resumed_after_foul else _nonshooting_foul_prob(ctx, ball_handler)
+    if cfg.use_foul_rate_level and ns_prob:
         ns_prob *= _lineup_foul_level(defense)   # era-level: fewer non-shooting fouls for a clean lineup
     if rng.random() < ns_prob:
         # A non-shooting foul isn't tied to a specific shot contest, so the fouler is
@@ -483,7 +478,9 @@ def _select_action(ctx, result: dict) -> Action:
             _credit_ft_rebound(ctx, result, last_missed)
             return Action(ball_handler, terminal=True)
         result["nonshooting_foul_by"] = fouler
+        result["nonshooting_foul_on"] = ball_handler["id"]
         result["shot_clock_reset"] = True
+        return Action(ball_handler, terminal=True)
 
     # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
     # volume; total TOV held via tov_scale). Still charges the ball handler a turnover.

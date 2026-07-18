@@ -122,10 +122,6 @@ if __name__ == "__main__":
         for e in result["events"]:
             clock = f"{e['game_clock_seconds'] // 60}:{e['game_clock_seconds'] % 60:02d}"
             team = HOME_ABBR if e["is_home"] else AWAY_ABBR
-            # a pre-bonus non-shooting foul is its own PBP line, before the resumed play
-            # (the foul doesn't score, so it shows the pre-outcome running score)
-            if e.get("foul_description"):
-                print(f"  {e['possession']:>4} {e['quarter']:>2} {clock:>6} {team:<4} {run_h:>4}-{run_a:<4}  {e['foul_description']}")
             run_h += e["pts"] if e["is_home"] else 0
             run_a += e["pts"] if not e["is_home"] else 0
             print(f"  {e['possession']:>4} {e['quarter']:>2} {clock:>6} {team:<4} {run_h:>4}-{run_a:<4}  {e.get('description') or ''}")

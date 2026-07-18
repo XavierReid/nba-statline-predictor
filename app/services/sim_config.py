@@ -136,6 +136,7 @@ class SimConfig:
 
     # --- tuning constants ---
     oreb_chain_cap: int = 5
+    foul_reset_chain_cap: int = 3   # max consecutive pre-bonus non-shooting fouls on one possession (OREB-style)
     fastbreak_time_mean: float = 7.0
     fastbreak_time_std: float = 1.5
     halfcourt_time_std: float = 3.0

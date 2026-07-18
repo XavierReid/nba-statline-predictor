@@ -7,7 +7,7 @@ callers via result["possession_accounting"] — extend it, don't reshape it.
 """
 from typing import Dict
 
-_CATEGORIES = ("halfcourt", "fastbreak", "second_chance", "strategic_foul", "endgame")
+_CATEGORIES = ("halfcourt", "fastbreak", "second_chance", "strategic_foul", "endgame", "foul_reset")
 
 
 class SimulationDiagnostics:

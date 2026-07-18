@@ -136,6 +136,26 @@ _CONTEST_PENALTY: Dict[str, float] = {
 # value over-suppressed old-era foul-outs. Multiplier by the defender's CURRENT foul count:
 _FOUL_CAUTION: Dict[int, float] = {3: 0.77, 4: 0.60, 5: 0.60}
 
+# League foul-rate ANCHOR for the player-rate-derived NON-SHOOTING foul hazard (gap 3.11). Total
+# team PF was era-FLAT because the foul paths normalized to the on-court LINEUP mean, dividing out
+# the absolute foul level (a low-foul modern lineup produced the same fouls as a high-foul old one).
+# The measured era difference lives in the NON-SHOOTING path (the modern PF excess is non-shooting;
+# shooting fouls drive FTA, which has its own target and must not be scaled here). So the
+# non-shooting hazard is scaled by the defending lineup's measured foul_rate against this FIXED
+# league anchor: a clean modern lineup draws proportionally fewer non-shooting fouls, so the real
+# era decline (team PF 22.8->19.9) EMERGES from the ingested player rates. The single constant
+# absorbs the era-INVARIANT level offset (roster-truncation + benching/rotation allocation) —
+# calibrated so league team PF matches real across eras (2005-06 22.7, 2016-17 20.2).
+LEAGUE_FOUL_RATE: float = 0.085
+
+
+def _lineup_foul_level(defense) -> float:
+    """Mean measured foul_rate of the on-court defenders relative to the league anchor. >1 for a
+    foul-prone (old-era) lineup, <1 for a clean (modern) lineup — this is what makes the team
+    foul LEVEL track the era instead of being flat. Applied to the non-shooting hazard only."""
+    m = sum(d.get("foul_rate", 0.09) for d in defense) / len(defense)
+    return m / LEAGUE_FOUL_RATE
+
 
 def _foul_caution(ctx, defender_id) -> float:
     """Foul-trouble conversion/attribution multiplier for a defender by current foul count
@@ -437,7 +457,10 @@ def _select_action(ctx, result: dict) -> Action:
     # pre-3.7 behavior) it awards 2 FTs and ends the possession. Before the bonus it is a
     # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14 — the
     # possession CONTINUES (falls through to the shot) and consumes extra game clock.
-    if rng.random() < _nonshooting_foul_prob(ctx, ball_handler):
+    ns_prob = _nonshooting_foul_prob(ctx, ball_handler)
+    if cfg.use_foul_rate_level:
+        ns_prob *= _lineup_foul_level(defense)   # era-level: fewer non-shooting fouls for a clean lineup
+    if rng.random() < ns_prob:
         # A non-shooting foul isn't tied to a specific shot contest, so the fouler is
         # drawn WEIGHTED by each defender's measured per-minute foul propensity rather
         # than uniformly. The uniform draw made fouls minutes-driven, funneling foul-outs
@@ -678,6 +701,10 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     # onto the bigs — real players contest ~equally per minute (~8% spread) but foul less
     # PER CONTEST (measured 2016-17: pf/contest is the dominant star signal). foul_rate is
     # PF/min from ingested PF, used as an empirical propensity proxy (guardrail #7).
+    # Shooting fouls stay LINEUP-MEAN normalized (level-neutral redistribution): they drive FTA,
+    # which has its own real target, and the era-level foul difference lives in the NON-SHOOTING
+    # path (measured: the modern PF excess is non-shooting, FTA is not over-produced). So the
+    # gap-3.11 era-level anchor is applied only to the non-shooting hazard, not here.
     lineup_mean_fr = sum(d.get("foul_rate", 0.09) for d in ctx.defense) / len(ctx.defense)
     foul_conv = (defender.get("foul_rate", 0.09) / lineup_mean_fr) if lineup_mean_fr > 0 else 1.0
     foul_conv *= _foul_caution(ctx, defender["id"])   # state-dependent: a contester in foul trouble converts contests to fouls less often

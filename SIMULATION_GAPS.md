@@ -1190,14 +1190,42 @@ vs 19.8/13.5/7.1/2.1; foul-outs 0.183 vs 0.214, ×0.9; team PF 22.0 vs 22.3). 20
 
 **Gap 3.10 state-dependent foul hazard COMPLETE (two-phase, both foul paths, benching kept).**
 
-**NEXT GAP — modern foul-LEVEL offset (NOT a caution problem).** The modern ×1.5 foul-out residual is
-upstream of the caution: across ALL caution profiles modern PF=4 is ×1.2 high (~11 vs 9.6) and PF=3 is high,
-team PF is +3% (20.6 vs 19.9), and the dispersion test measured per-player PF/36 at +10% (3.45 vs 3.14) in
-2016-17 while 2005-06 was on-target. The sim fouls ~+10% too much PER MINUTE in the modern era specifically,
-inflating the whole 3-6 region so foul-outs sit high regardless of tail shaping. Likely the global foul-scale
-constants (nonshooting_foul_scale=1.3, shooting_foul_scale=1.9) were calibrated on an era blend and run hot
-in the modern game. Instrument: why modern PF/min is +10%; consider a measured (not hand-tuned) era basis for
-the foul-scale. Independent of the hazard mechanism.
+**NEXT GAP — modern foul-LEVEL offset (NOT a caution problem).** See Gap 3.11 below — RESOLVED.
+
+## Gap 3.11 — Foul LEVEL was era-flat (player-rate-derived non-shooting hazard) (fixed 2026-07-16)
+
+**Symptom:** modern (2016-17) team PF ran +0.7 over real while old-era ran -0.7 under — the sim's foul level
+was too era-FLAT. Real PF declines -2.9 across eras (22.8->19.9); the sim declined only -1.4 (22.0->20.6).
+This inflated the modern 3-6 region and drove the residual ×1.5 modern foul-out rate left by gap 3.10.
+
+**Instrument-first ownership (rejected the obvious "global constant" symptom fix):**
+- Foul-path split: modern PF excess is NON-SHOOTING (FTA is low, -1.2, so shooting fouls aren't the excess).
+- **Player-rate RECONSTRUCTION** (integrate each player's ingested PF/min over sim minutes): reproduces the
+  era SHAPE at every roster slice (decline -2.3 to -2.8 vs real -2.9) but UNDER-counts the LEVEL by a uniform
+  ~2.5 both eras. So the era-flatness is NOT in the player data — it's in the RATE-GENERATION.
+- **Roster-coverage test:** top-10 truncation explains ~1.1/0.7 of the level offset (bench players foul more
+  per minute); the rest (~1.4/1.2) is the sim's benching/rotation allocating fewer minutes to high-foul
+  players. BOTH sources are era-INVARIANT. So the era shape is fully carried by player rates; only a flat
+  league-level constant is missing -> option (ii)+anchor, NOT a per-season team-PF anchor (option (i)).
+
+**Fix (option ii):** the foul RATE was era-flat because both paths normalized the hazard to the on-court
+LINEUP mean, dividing out the absolute foul level. The NON-SHOOTING hazard is now scaled by the defending
+lineup's measured foul_rate against a single fixed `LEAGUE_FOUL_RATE = 0.085` anchor (`_lineup_foul_level`,
+`use_foul_rate_level`): a clean modern lineup draws proportionally fewer non-shooting fouls, so the era
+decline EMERGES from the ingested player rates; the one constant absorbs the era-invariant level offset.
+Shooting fouls stay lineup-mean normalized (they drive FTA, which has its own target and must not be scaled).
+
+**Validation (league schedule):** team PF 22.7/20.2 vs real 22.8/19.9 (era decline now emerges); FTA
+protected (24.6/21.9, unchanged from 3.10 — the non-shooting-only scope avoided the FTA regression a full
+anchor caused); foul-outs improved BOTH eras vs 3.10 (0.183/0.142 -> 0.201/0.123: old near-exact, modern
+×1.5 -> ×1.34). 296 tests green (gated off in base config). Architecture stays measured-player-inputs ->
+emergent-team-output (one player source drives attribution AND the era-level rate).
+
+**Residuals (documented, not chased):** modern foul-outs still ×1.34 — but the LEVEL is now correct, so it's
+a small tail-SHAPE residual, not a level issue. FTA runs ~-1.5 low both eras — a separate pre-existing gap
+(shooting fouls draw slightly too few FT trips), independent of the foul level.
+
+**Gap 3.11 foul-level era-flatness COMPLETE.**
 
 ## Change log
 

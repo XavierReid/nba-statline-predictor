@@ -123,18 +123,24 @@ _CONTEST_PENALTY: Dict[str, float] = {
 # State-dependent foul hazard (foul-trouble caution). Real basketball is NOT memoryless:
 # a memoryless process with real per-player foul rates predicts ~3x the real foul-out rate,
 # and the sim (memoryless) matches that prediction while real collapses at the 5->6 step
-# (proof 2026-07-16: PF=6 real 0.9%/2.1% vs memoryless 3.1%/5.9%, both eras). Real caution is
-# concentrated at the last foul before fouling out, mild through 3-4. So a contester in foul
-# trouble converts a contest into a shooting foul less often. Applied ONLY to the contester's
-# conversion (the point where the discrepancy was proven) — NOT to contest selection (that
-# would perturb the defensive-matchup model) and NOT redistributed (let team PF drop; measure
-# first). Multiplier by the defender's CURRENT foul count:
-_FOUL_CAUTION: Dict[int, float] = {4: 0.80, 5: 0.35}
+# (proof 2026-07-16: PF=6 real 0.9%/2.1% vs memoryless 3.1%/5.9%, both eras). A defender in
+# foul trouble converts a contest into a foul less often (shooting path) and is down-weighted
+# in the non-shooting draw. Applied at the foul-CONVERSION point — NOT to contest selection
+# (would perturb the defensive-matchup model).
+#
+# TWO measured PHASES (a decoupled sweep beat any single-strength profile by ~20% total
+# cross-era error): (1) EARLY caution at 3-4 shapes ACCUMULATION — how players reach foul
+# trouble (real redistributes mass to PF3-4, so the sim must too, or it piles up at PF5);
+# (2) LATE caution at 5 sets the FOUL-OUT rate (the 5->6 conversion). They behave differently
+# across eras, so a firm-early/mild-late profile threads both eras where a single strong-late
+# value over-suppressed old-era foul-outs. Multiplier by the defender's CURRENT foul count:
+_FOUL_CAUTION: Dict[int, float] = {3: 0.77, 4: 0.60, 5: 0.60}
 
 
 def _foul_caution(ctx, defender_id) -> float:
-    """Contest->foul conversion multiplier for a defender in foul trouble (1.0 if not enabled
-    or not in trouble). Steep at 5 fouls (avoid fouling out), mild at 4."""
+    """Foul-trouble conversion/attribution multiplier for a defender by current foul count
+    (1.0 if not enabled or not in trouble). Early caution (3-4) shapes accumulation; late
+    caution (5) sets the foul-out rate."""
     if not ctx.cfg.use_foul_caution or not ctx.foul_counts:
         return 1.0
     return _FOUL_CAUTION.get(ctx.foul_counts.get(defender_id, 0), 1.0)

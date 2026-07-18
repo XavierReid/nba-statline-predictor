@@ -1172,13 +1172,32 @@ under-corrects modern (×1.4) — real's era spread in foul-outs (0.214→0.092)
 (0.161→0.127) because modern coaches manage foul trouble more aggressively. Kept ONE engine (no era-specific
 caution constants), consistent with usage-concentration / blocks-steals compromises.
 
-**REMAINING OWNER (next milestone, framed as "late foul-trouble COACHING behavior", NOT more hazard):**
-**PF=5 pile-up** (sim 10.3/8.0 vs real 7.1/4.1) — caution now parks even more players at exactly 5.
-Hypothesis: the sit-at-5 BENCHING rule. Before changing it, MEASURE its signature: of players who reach 5
-fouls, fraction that foul out vs finish on 5 (real vs sim). A high sim P(finish exactly on 5) is the
-benching fingerprint. Only then revisit sit-at-5.
+**(B) DONE — PF=5 pile-up resolved via a TWO-PHASE caution profile** (2026-07-16). Investigation chain:
+benching isolation (toggle sit-at-5 off) showed the benching is LOAD-BEARING for foul-out suppression
+(removing it spikes foul-outs 0.161→0.302 / 0.127→0.242) and only contributes ~2pts of the PF5 pile-up —
+so it can't just be removed. Conditional transitions (P(finish-on-5 | reach-5): sim 86% vs real 77-83%)
+plus the memoryless cross-reference showed the real owner: caution acted too LATE. Real redistributes the
+avoided foul-outs down to PF3-4 (acts EARLY), while the old profile ({4:0.80,5:0.35}) clamped only at 4-5
+and piled mass at PF5. A decoupled sweep proved PF5 and PF6 are TWO measured phases with different cross-era
+behavior: EARLY caution (3-4) shapes accumulation, LATE caution (5) sets the foul-out rate. The two-phase
+profile `_FOUL_CAUTION = {3:0.77, 4:0.60, 5:0.60}` (D1) beat any single-strength profile by ~20% total
+cross-era error — it restored old-era foul-outs (P1's strong-late over-suppressed them to ×0.57; D1 = ×0.9)
+while keeping the shape. No benching change needed (kept — it's load-bearing).
 
-**Gap 3.10 state-dependent foul hazard COMPLETE (both foul paths).**
+**D1 final (league schedule):** 2005-06 matches real across the whole histogram (PF3/4/5/6 19.1/13.0/7.4/1.8
+vs 19.8/13.5/7.1/2.1; foul-outs 0.183 vs 0.214, ×0.9; team PF 22.0 vs 22.3). 2016-17 improved
+(18.6/11.2/5.7/1.4; foul-outs 0.142 vs 0.092, ×1.5; team PF 20.6 vs 19.9). 296 tests green.
+
+**Gap 3.10 state-dependent foul hazard COMPLETE (two-phase, both foul paths, benching kept).**
+
+**NEXT GAP — modern foul-LEVEL offset (NOT a caution problem).** The modern ×1.5 foul-out residual is
+upstream of the caution: across ALL caution profiles modern PF=4 is ×1.2 high (~11 vs 9.6) and PF=3 is high,
+team PF is +3% (20.6 vs 19.9), and the dispersion test measured per-player PF/36 at +10% (3.45 vs 3.14) in
+2016-17 while 2005-06 was on-target. The sim fouls ~+10% too much PER MINUTE in the modern era specifically,
+inflating the whole 3-6 region so foul-outs sit high regardless of tail shaping. Likely the global foul-scale
+constants (nonshooting_foul_scale=1.3, shooting_foul_scale=1.9) were calibrated on an era blend and run hot
+in the modern game. Instrument: why modern PF/min is +10%; consider a measured (not hand-tuned) era basis for
+the foul-scale. Independent of the hazard mechanism.
 
 ## Change log
 

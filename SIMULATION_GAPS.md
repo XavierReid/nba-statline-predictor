@@ -1258,6 +1258,42 @@ calibration (not tuned to aggregate), within the accepted cross-era compromise.
 
 **Gap 3.12 COMPLETE — the shot-efficiency over-scoring owner (mid + three) is now fully resolved.**
 
+## Gap 3.3 — OT / end-of-regulation tie generation (mechanism 1 fixed 2026-07-22; survival owner OPEN)
+
+**Symptom:** sim OT rate ~2.3% (2024-25) / ~3.3% (2016-17) vs real 4.8% / 5.7%. OT happens iff regulation
+ends at margin 0.
+
+**Instrument 1 (end-of-regulation margin histogram, line scores):** the sim is NOT short of close games —
+`|margin|<=5` mass equals/exceeds real both eras (24.4 vs 23.2; 24.3 vs 22.4). But real SPIKES at exactly 0
+(5.7% / 4.8%, clearly above its `±1..3` neighbors ~2.0–2.5%); the sim's 0-bin is a smooth point (3.3% / 2.3%),
+lower than its own `|1|`/`|2|` bins. So the owner is CONVERT (engineer the exact tie), not REACH. Cross-era.
+
+**Instrument 2 (final-possession shot value):** the base engine's late shot selection is deficit-INSENSITIVE
+(made-3-share down 1/2/3 ~35/31/36%) while real is steeply deficit-SENSITIVE (~18/28/48%, sharpening on the
+last shot: ≤12s real down-3 = 67%). The engine picks its normal CHASE mix regardless of deficit — it can't
+express "shoot the 3 to tie when down 3 / take the 2 when down 1". Confirmed via the identical made-only
+estimator on both eras (real PBP is made-only; the bias cancels between sim and real).
+
+**Mechanism 1 (tie-seeking shot VALUE) — FIXED.** `late_game.tie_seek_three_shift`: additive three-rate shift
+on the trailing team's late final-period possession, keyed on deficit (down 1 −0.20 / down 2 −0.05 / down 3
++0.45) and sharpening toward the buzzer (urgency). Wired in `ObjectiveModifier` INDEPENDENT of CHASE (deficits
+1–3 sit below `objective_min_margin`, so `derive_objective` is NEUTRAL there). Ceiling on the objective
+three-rate-override path raised 0.60→0.85 (a team down 3 at the buzzer shoots ~80% threes; the 0.60 shot-mix
+cap was never meant to bound that forced choice). `use_tie_seek` toggle, off in base → 296 tests byte-identical.
+Validated: down 1/2/3 made-3-share now 21.6/28.0/47.5% vs real 17.9/27.8/47.6% (2024-25) — the conditional
+decision matches real cross-era.
+
+**Survival owner still OPEN — mechanism 1 did NOT move the OT rate.** Matching the shot-value decision is
+NECESSARY but not SUFFICIENT: ties don't survive to the buzzer. **Tied-tempo hypothesis FALSIFIED by
+instrument:** the sim already drains the clock when tied (tied-offense shot time ≤6s share 82% vs real 70%;
+median 0s vs 2s), so a tied-game milk would OVERSHOOT — not the owner. Remaining candidates (instrument-first,
+none assumed): (1) make-rate of the tying shot itself, (2) the opponent's answer possession after a late tie,
+(3) reach at the buzzer specifically (<~6s). Next cut: instrument tying-2 vs tying-3 late-clock make% /
+contest / location vs real.
+
+Instruments: `scratch/gap33_ot_instrument.py`, `gap33_final_possession.py`, `gap33_real_shot_timing.py`,
+`gap33_tied_tempo.py`.
+
 ## Change log
 
 | Date | Item | Action |

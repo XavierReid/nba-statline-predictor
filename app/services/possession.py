@@ -525,7 +525,10 @@ def _select_action(ctx, result: dict) -> Action:
     # shot type — objective three_rate_override then phase shot-profile multiplier
     three_rate = ball_handler["three_point_rate"]
     if ctx.adjustments and ctx.adjustments.three_rate_override:
-        three_rate = min(0.60, max(0.0, three_rate + ctx.adjustments.three_rate_override))
+        # 0.85 ceiling (not 0.60): a team down 3 at the buzzer (gap 3.3 tie-seek) shoots
+        # a three ~80% of the time — the normal 0.60 shot-mix cap was never meant to bound
+        # that forced choice. Only a strong positive override (tie-seek down 3) reaches here.
+        three_rate = min(0.85, max(0.0, three_rate + ctx.adjustments.three_rate_override))
     if profile.shot_profile.three_rate_mult != 1.0:
         three_rate = min(0.60, max(0.0, three_rate * profile.shot_profile.three_rate_mult))
     if ctx.is_fastbreak:

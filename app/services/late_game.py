@@ -170,6 +170,30 @@ def objective_adjustments(objective, intensity, cfg, margin_abs: int = 0) -> "Mo
     )
 
 
+def tie_seek_three_shift(off_margin: int, clock_seconds: float, q_idx: int, cfg) -> float:
+    """Additive three-rate shift the trailing team applies on a late final-period
+    possession — the decision the base engine lacks (gap 3.3): match shot VALUE to
+    the deficit. Down 3 you need a three to TIE (shift up); down 1 a two takes the
+    lead (shift down); down 2 mild. Sharpens toward the buzzer (urgency) — the
+    measured deficit-sensitivity steepens as the clock shrinks. Zero outside the
+    final period, when leading/tied, or before the window.
+
+    Distinct from CHASE: the tie-seek deficits (1-3) sit below objective_min_margin,
+    so derive_objective returns NEUTRAL here — this is added independently.
+    """
+    if q_idx < 3 or off_margin >= 0 or clock_seconds > cfg.tie_seek_clock_window:
+        return 0.0
+    base = {
+        1: cfg.tie_seek_down1_shift,
+        2: cfg.tie_seek_down2_shift,
+        3: cfg.tie_seek_down3_shift,
+    }.get(-off_margin, 0.0)
+    if base == 0.0:
+        return 0.0
+    urgency = 1.0 - clock_seconds / cfg.tie_seek_clock_window  # 0 at window edge → 1 at buzzer
+    return base * (0.5 + 0.5 * urgency)
+
+
 def possession_time_override(
     ctx: LateGameContext, cfg, rng: random.Random
 ) -> Optional[float]:

@@ -28,6 +28,7 @@ class SimConfig:
     use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
     use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
     use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
+    use_tie_seek: bool = False         # trailing team matches late shot VALUE to the deficit (gap 3.3)
     use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
     use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
     use_behavior_profile: bool = False  # GamePhase resolves to a baseline-behavior profile
@@ -49,6 +50,19 @@ class SimConfig:
     endgame_urgency_time_std: float = 1.5
     endgame_milk_time_mean: float = 20.0     # leading offense — time over expected points
     endgame_milk_time_std: float = 2.0
+
+    # --- tie-seeking shot value (gap 3.3; late_game.tie_seek_three_shift) ---
+    # The base engine picks its normal CHASE shot mix regardless of deficit, so it
+    # under-shoots the tying three when down 3 and over-shoots threes when down 1 —
+    # measured deficit-insensitivity (down 1/2/3 made-3-share ~35/31/36% vs real
+    # ~18/28/48%), which leaks the end-of-regulation tie mass and halves the OT rate.
+    # Additive three-rate shift on the trailing team's late final-period possession,
+    # keyed on deficit and sharpening toward the buzzer (urgency). Deficit 1-3 is below
+    # objective_min_margin, so this is a distinct mechanism from CHASE, not a CHASE knob.
+    tie_seek_clock_window: float = 30.0  # seconds remaining (Q4/OT) for the bias to be active
+    tie_seek_down1_shift: float = -0.20  # down 1: a two takes the lead — fewer threes
+    tie_seek_down2_shift: float = -0.05  # down 2: mild
+    tie_seek_down3_shift: float = 0.45   # down 3: need the three to tie — more threes
 
     # --- Q4 team objectives (gap 3.1; late_game.derive_objective/objective_adjustments) ---
     # Behavior-first: selection + tempo only, efficiency emerges. Constants are
@@ -217,6 +231,7 @@ DRAMA_M3 = SimConfig(
     use_positional_matchups=True,
     use_foul_drawing=True,
     use_endgame_pacing=True,
+    use_tie_seek=True,
     use_garbage_rotation=True,
     use_lineup_quality=True,
     use_behavior_profile=True,

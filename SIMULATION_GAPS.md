@@ -1284,15 +1284,91 @@ Validated: down 1/2/3 made-3-share now 21.6/28.0/47.5% vs real 17.9/27.8/47.6% (
 decision matches real cross-era.
 
 **Survival owner still OPEN — mechanism 1 did NOT move the OT rate.** Matching the shot-value decision is
-NECESSARY but not SUFFICIENT: ties don't survive to the buzzer. **Tied-tempo hypothesis FALSIFIED by
-instrument:** the sim already drains the clock when tied (tied-offense shot time ≤6s share 82% vs real 70%;
-median 0s vs 2s), so a tied-game milk would OVERSHOOT — not the owner. Remaining candidates (instrument-first,
-none assumed): (1) make-rate of the tying shot itself, (2) the opponent's answer possession after a late tie,
-(3) reach at the buzzer specifically (<~6s). Next cut: instrument tying-2 vs tying-3 late-clock make% /
-contest / location vs real.
+NECESSARY but not SUFFICIENT: ties don't survive to the buzzer. Owner hunt (instrument-first, each ruled in/out):
+- **Tied-tempo FALSIFIED:** the sim already drains the clock when tied (tied-offense shot time ≤6s share 82%
+  vs real 70%), so a tied-game milk would OVERSHOOT — not the owner.
+- **Tying-shot make-rate PARTLY ruled out:** tying 3s make 33.8% (real clutch ~30% ✓); tying 2s make 66%
+  (real ~40-45% ✗) — under-contested (38.7%), rim-heavy (61% rim). So late 2s are too EASY, not too hard.
+- **Contest intensity is DOUBLE-EDGED, not a clean sole owner:** under-contesting late shots makes BOTH the
+  tying shot easier (creates more ties) AND the answer shot easier (breaks more ties); on the down-2 path the
+  two effects largely cancel (real ≈ reach×0.42×0.58 vs sim ≈ reach×0.66×0.49). So "contest harder" is not
+  obviously the OT owner — it needed a reach-vs-convert split to locate where it matters.
+
+**REACH → CONVERT decomposition (live |margin| at 8s remaining, the true last-possession state; 2024-25,
+real reconstructed from PBP running score + line-score OT flag):**
+
+| \|m\| | reach real | reach sim | P(OT\|m) real | P(OT\|m) sim |
+|---|---|---|---|---|
+| 0 | 4.7% | 2.2% | 58.9% | 35.9% |
+| 1 | 4.0% | 4.2% | 8.3% | 5.4% |
+| 2 | 5.0% | 5.3% | 18.3% | 17.7% |
+| 3 | 5.9% | 4.1% | 12.9% | 5.6% |
+
+`Σ reach×convert` reproduces both OT rates exactly (real 4.78%, sim 2.19%). **The `m=0` cell — already tied at
+8s — is 76% of the whole deficit** (real 2.77% vs sim 0.79%). `m=2` matches on BOTH axes; `m=3` is a smaller
+secondary gap. The m=0 gap splits into two co-equal, same-root halves:
+- **Convert at m=0 (58.9% → 35.9%):** the answer/last shot is under-contested → too easy → the ball-holder WINS
+  instead of the game reaching OT. Here contest is a CLEAN owner — no tying shot to benefit, so the cancellation
+  does NOT apply. Isolated to already-tied games.
+- **Reach at m=0 (4.7% → 2.2%):** the sim DIPS at exactly 0 (below its own m=1/m=2 neighbors) while real does
+  not — tied states are UNSTABLE in the sim, someone pulls ahead before the buzzer. Same easy-scoring root,
+  upstream of the last shot.
+
+**Both halves trace to the session-wide theme: late-game scoring is too easy / tied states too unstable.**
+
+**Reach/stability sub-decomposition (margin transition 24s → 8s, 2024-25):**
+
+| state @24s | reach real | reach sim | → still tied @8s real | → still tied @8s sim |
+|---|---|---|---|---|
+| tied | 3.4% | 2.2% | 75.6% | 47.1% |
+| 1-3 | 18.3% | 13.6% | 11.0% | 8.4% |
+| 4-6 | 11.8% | 14.5% | — | — |
+| 7+ | 66.5% | 69.7% | — | — |
+
+Two contributors: **(1) upstream reach** — sim margins entering the final 24s are too WIDE (under-populates
+tied/one-score, over-populates 4-6 and 7+); the gap-3.2 competitive-variance family, upstream of any last-shot
+behavior. **(2) STABILITY (dominant, addressable)** — tied at 24s, real HOLDS the tie to 8s 75.6% vs sim 47.1%.
+`possession_time_override` returns None for tied games, so a tie reached at 24s takes a NORMAL ~14s possession,
+shoots at ~10s, and (late scoring too easy) takes the lead — the tie breaks before 8s. Real milks that possession
+(holds for the last shot), keeping the ball out of a scoring event so the tie survives.
+
+**This rehabilitates tied-game clock management as a CALIBRATED owner** (the earlier tied-tempo "falsification"
+was an ARTIFACT: sim tied shots cluster at ≤6s only because ties are usually REACHED late ~11s, not from a milk
+decision; ties reached at 24s do NOT milk). But real only holds 76% — full milk-to-buzzer would OVERSHOOT, so
+the mechanism is "a tied team late is MORE LIKELY to play for the last shot," tuned to the ~76% hold, not a hard
+hold.
+
+Owner picture for the m=0 cell (76% of the OT deficit): CONVERT half (58.9%→35.9%) = under-contested last shot
+(clean, isolated, no cancellation); REACH/STABILITY half (4.7%→2.2%) = upstream margin variance [gap-3.2 family]
++ missing tied-game clock management [calibrated milk, ~76% hold target].
+
+**Tied-milk stability prototype — PROTOTYPED, NOT SHIPPED (reverted).** Added a calibrated tied-game milk
+(a tied team late plays for the last shot) and measured: it FIRES correctly (~0.7× of eligible) but is only
+ELIGIBLE ~23×/400 games, so tied@24→tied@8 didn't move (47→45%, noise) and OT was unchanged (2.27%). The sim
+so rarely REACHES a tied late state that a stability fix has nothing to act on. Unlike mechanism 1 (validated
+conditional), this has no validated conditional improvement → not merged. Reverted.
+
+**STOPPING CRITERION — the reach×convert decomposition gates the OT gap on gap 3.2, not on more endgame
+mechanisms.** `Σ reach×convert` (real OT 4.78%):
+- sim as-is: 2.19%
+- perfect CONVERT at sim's reach: **3.15%**
+- real REACH at sim's convert: **3.13%**
+- both: 4.78%
+
+Neither half alone clears ~3.1% — the gap is factored into TWO ~equal contributors and one (reach) is UPSTREAM.
+Every downstream endgame tweak (contest, milk, selection) hits the same ~3.1% ceiling until the upstream
+late-game MARGIN DISTRIBUTION is fixed. The reach deficiency is not an isolated OT problem — it is the SAME
+signature as **gap 3.2** (late margins don't compress enough; one-score games and ties underrepresented entering
+the final possessions; leads too sticky). So the remaining OT residual is **DOCUMENTED AS GATED BY THE GAP-3.2
+LATE-MARGIN OWNER**, not chased with another endgame behavior.
+
+**Gap 3.3 status:** mechanism 1 (tie-seek shot value) SHIPPED & validated on its own conditional target. The
+OT-rate residual (~2.3% vs ~4.8%) is deliberately LEFT OPEN, gated on gap 3.2's late-margin compression. Optional
+future lever: the m=0 CONVERT contest term (under-contested last shot) — independently measurable and correct,
+but explicitly NOT expected to close the OT gap alone (caps at ~3.1%).
 
 Instruments: `scratch/gap33_ot_instrument.py`, `gap33_final_possession.py`, `gap33_real_shot_timing.py`,
-`gap33_tied_tempo.py`.
+`gap33_tied_tempo.py`, `gap33_tying_makerate.py`, `gap33_answer_possession.py`, `gap33_reach.py`.
 
 ## Change log
 

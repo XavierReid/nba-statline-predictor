@@ -83,12 +83,14 @@ _CONTEST_REACH: Dict[str, float] = {
     # ~14-18% are flagged contested (was 0.65/0.80 -> ~53%, far too many).
     "corner_three":      0.20,
     "above_break_three": 0.22,
-    "mid_range":         0.85,
-    "floater":           0.60,
+    # Non-rim: lowered so ~40% of nonrim shots are contested (was 0.85 -> ~60%), matching real
+    # mid 10ft+ (~42% within 4 ft). Pairs with the additive _CONTEST_PENALTY above.
+    "mid_range":         0.55,
+    "floater":           0.40,
     "layup":             0.90,
     "dunk":              0.75,
     # fallback
-    "three": 0.22, "mid": 0.85, "close": 0.90,
+    "three": 0.22, "mid": 0.55, "close": 0.90,
 }
 
 # When contested: multiplier on the raw defense_penalty (separates reach from impact).
@@ -118,6 +120,14 @@ _CONTEST_PENALTY: Dict[str, float] = {
     "corner_three":      0.088,
     "above_break_three": 0.088,
     "three":             0.088,
+    # Non-rim 2pt (paint-non-RA + mid) had the SAME inert-contest problem threes did before
+    # gap 3.9 — the multiplicative impact on a ~0 centered penalty moved contested make by
+    # 0.0000 in BOTH eras, so contested nonrim was as easy as open (real gap ~0.05). Additive
+    # penalty calibrated to real conditional splits (mid 10ft+, 2016-17): contested 0.380 /
+    # open ~0.425 / ~42% contested → aggregate emerges at ~0.406 (real 0.408).
+    "mid_range":         0.045,
+    "mid":               0.045,
+    "floater":           0.045,
 }
 
 # State-dependent foul hazard (foul-trouble caution). Real basketball is NOT memoryless:

@@ -1227,6 +1227,37 @@ a small tail-SHAPE residual, not a level issue. FTA runs ~-1.5 low both eras —
 
 **Gap 3.11 foul-level era-flatness COMPLETE.**
 
+## Gap 3.12 — Non-rim (mid) contest separation — the last shot-efficiency owner (fixed 2026-07-18)
+
+**Follow-up to 3.9.** After 3.9 fixed the three-point contest mechanism, the residual scoring lift
+localized to mid: non-rim (paint-non-RA + mid) FG% ran **+0.015** high both eras (realized 0.423 vs
+real 0.408 in 2016-17). Instrument-first ownership (each candidate RULED OUT before the fix):
+- **NOT shrinkage:** the shrunk zone base weighted by real attempts is +0.003 — small, and GENERAL
+  (three carries the same +0.003), so lowering the shrink weight would break three. Exonerated.
+- **NOT the shot mix (γ):** sim shot-weighted base (0.412) = real-attempt-weighted roster prob (0.412).
+- **NOT open shots:** sim open non-rim 0.424 ≈ real 0.428; home_bonus (+0.008) is NEEDED to lift open to
+  real and is not a double-count problem.
+- **OWNER = the contest stage is INERT for non-rim**, exactly like threes before 3.9. Stage-by-stage
+  make-prob decomposition (contested non-rim, full schedule): base 0.4125 → −penalty_pre 0.0015 →
+  **contest adjustment −0.0000** → +home 0.0078 → make 0.420. The multiplicative `_CONTEST_IMPACT`
+  (1.0) on the ~0 centered penalty moves contested make by **0.0000**. Confirmed ERA-INVARIANT: contested
+  vs open separation is +0.001 (2016-17) / −0.004 (2005-06) and contest-delta ≈ 0 in BOTH. So contested
+  non-rim was as easy as open (real gap ~0.05), riding the aggregate high.
+
+**Fix (same architecture as 3.9):** additive `_CONTEST_PENALTY` for `mid_range`/`mid`/`floater` = 0.045,
+plus reach lowered 0.85→0.55 (floater 0.60→0.40) so ~40% of non-rim shots are contested (real ~42%).
+Calibrated to the real CONDITIONAL splits (mid 10ft+, 2016-17, the validated non-rim proxy since real
+mid-10ft aggregate 0.408 = real non-rim aggregate): contested 0.380 / open ~0.425 / ~42% contested →
+aggregate EMERGES at ~0.406. Threes, interior, home_bonus, shrinkage all untouched.
+
+**Validation (league schedule, both eras):** non-rim FG% +0.015 → within −0.006 of real (2016-17 0.405 vs
+0.408; 2005-06 0.394 vs 0.400), calibrated to contested 0.378 (target 0.380). Three unchanged (0.356/0.363),
+interior unchanged, scoring nudged toward real (2016-17 107.2→107.0). 296 tests green (gated off in base
+config). Both eras land slightly low by the same small amount — the emergent result of the conditional
+calibration (not tuned to aggregate), within the accepted cross-era compromise.
+
+**Gap 3.12 COMPLETE — the shot-efficiency over-scoring owner (mid + three) is now fully resolved.**
+
 ## Change log
 
 | Date | Item | Action |

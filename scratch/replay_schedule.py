@@ -61,8 +61,9 @@ def main(season: str, sims_per_game: int, signal_gain=None, overrides=None) -> N
     teams = db.execute(select(Team)).scalars().all()
     abbr = {t.id: t.abbreviation for t in teams}
     rosters = {}
+    _depth = getattr(config, "roster_depth", 10)
     for t in teams:
-        r = load_roster(db, t.id, season)
+        r = load_roster(db, t.id, season, depth=_depth)
         if r:
             rosters[t.id] = r
 

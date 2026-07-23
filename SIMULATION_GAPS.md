@@ -754,6 +754,39 @@ bench ~0.21); star FT term −1.24 → −0.50. Team scoring stable.
 
 Instruments: `scratch/gap34_ft_by_tier.py`, `app/analysis/player_accounting.py` (tier + points waterfall).
 
+## Gap 3.4f — Per-game availability model (the minutes owner) (SHIPPED 2026-07-23)
+
+**The largest remaining player-line error was MINUTES** (primary −3.2 modern), and it is γ-INVARIANT (survives the
+whole γ sweep) — so it is a distinct owner from usage. Disambiguation factorial (`gap34_minutes_factorial`, rotation
+held fixed) FALSIFIED two tempting owners: (1) roster DEPTH — 10→12→15 makes every tier UNIFORMLY WORSE both eras
+(the sim plays all loaded players every game); (2) GP-weighting — only a star/bench TILT, not the uniform ~2-3 MPG
+deficit. What survives is a **missing per-game AVAILABILITY model**.
+
+Confirmed at the per-game grain (ingested `PlayerGameLog`, LeagueGameLog, 2016-17 + 2024-25): real active
+players/team-game mean ~10.6, distributed 9-13 (NOT a fixed 10); appearance rate ≈ games_played/82; and the WHOLE
+rotation turns over (top-4 miss ~14%, rotation ranks 5-10 miss ~25-30%), not just the deep bench — which is exactly
+why the fixed-10 roster (whose real top-10 MPG sums to ~255 > 240) cannot reproduce per-game MPG.
+
+**Fix (`app/services/availability.py`) — an ELIGIBILITY layer, separate from the rotation engine** (the reverted
+15-player run proved representation and rotation policy are different systems): load a deeper roster (18), draw each
+player active per game with probability calibrated to the season's real active mean (solve k so E[active]=target
+from PlayerGameLog; fallback gp/82), build the rotation from ACTIVE players only, and fill 240 among them
+bench-weighted (short-handed surplus to low-MPG, soft cap 40) so the star isn't over-served. Gated by
+`use_availability`; base config byte-identical (296 tests). `simulate_game` reloads the deeper pool if handed a
+shallow roster, so every caller benefits without surgery.
+
+**Result: roughly HALVES the per-tier minutes error in BOTH eras** (2016-17 total abs error 9.4→3.9; 2024-25
+12.0→6.5) while preserving invariants — active count on target (~10.6), team minutes exactly 240, star improved
+and not regressed. Folded into DRAMA_M3 (use_availability, roster_depth=18, availability_min_active=9).
+
+**Documented residual (NOT chased — a SEPARATE mechanism):** modern mid-tiers ~1-2 MPG under. Availability solved
+WHO is available; how the active set's 240 minutes are ALLOCATED (and the rotation-engine BACKFILL that over-serves
+high-minute players) is the second-stage owner, to open as its own isolated investigation. Star did not regress →
+garbage-time untouched, per plan.
+
+Instruments: `scratch/gap34_minutes_input.py`, `gap34_minutes_factorial.py`, `gap34_availability_proxy.py`,
+`gap34_active_roster.py`, `gap34_availability_validate.py`; ingest `app/ingestion/jobs.ingest_player_game_logs`.
+
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 
 **Status (2026-07-14):** the "sim lacks within-game correction" hypothesis is now the

@@ -127,8 +127,9 @@ def sim_accounts(db: Session, season: str, tiers: Dict[int, str],
         step = len(games) // max_games
         games = games[::step]
     rosters = {}
+    _depth = getattr(config, "roster_depth", 10)
     for t in db.execute(select(Team)).scalars().all():
-        r = load_roster(db, t.id, season)
+        r = load_roster(db, t.id, season, depth=_depth)
         if r:
             rosters[t.id] = r
 

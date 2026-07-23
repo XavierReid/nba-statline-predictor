@@ -81,8 +81,19 @@ def simulate_game(
 
     # Per-game availability (gap 3.4): ~10 of a deeper roster are active tonight, drawn from
     # games_played. Eligibility only — the rotation engine is untouched. Returns fresh dicts.
+    # Availability needs the deeper pool: if handed a shallow roster (a caller that loaded the
+    # default depth), reload to roster_depth here so every path benefits without caller surgery.
     if cfg.use_availability:
         from app.services.availability import select_active_roster
+        depth = getattr(cfg, "roster_depth", 10)
+        if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
+            from app.services.roster import load_roster
+            hp = load_roster(db, home_team_id, season, depth=depth)
+            ap = load_roster(db, away_team_id, season, depth=depth)
+            if hp:
+                home_players = hp
+            if ap:
+                away_players = ap
         home_players = select_active_roster(home_players, rng, cfg)
         away_players = select_active_roster(away_players, rng, cfg)
 

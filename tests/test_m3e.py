@@ -138,13 +138,15 @@ class TestShotTypeMultipliers:
         assert _FOUL_DRAW_MULT["corner_three"] < _FOUL_DRAW_MULT["above_break_three"] < 1.0
 
     def test_rim_attacker_draws_more_shooting_fouls_than_shooter(self):
-        rim = [_player(pos="C", three_point_rate=0.0, dunk_rate=1.0, foul_drawing_rate=0.22)]
-        shooter = [_player(pos="G", three_point_rate=1.0, foul_drawing_rate=0.22)]
+        # foul_drawing_rate at the league anchor so the two-sided shooter modifier is neutral (~1)
+        # and this isolates the shot-type multiplier (gap 3.4).
+        rim = [_player(pos="C", three_point_rate=0.0, dunk_rate=1.0, foul_drawing_rate=0.28)]
+        shooter = [_player(pos="G", three_point_rate=1.0, foul_drawing_rate=0.28)]
         kw = dict(use_foul_drawing=True, use_shot_subtypes=True)
         assert _shooting_foul_rate(rim, **kw) > _shooting_foul_rate(shooter, **kw)
 
     def test_multiplier_noop_when_disabled(self):
-        rim = [_player(pos="C", three_point_rate=0.0, dunk_rate=1.0, foul_drawing_rate=0.22)]
+        rim = [_player(pos="C", three_point_rate=0.0, dunk_rate=1.0, foul_drawing_rate=0.28)]
         with_mult = _shooting_foul_rate(rim, use_foul_drawing=True, use_shot_subtypes=True)
         without = _shooting_foul_rate(rim, use_foul_drawing=False, use_shot_subtypes=True)
         assert with_mult > without

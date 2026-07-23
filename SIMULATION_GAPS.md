@@ -718,6 +718,42 @@ Instruments: `scratch/gap32_q4_pace_eff.py`, `gap32_q4_buckets.py`, `gap32_run_t
 
 ---
 
+## Gap 3.4e — Two-sided foul draw: stars under-draw shooting fouls (fixed 2026-07-23)
+
+**Follow-up to 3.4 (player stat-line realism).** The tier `player_accounting` decomposition showed a
+monotonic-by-usage FT term in Δpoints (star −1.24, primary −1.10 … bench −0.09) — stars under-produce free
+throws. In modern the star POINTS reconciled (24.5/24.5) but only because a usage OVER-allocation (+1.63)
+CANCELLED the FT deficit: a composition (identity) error, not correctness.
+
+**Owner (measured):** the per-shot foul-DRAW rate (FTA/FGA) is too FLAT across usage. Real is steep — star
+0.346 → bench 0.215 (2025-26); sim was ~0.24 for everyone. Root: the shooting-foul draw
+(`0.13 × shot_type_mult × and1 × foul_conv`) had **no shooter term** — only shot sub-type and the DEFENDER's
+foul rate. The per-player `foul_drawing_rate` (correct real gradient, star 0.346 → bench 0.229) was wired only
+into the NON-shooting pre-bonus path, which draws no FTs. So star whistle-drawing never reached the FTA-producing
+path.
+
+**Fix — two-sided symmetric interaction:** `P(shooting foul) = base × shot_type_mult × and1 × defender_mod ×
+shooter_mod`, both player modifiers mean-1. `defender_mod` (`foul_conv`) was already lineup-mean normalized;
+added `shooter_mod = foul_drawing_rate / _SHOOTER_DRAW_ANCHOR (0.28 = shot-weighted league mean)` so it is
+REDISTRIBUTIVE (mean ~1) and the base keeps league FTA anchored — NOT the 0.22 no-history floor, which is below
+the shot-weighted mean and would bake a level boost into the weights. Gated by the existing `use_foul_drawing`
+(off in base → 296 tests byte-identical; one test's neutral player moved 0.22→0.28).
+
+**Validation (tier harness, both eras):** FTA/FGA gradient now matches real relative shape (star ~0.33-0.36 →
+bench ~0.21); star FT term −1.24 → −0.50. Team scoring stable.
+
+**Two deliberate scope calls (user):**
+1. **Absolute FTA LEVEL left to the base anchor, NOT chased.** The redistributive design is level-neutral by
+   intent. Star FTA stays ~11% low in absolute terms, but the roster-summed "team FTA" target is inflated (real
+   27.9 vs true league ~21; sim 20.8 ≈ true), so the level is partly a measurement artifact + a separate era-mix
+   (3PA) question — not baked into shooter weights.
+2. **The FT fix EXPOSED a usage over-allocation** the FT deficit was masking: star Δpoints +0.05 → +0.64 (usage
+   term +1.54, star usg share 22% vs real 18%). This is the predicted FT↔usage coupling (usage = FGA+0.44·FTA+TOV).
+   **NEXT: revisit γ (likely a reduction)** — now the dominant, cleanly-exposed star-line lever. Doing FT first
+   changed the sign of the usage conclusion (modern stars were thought under; with FT correct they read over).
+
+Instruments: `scratch/gap34_ft_by_tier.py`, `app/analysis/player_accounting.py` (tier + points waterfall).
+
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 
 **Status (2026-07-14):** the "sim lacks within-game correction" hypothesis is now the

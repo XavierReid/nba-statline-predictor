@@ -218,6 +218,12 @@ _LEAGUE_AVG_FOUL_DRAW_RATE: float = 0.22
 # Elite real foul drawers (Giannis, Embiid) sit near 0.55; 0.60 leaves headroom without outliers.
 _FOUL_DRAW_RATE_CAP: float = 0.60
 
+# Normalization anchor for the two-sided shooting-foul draw (gap 3.4): the shot-weighted league
+# mean foul_drawing_rate, so shooter_draw_mod averages ~1 (redistributive) and the base probability
+# keeps league FTA anchored — NOT the 0.22 no-history floor, which is below the shot-weighted mean
+# (stars shoot more) and would bake a level boost into the weights.
+_SHOOTER_DRAW_ANCHOR: float = 0.28
+
 _GUARD_POSITIONS = frozenset({"G", "G-F"})
 _WING_POSITIONS  = frozenset({"F", "F-G", "F-C"})
 
@@ -718,8 +724,18 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     lineup_mean_fr = sum(d.get("foul_rate", 0.09) for d in ctx.defense) / len(ctx.defense)
     foul_conv = (defender.get("foul_rate", 0.09) / lineup_mean_fr) if lineup_mean_fr > 0 else 1.0
     foul_conv *= _foul_caution(ctx, defender["id"])   # state-dependent: a contester in foul trouble converts contests to fouls less often
+    # Two-sided foul interaction (gap 3.4): the shooter's whistle-drawing ability, not just the
+    # defender's foul tendency. shooter_draw = measured foul_drawing_rate (FTA/FGA) normalized to
+    # the league mean, so it averages ~1 and the base probability keeps league FTA anchored — the
+    # defender side (foul_conv) is already lineup-mean normalized. Stars draw shooting fouls at
+    # their real elevated rate; flat before this (FTA/FGA ~0.24 for all vs real 0.35 star / 0.22 bench).
+    if cfg.use_foul_drawing:
+        shooter_draw = min(ball_handler.get("foul_drawing_rate") or _SHOOTER_DRAW_ANCHOR,
+                           _FOUL_DRAW_RATE_CAP) / _SHOOTER_DRAW_ANCHOR
+    else:
+        shooter_draw = 1.0
     # 3PT shooting foul (~2% x sub-type multiplier)
-    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1 * foul_conv:
+    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
@@ -729,7 +745,7 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
-    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv:
+    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1

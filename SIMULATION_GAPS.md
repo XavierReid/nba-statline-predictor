@@ -671,6 +671,51 @@ time this was read as a 6.8-vs-9.5 residual owned elsewhere — but see the 3.6 
 that "9.5" was a bad anchor and the residual is not real. Gap 3.2 blowout/Q4-compression:
 SUBSTANTIALLY CLOSED.
 
+### Gap 3.2 REOPENED via the gap-3.3 OT reach (2026-07-23) — late-game scoring hypotheses FALSIFIED as the OT owner
+
+The gap-3.3 reach×convert decomposition traced the OT deficit partly to a REACH half: the sim under-populates
+the one-score (0-5) band entering the final minute. The entering-Q4 transition table localized it — the 9-20
+comfortable-lead band is MATCHED (the 2026-07-14 PROTECT fix holds), but the **0-5 one-score band over-grows
+by +1.25** (sim Δ|m| +4.60 vs real +3.35): close games drift apart through Q4 instead of staying one-score.
+
+Instrument-first ownership hunt (all measured; real from PBP/line scores, made-only so FGA/FG% are sim-only):
+- **NET matches in the 0-5 band** (−0.40 vs −0.43) → NOT a systematic-ease/level bias; the prior comfortable-lead
+  PROTECT is not the lever here.
+- **Over-scoring is FIELD GOALS, not FTs** (Q4 FG pts +6.31, FT pts −0.65; +3.0 made FGs). Units bug caught: real
+  logs FTs individually, so the FT comparison had to be on POINTS.
+- **Real DE-SCORES Q4 vs its own Q1** (made FG Q1→Q4 −2.08) while the sim stays flat (−0.86). Onset located by
+  time-buckets: the **scoring excess is broad (~+0.2 makes/min from 12:00)**, but the **margin-spread divergence
+  onsets at ~9:00** (real close games nearly stop spreading from 9:00; sim keeps spreading, largest gaps in the
+  9-6 and 6-3 buckets) — NOT the final-2-min COMPETITIVE_LATE window.
+- **Run/trade structure MATCHES** (trade rate, run sizes, lead changes, margin-transition variance all ≈ real;
+  sim if anything slightly LOWER variance) → the missing behavior is NOT competitive VARIANCE suppression. The
+  one robust difference is LEVEL (sim +2.18 pts in the 9:00-3:00 window). Symmetric (lead/trail split matches
+  real) → both-team.
+- **Make vs attempt:** real split unmeasurable in-DB (made-only). Evidence (9:00 onset too early for clock-milking;
+  gap-3.3 answer shot measured under-contested 22.7% vs ~70%; a symmetric make cut is structure-preserving) pointed
+  to the make-rate/shot-difficulty axis.
+
+**CAUSAL PROBES (temp, reverted) — the decisive step, both FALSIFY late-game scoring as the OT owner:**
+- **Contest-reach sweep** (force close-late contest reach to 0.45/0.60/0.70): moves all four metrics the right
+  direction but SATURATES at 0.45 and closes only ~¼ of the makes/min and OT gaps (OT 2.31→2.90% max). Weak lever
+  (small per-shot penalty).
+- **Make-suppression sweep** (direct clutch make-prob drop): at drop 0.12, makes/min = **1.59 ≈ real 1.60 (target
+  HIT)**, yet **OT only 2.31→2.56%** (real 4.79, ~10% closed) and **Δ|m| 4.58→4.28** (real 3.35, ~24% closed).
+  **Matching real clutch scoring exactly does NOT produce real OT or real margin compression.**
+
+**Conclusion — two previously-coupled hypotheses SEPARATED:**
+1. **Close-game Q4 scoring texture** IS a real residual with a measurable correction (real de-scores Q4 by ~2
+   makes; a clutch make-suppression ~0.12 hits makes/min 1.60). **NOT IMPLEMENTED** — without a demonstrated
+   behavioral owner it would improve an isolated statistic (cosmetic), so it is left a DOCUMENTED RESIDUAL.
+2. **OT frequency / late-margin compression is NOT driven by that scoring texture.** Every late-game scoring
+   mechanism tested is now falsified as the OT owner: tie-seeking, tied-game tempo, contest reach, contest
+   magnitude, and overall clutch scoring. (Symmetric scoring cuts barely compress a margin — a difference — and
+   don't manufacture the exact-0 tie spike OT requires.)
+
+Not characterized as "structural" — narrowly: the major late-game SCORING hypotheses are falsified. If OT is
+revisited, approach from a DIFFERENT direction (not another clutch scoring mechanism). Banked as negative results.
+Instruments: `scratch/gap32_q4_pace_eff.py`, `gap32_q4_buckets.py`, `gap32_run_trade.py`, `gap32_makerate_split.py`.
+
 ---
 
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)

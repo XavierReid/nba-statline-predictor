@@ -246,6 +246,36 @@ def ingest_line_scores(db: Session, season_prefix: str) -> int:
     return done
 
 
+def ingest_player_game_logs(db: Session, season: str) -> int:
+    """Per-player-per-game box lines for a season (availability model, gap 3.4).
+    One LeagueGameLog call. Resume-safe: skips a season already ingested. Only
+    players in our universe (players table) are kept.
+    """
+    from sqlalchemy import select
+    from app.models.player import Player
+    from app.models.player_game_log import PlayerGameLog
+
+    if db.execute(select(PlayerGameLog.id).where(
+            PlayerGameLog.season == season).limit(1)).first():
+        log.info("player_game_logs: %s already ingested, skipping", season)
+        return 0
+
+    known = set(db.execute(select(Player.id)).scalars().all())
+    rows = nba_client.fetch_player_game_logs(season)
+    done = skipped = 0
+    for i, r in enumerate(rows):
+        if r["player_id"] not in known:
+            skipped += 1
+            continue
+        db.add(PlayerGameLog(**r))
+        done += 1
+        if i % 2000 == 1999:
+            db.commit()
+    db.commit()
+    log.info("ingest_player_game_logs %s: %d rows, %d skipped (unknown player)", season, done, skipped)
+    return done
+
+
 def ingest_play_by_play(db: Session, season_prefix: str) -> int:
     """Backfill distilled scoring events (game_texture run/drought instrument) onto
     final games (resume-safe: skips games that already have events). season_prefix

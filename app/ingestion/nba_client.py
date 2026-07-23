@@ -120,6 +120,38 @@ def fetch_season_stats(season: str) -> list[dict]:
     return per_game
 
 
+def fetch_player_game_logs(season: str) -> list[dict]:
+    """Per-player-per-game box lines for a whole season (one call).
+
+    LeagueGameLog with player_or_team='P' returns every player's line for every
+    regular-season game — the per-game grain needed for the availability model
+    (gap 3.4: real active-roster size / DNP patterns). MIN is whole minutes here.
+    """
+    from nba_api.stats.endpoints import leaguegamelog
+
+    rows = leaguegamelog.LeagueGameLog(
+        season=season,
+        season_type_all_star='Regular Season',
+        player_or_team_abbreviation='P',
+        headers=CUSTOM_HEADERS,
+        timeout=120,
+    ).get_normalized_dict()['LeagueGameLog']
+
+    out = []
+    for r in rows:
+        out.append({
+            'season': season,
+            'game_id': r['GAME_ID'],
+            'player_id': r['PLAYER_ID'],
+            'team_id': r['TEAM_ID'],
+            'minutes': float(r.get('MIN') or 0),
+            'pts': r.get('PTS'), 'reb': r.get('REB'), 'ast': r.get('AST'),
+            'fgm': r.get('FGM'), 'fga': r.get('FGA'), 'fg3m': r.get('FG3M'),
+            'fta': r.get('FTA'), 'ftm': r.get('FTM'), 'tov': r.get('TOV'),
+        })
+    return out
+
+
 def fetch_team_season_stats(season: str) -> list[dict]:
     """Return pace, off_rating, def_rating, net_rating per team for a season."""
     from nba_api.stats.endpoints import leaguedashteamstats

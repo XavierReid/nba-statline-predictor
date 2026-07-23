@@ -29,6 +29,10 @@ class SimConfig:
     use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
     use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
     use_tie_seek: bool = False         # trailing team matches late shot VALUE to the deficit (gap 3.3)
+    use_availability: bool = False     # per-game availability draw (gap 3.4): ~10 of a deeper roster play each game
+    roster_depth: int = 10             # players loaded per team (availability draws the active set from these)
+    availability_min_active: int = 8   # floor on active players dressed per game
+    availability_minutes_cap: float = 40.0  # soft cap: short-handed surplus fills toward this (bench absorbs)
     use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
     use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
     use_behavior_profile: bool = False  # GamePhase resolves to a baseline-behavior profile

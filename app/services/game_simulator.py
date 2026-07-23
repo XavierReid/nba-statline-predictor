@@ -79,6 +79,13 @@ def simulate_game(
 
     rng = random.Random(seed)
 
+    # Per-game availability (gap 3.4): ~10 of a deeper roster are active tonight, drawn from
+    # games_played. Eligibility only — the rotation engine is untouched. Returns fresh dicts.
+    if cfg.use_availability:
+        from app.services.availability import select_active_roster
+        home_players = select_active_roster(home_players, rng, cfg)
+        away_players = select_active_roster(away_players, rng, cfg)
+
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
     name_map = (

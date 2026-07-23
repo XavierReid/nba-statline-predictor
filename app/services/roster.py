@@ -73,13 +73,14 @@ class RosterProvider(ABC):
     def _team_membership(self, team_id: int):
         """SQLAlchemy filter selecting this team's players for the season."""
 
-    def load(self, db: Session, team_id: int, season: str) -> list[dict]:
-        """Load the top 10 players by minutes for a team in a given season.
+    def load(self, db: Session, team_id: int, season: str, depth: int = 10) -> list[dict]:
+        """Load the top `depth` players by minutes for a team in a given season.
 
         Minutes are games-weighted (see _build_roster) so each player keeps their real
-        per-game share of 240 (5 players × 48 min). (Loading 15 was tried for bench depth
-        but the garbage-time rotation over-benched stars with a deeper bench; 10 keeps
-        actual star minutes near real.) Empty list if no stats exist for that team/season.
+        per-game share of 240 (5 players × 48 min). Default depth 10 = the fixed-roster
+        model. The availability model (gap 3.4) loads deeper (e.g. 14) and draws per-game
+        availability from games_played; loading deeper WITHOUT availability over-benched
+        stars in garbage time (the reverted 15-player experiment). Empty list if no stats.
         """
         rows = db.execute(
             select(Player, PlayerAttributes, PlayerTendencies, PlayerSeasonStats)
@@ -91,9 +92,14 @@ class RosterProvider(ABC):
             .where(PlayerTendencies.season == season)
             .where(PlayerSeasonStats.season == season)
             .order_by(PlayerSeasonStats.minutes_per_game.desc())
-            .limit(10)
+            .limit(depth)
         ).all()
-        return _build_roster(rows, _league_zone_prior(db, season))
+        roster = _build_roster(rows, _league_zone_prior(db, season))
+        # Calibrate each player's per-game availability to the season's real active count
+        # (game logs, when ingested). Harmless when availability is off — an unused field.
+        from app.services.availability import season_active_target, calibrate_avail_prob
+        calibrate_avail_prob(roster, season_active_target(db, season))
+        return roster
 
 
 class CurrentRosterProvider(RosterProvider):
@@ -114,9 +120,9 @@ def roster_provider_for(season: str) -> RosterProvider:
     return HistoricalRosterProvider()
 
 
-def load_roster(db: Session, team_id: int, season: str) -> list[dict]:
+def load_roster(db: Session, team_id: int, season: str, depth: int = 10) -> list[dict]:
     """Public entry point — delegates to the roster provider for the season."""
-    return roster_provider_for(season).load(db, team_id, season)
+    return roster_provider_for(season).load(db, team_id, season, depth)
 
 
 def _league_zone_prior(db: Session, season: str) -> dict:
@@ -260,6 +266,7 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
 
     for i, p in enumerate(players):
         p["is_starter"] = i < 5
+        p["mpg"] = p["minutes"]   # raw per-game-played minutes (availability model, gap 3.4)
 
     # Games-weight real per-game minutes (MPG × games_played) so each player keeps their real
     # SHARE of the 240 team-minutes. Raw MPG is per game PLAYED, so it sums above 240 for the

@@ -32,3 +32,6 @@ docker-compose.override.yml
 data/
 *.sqlite3
 CONTEXT_PRIMER.md
+
+# Local analysis/calibration instruments — kept on disk, not pushed (see SIMULATION_GAPS.md refs)
+scratch/

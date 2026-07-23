@@ -1482,7 +1482,8 @@ future lever: the m=0 CONVERT contest term (under-contested last shot) — indep
 but explicitly NOT expected to close the OT gap alone (caps at ~3.1%).
 
 Instruments: `scratch/gap33_ot_instrument.py`, `gap33_final_possession.py`, `gap33_real_shot_timing.py`,
-`gap33_tied_tempo.py`, `gap33_tying_makerate.py`, `gap33_answer_possession.py`, `gap33_reach.py`.
+`gap33_tied_tempo.py`, `gap33_tying_makerate.py`, `gap33_answer_possession.py`, `gap33_reach.py`,
+`gap33_reach_transition.py`.
 
 ## Change log
 

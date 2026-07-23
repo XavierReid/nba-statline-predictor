@@ -22,7 +22,7 @@ def season_active_target(db, season: str) -> Optional[float]:
     season's game logs aren't ingested. Cached per season."""
     if season in _ACTIVE_TARGET_CACHE:
         return _ACTIVE_TARGET_CACHE[season]
-    from sqlalchemy import select, func
+    from sqlalchemy import select
     from app.models.player_game_log import PlayerGameLog
     rows = db.execute(
         select(PlayerGameLog.game_id, PlayerGameLog.team_id)

@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 import zlib
-from collections import Counter, defaultdict
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 

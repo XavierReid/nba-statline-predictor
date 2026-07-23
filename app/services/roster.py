@@ -1,4 +1,7 @@
-"""Roster loading — fetch and normalize a team's top-10 players for simulation.
+"""Roster loading — fetch and normalize a team's top players (by minutes) for simulation.
+
+`load_roster(depth=...)` returns the top `depth` players (default 10; the availability
+model loads deeper and draws a per-game active set — see app/services/availability.py).
 
 Roster construction has a single owner (RosterProvider) with two modes:
   - CURRENT: the live roster (Player.team_id) — how the season's players sit on

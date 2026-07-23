@@ -10,7 +10,7 @@ A possession-based NBA game simulation engine built with FastAPI + SQLAlchemy 2.
 
 Primary files: `app/services/game_simulator.py`, `app/services/possession.py`, `app/api/routes/`, `app/services/modifiers/`.
 
-Run tests: `docker compose run --rm api sh -c "pip install pytest httpx pytest-asyncio -q 2>/dev/null && python -m pytest tests/ -v"` (74 tests as of M3a).
+Run tests: `docker compose run --rm api sh -c "pip install pytest httpx pytest-asyncio -q 2>/dev/null && python -m pytest tests/ -v"` (296 tests as of gap 3.4).
 
 ---
 

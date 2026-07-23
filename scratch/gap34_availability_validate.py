@@ -27,10 +27,8 @@ from app.services.game_simulator import simulate_game
 from app.services.roster import load_roster
 from app.services.sim_config import DRAMA_M3
 
-MIN_ACTIVE = int(os.environ.get("MIN_ACTIVE", "8"))
 
-
-def main(season, max_games, depth):
+def main(season, max_games, depth, min_active):
     db = SessionLocal()
     real = real_accounts(db, season)
     tiers = {pid: a.tier for pid, a in real.items()}
@@ -46,7 +44,7 @@ def main(season, max_games, depth):
             rosters[t.id] = r
 
     cfg = replace(DRAMA_M3, use_availability=True, roster_depth=depth,
-                  availability_min_active=MIN_ACTIVE)
+                  availability_min_active=min_active)
     year = season.split("-")[0][-2:]
     games = db.execute(select(Game).where(
         Game.id.like(f"002{year}%"), Game.status == "final", Game.home_score.isnot(None))
@@ -103,6 +101,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--season", default="2016-17")
     p.add_argument("--max-games", type=int, default=400)
-    p.add_argument("--depth", type=int, default=14)
+    p.add_argument("--depth", type=int, default=18)
+    p.add_argument("--min-active", type=int, default=9)
     a = p.parse_args()
-    main(a.season, a.max_games, a.depth)
+    main(a.season, a.max_games, a.depth, a.min_active)

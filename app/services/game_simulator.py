@@ -97,6 +97,14 @@ def simulate_game(
                 home_pool = hp
             if ap:
                 away_pool = ap
+    # gap 3.4g: annotate each pool's full-strength creation reference BEFORE availability copies
+    # the active subset (select_active_roster does dict(p), so the ref propagates to the copies).
+    if cfg.use_lineup_creation and db is not None and season:
+        from app.services.lineup_creation import annotate_team_baseline, ensure_league_baseline
+        ensure_league_baseline(db, season, cfg.creation_form)
+        annotate_team_baseline(home_pool, cfg.creation_form)
+        annotate_team_baseline(away_pool, cfg.creation_form)
+    if cfg.use_availability:
         home_players = select_active_roster(home_pool, rng, cfg)
         away_players = select_active_roster(away_pool, rng, cfg)
 

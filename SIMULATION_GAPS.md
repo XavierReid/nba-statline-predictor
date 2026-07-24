@@ -809,6 +809,68 @@ Also fixed a DISPLAY bug: `simulate_game` now returns `home_active`/`away_active
 `scratch/03_game_simulator.py` renders inactive players as `DNP` instead of dropping them (a sat star was
 invisible and the box silently summed to 240 among the rest).
 
+**MEASURED ANCHOR (instrument `scratch/gap34g_replacement_cost.py`, PlayerGameLog, ERA-STABLE):** team offense in
+games the primary PLAYED vs SAT.
+- 2024-25: team pts IN 115.0 / OUT 110.9 → drop **4.1**; mean primary 24.6 pts, team loses 3.2 → replacement
+  recovers **87%**. 2016-17: IN 105.6 / OUT 102.4 → drop 3.1; loses 4.0 → recovers **82%**.
+- **Cost SCALES with player value, is NOT flat:** Jokić +12.8, Booker +10.5, Curry +8.1; a merely-high-usage
+  primary ~0. Elite creators recover ~57-67%, role primaries ~95-100%.
+- Small-sample noise real (5-9 OUT games → some 0/negative, e.g. AD, Ja); lean on the aggregate, weight by sample.
+- **TARGET for the fix:** replacement absorbs the MINUTES but only ~**85%** of the departing player's production on
+  average, LESS for elite creators — i.e. inherit minutes, NOT full usage/efficiency. Current sim ≈ 100% recovery
+  / 0 cost. Design the penalty proportional to the absent player's usage/quality.
+
+**INSTRUMENT CHAIN (2026-07-24) — premise walked DOWN two levels via instrument-first, do not re-litigate:**
+1. **Paired forced-out sim** (`gap34g_paired.py`, deterministic full-vs-primary-removed, killed the noisy random
+   version): sim recovery is NOT ~100% — 84% Jokić / 95% Curry / 100% Booker vs real elite 57-67%. Gap is REAL but
+   only at the ELITE-CREATOR tail, not primaries broadly. The "sim already ≈ real 87%" reading was SGA/OKC 6-game
+   noise.
+2. **Real loss decomposition** (`gap34g_decompose_real.py`, PlayerGameLog): elite creator OUT → PTS −6.7%,
+   **eFG% −4.0%**, **AST/FGM ±0**, FGA −2.6%, TOV +5%. ~60% of the field-point loss is SHOT QUALITY (eFG), not
+   volume. **AST/FGM FLAT on real AND sim → assist/open-shot GENERATION ruled out both sides.** Owner is make-
+   probability, not assist count.
+3. **Valuation-vs-interaction discriminator** (`gap34g_discriminator.py`): the SAME teammates' OWN eFG% drops when
+   the creator sits — aggregate **+1.8** (IN 55.9 → OUT 54.1), sign-consistent for pure creators (LaMelo +3.7,
+   Jokić +2.1, Luka +2.0, Curry +1.8; finishers Giannis/Lillard ~0). Creator own eFG (56.5) ≈ teammates' (55.9),
+   so VALUATION/mix is NOT the owner. **VERDICT: LINEUP INTERACTION.** The engine has no lineup-interaction term on
+   shot make-probability; sim eFG only moves by accident (redistribution to worse shooters) and INVERTS when the
+   creator is modeled inefficient (Booker sim eFG +1.8% vs real −4%).
+
+**DESIGN DIRECTION (agreed, NOT yet built):** a lineup-based shot-quality adjustment at shot evaluation
+(`_evaluate_shot`) — the shooter's expected make prob shifts with the CREATION quality of the OTHER four on the
+floor. DERIVE lineup-creation from EXISTING calibrated attributes (usage_rate + playmaking/assist + perimeter
+shooting), NOT a new standalone "gravity" parameter. MEAN-ZERO at a league-average supporting cast (so aggregate
+calibration is preserved; only above/below-average creation shifts make prob). Toggle-gated, naturally inert at
+full strength. Calibration target: teammate own-eFG lift ~+1.8 for elite creators, ~0 for finishers.
+
+**PROTOTYPE BUILT + VALIDATED (2026-07-24) — data chose the representation, do not re-litigate:**
+- Hook: `_evaluate_shot` adds `create_delta = k*(mean_others_creation − team_ref)`, gated `use_lineup_creation` +
+  `creation_k!=0` → OFF byte-identical (296 tests). PLUGGABLE `CREATION_FORMS` in `app/services/lineup_creation.py`;
+  `sub_type` threaded (unused) for future shot-type weighting.
+- **League-centering (ref=1.0) FAILED** the sweep: full-strength inflation of above-avg casts ≥ the absence drop,
+  inconsistent signs. **TEAM-RELATIVE centering** (ref = team's MINUTES-WEIGHTED full-roster mean creation,
+  annotated at full strength & persisted so it doesn't move under absence) decoupled the two: FULLSHIFT ~0 for ANY
+  k, so k scales the absence drop without recalibrating. (A starter-UNIT ref instead over-penalized bench minutes
+  −5.5 pts — rejected.)
+- **The data chose `usage_pass_space` = usage × (passing + three_pt spacing)/2** (mean-1 normalized). Sweep vs
+  paired counterfactual (k≈0.145): 2024-25 IMPROVE +2.13 / FULLSHIFT −0.14 / **5/5** creators; beat passing-only,
+  usage-only, usage×passing, equal-linear (all 4/5 or worse). NOT assumed — earned.
+- **Gate 1 (league full-strength neutrality):** near-neutral — league eFG Δ +0.18, points Δ +0.54 over 600
+  team-games. Small residual POSITIVE bias (starter lift not fully offset by bench); trim with a small constant at
+  productionization. Instrument `gap34g_league_neutrality.py`.
+- **Gate 2 (cross-era):** PASS cleanly — 2016-17 same k≈0.144, IMPROVE +2.32 / FULLSHIFT +0.02 / **5/5**.
+- **STATUS: INTEGRATED into `DRAMA_M3_SEASON` only (2026-07-24), default `DRAMA_M3` untouched.** `simulate_game`
+  calls `ensure_league_baseline` (once/season, cached league scan) + `annotate_team_baseline` on the FULL pool
+  BEFORE availability copies the active subset, so active players carry the full-strength ref. `DRAMA_M3_SEASON`
+  sets `use_lineup_creation=True, creation_form="usage_pass_space", creation_k=0.145`. 296 tests byte-identical.
+  End-to-end production validation (DEN, availability-driven, ON vs OFF): Jokić-IN eFG identical 58.72/58.72
+  (full-strength neutral), Jokić-OUT drop deepens 3.64→4.61. Gate-1 residual (+0.18 eFG) NOT trimmed — decision:
+  observe in integrated season output first, add a constant only if it survives (avoid a premature constant).
+  **SHARP EDGE:** annotation must be on the FULL roster; annotating an already-depleted roster recomputes the ref
+  and cancels the effect (a non-availability caller passing a reduced roster would see nothing — availability path
+  is safe because it annotates the full pool first). Instruments:
+  `gap34g_replacement_cost/_paired/_decompose_real/_discriminator/_creation_sweep/_league_neutrality`.
+
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 
 **Status (2026-07-14):** the "sim lacks within-game correction" hypothesis is now the

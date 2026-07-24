@@ -33,6 +33,9 @@ class SimConfig:
     roster_depth: int = 10             # players loaded per team (availability draws the active set from these)
     availability_min_active: int = 8   # floor on active players dressed per game
     availability_minutes_cap: float = 40.0  # soft cap: short-handed surplus fills toward this (bench absorbs)
+    use_lineup_creation: bool = False  # gap 3.4g: shooter make-prob shifts with teammates' creation (EXPERIMENTAL)
+    creation_form: str = "usage_pass_space"  # CREATION_FORMS definition (chosen by paired-counterfactual sweep)
+    creation_k: float = 0.0            # coefficient on the mean-zero lineup-creation shift
     use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
     use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
     use_behavior_profile: bool = False  # GamePhase resolves to a baseline-behavior profile
@@ -258,9 +261,15 @@ DRAMA_M3 = SimConfig(
 )
 
 # Season/aggregate path: re-enables per-game availability (real roster turnover across 82
-# games). Not for single named-game prediction — see the use_availability note above.
+# games) AND the gap-3.4g lineup-creation term (a creator's absence lowers teammates' shot
+# quality; validated only where absences occur). Not for single named-game prediction — see
+# the use_availability note above. creation_k≈0.145 hits the real ~2.25pp team-eFG drop; the
+# usage_pass_space form was chosen by the paired counterfactual (5/5 creators, both eras).
 from dataclasses import replace as _replace  # noqa: E402
-DRAMA_M3_SEASON = _replace(DRAMA_M3, use_availability=True)
+DRAMA_M3_SEASON = _replace(
+    DRAMA_M3, use_availability=True,
+    use_lineup_creation=True, creation_form="usage_pass_space", creation_k=0.145,
+)
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(
     use_second_chance=True,

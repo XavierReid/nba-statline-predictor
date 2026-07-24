@@ -684,7 +684,15 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
         if (ctx.form_factors and ball_handler["id"] in ctx.form_factors)
         else 0.0
     )
-    make_prob = max(0.05, min(0.95, shot_prob + shot_delta + form_delta))
+    # gap 3.4g (EXPERIMENTAL): a lineup-interaction term — the shooter's make prob shifts
+    # with the creation quality of the OTHER four on the floor. Mean-zero at a league-average
+    # cast, so aggregate calibration is untouched; only above/below-average creation moves it.
+    create_delta = 0.0
+    if cfg.use_lineup_creation and cfg.creation_k != 0.0:
+        from app.services.lineup_creation import shift as _creation_shift
+        create_delta = _creation_shift(ball_handler, ctx.offense, cfg.creation_form,
+                                       cfg.creation_k, sub_type)
+    make_prob = max(0.05, min(0.95, shot_prob + shot_delta + form_delta + create_delta))
     return ShotQuality(make_prob=make_prob, contested=is_contested)
 
 

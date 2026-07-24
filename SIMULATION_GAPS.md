@@ -870,6 +870,12 @@ full strength. Calibration target: teammate own-eFG lift ~+1.8 for elite creator
   and cancels the effect (a non-availability caller passing a reduced roster would see nothing — availability path
   is safe because it annotates the full pool first). Instruments:
   `gap34g_replacement_cost/_paired/_decompose_real/_discriminator/_creation_sweep/_league_neutrality`.
+- **FULL-SEASON validation** (`gap34g_season_validate.py`, 250-game replay, ON vs OFF): avg score +0.75, league eFG
+  +0.31 (the documented gate-1 residual, holds at season scale — still untrimmed). **Margin shape moved TOWARD
+  real:** blowout 23.2→18.8% (real 20.9), close 23.2→28.4% (real 25.2) — OFF was on the wrong side, ON crosses to
+  real (mild overshoot). A realism improvement, not a distortion. Star per-game lines when playing: small mixed
+  moves (Booker 28.7→25.1 toward real 25.6, Luka 34.8→30.9 toward 28.2; SGA 36.8→39.8 the other way) — dominated by
+  the pre-existing star over-scoring (gap 3.4a), no blow-up from 3.4g.
 
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 

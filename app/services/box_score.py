@@ -63,13 +63,14 @@ def apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
         if event.get("rebounded_by") and event["rebounded_by"] in box:
             box[event["rebounded_by"]]["reb"] += 1
 
+    # both the shooting/bonus fouler and a pre-bonus non-shooting fouler count a personal foul
     fouled_out_pid = None
-    fouled_pid = event.get("fouled_by")
-    if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
-        box[fouled_pid]["pf"] += 1
-        if box[fouled_pid]["pf"] >= 6:
-            box[fouled_pid]["fouled_out"] = True
-            fouled_out_pid = fouled_pid
+    for fouled_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
+        if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
+            box[fouled_pid]["pf"] += 1
+            if box[fouled_pid]["pf"] >= 6:
+                box[fouled_pid]["fouled_out"] = True
+                fouled_out_pid = fouled_pid
 
     event["pts"] = pts
     return pts, fouled_out_pid

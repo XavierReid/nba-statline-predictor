@@ -39,6 +39,9 @@ class PossessionContext:
     score_margin: int = 0
     name_map: Optional[dict] = None
     behavior_profile: object = None   # BehaviorProfile for this possession's phase
+    defense_in_bonus: bool = False    # defensive team over the team-foul limit this period
+    foul_counts: Optional[dict] = None  # live per-player PF (id -> fouls) for the state-dependent foul hazard
+    resumed_after_foul: bool = False    # this shot is resumed after a pre-bonus non-shooting foul — don't re-roll it (one non-shooting foul opportunity per possession)
 
 
 def make_context(offense, defense, rng, cfg=None, adjustments=None, **overrides):

@@ -28,6 +28,10 @@ class GameState:
     game_clock: float = 0.0                      # elapsed seconds
     home_conceded: bool = False                  # garbage-rotation state (hysteretic)
     away_conceded: bool = False
+    home_quarter_fouls: int = 0                  # team fouls this period (bonus at >= threshold; reset each period)
+    away_quarter_fouls: int = 0
+    home_last2_fouls: int = 0                    # fouls committed in the last 2:00 (2nd one -> bonus)
+    away_last2_fouls: int = 0
     quarter_scores: Dict[str, List[int]] = field(
         default_factory=lambda: {"home": [0, 0, 0, 0], "away": [0, 0, 0, 0]}
     )

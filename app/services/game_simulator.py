@@ -7,7 +7,6 @@ Public surface (unchanged for callers):
 import random
 from typing import Optional
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats
@@ -79,6 +78,27 @@ def simulate_game(
     cfg: SimConfig = config if config is not None else SimConfig()
 
     rng = random.Random(seed)
+
+    # Per-game availability (gap 3.4): ~10 of a deeper roster are active tonight, drawn from
+    # games_played. Eligibility only — the rotation engine is untouched. Returns fresh dicts.
+    # Availability needs the deeper pool: if handed a shallow roster (a caller that loaded the
+    # default depth), reload to roster_depth here so every path benefits without caller surgery.
+    # Full loaded pool (pre-selection) is retained so callers can distinguish who was
+    # rostered-but-inactive (DNP) from who simply never entered the box score.
+    home_pool, away_pool = home_players, away_players
+    if cfg.use_availability:
+        from app.services.availability import select_active_roster
+        depth = getattr(cfg, "roster_depth", 10)
+        if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
+            from app.services.roster import load_roster
+            hp = load_roster(db, home_team_id, season, depth=depth)
+            ap = load_roster(db, away_team_id, season, depth=depth)
+            if hp:
+                home_pool = hp
+            if ap:
+                away_pool = ap
+        home_players = select_active_roster(home_pool, rng, cfg)
+        away_players = select_active_roster(away_pool, rng, cfg)
 
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
@@ -181,6 +201,8 @@ def simulate_game(
         adjustments: Optional[ModifierAdjustments] = None,
         quarter_clock: float = 720.0,
         behavior_profile: object = None,
+        defense_in_bonus: bool = False,
+        resumed_after_foul: bool = False,
     ):
         # gs is a captured object; mutating its attributes needs no `nonlocal`.
         gs.game_clock += sec_per_poss
@@ -216,6 +238,9 @@ def simulate_game(
             clock_seconds=quarter_clock,
             score_margin=gs.home_score - gs.away_score if is_home else gs.away_score - gs.home_score,
             behavior_profile=behavior_profile if behavior_profile is not None else NORMAL_PROFILE,
+            defense_in_bonus=defense_in_bonus,
+            foul_counts={p["id"]: box[p["id"]]["pf"] for p in defense if p["id"] in box} if cfg.use_foul_caution else None,
+            resumed_after_foul=resumed_after_foul,
         )
         event = resolve_possession(ctx)
 
@@ -293,7 +318,10 @@ def simulate_game(
     f_fb = cfg.fastbreak_poss_frac if cfg.use_fast_break else 0.0
     if cfg.use_catch_up:
         target_mean *= 1.0 + cfg.catch_up_clock_frac
-    mean_poss_time_clock = (target_mean - f_fb * cfg.fastbreak_time_mean) / (1.0 - f_fb)
+    # pre-bonus shot-clock resets extend possessions (gap 3.7 2b); reclaim that time from
+    # the halfcourt mean so distinct-possession pace holds (Stage 2 compensation).
+    reset_comp = cfg.foul_reset_poss_frac * cfg.foul_reset_time_mean if cfg.use_bonus_system else 0.0
+    mean_poss_time_clock = (target_mean - f_fb * cfg.fastbreak_time_mean - reset_comp) / (1.0 - f_fb)
     def _run_clock_period(q_idx: int, period_seconds: float, period_tip_is_home: bool) -> None:
         """One timed period (regulation quarter or OT) — identical mechanics either way.
 
@@ -304,8 +332,14 @@ def simulate_game(
         # gs is captured; attribute mutation needs no `nonlocal`.
         quarter_clock = float(period_seconds)
         current_is_home = period_tip_is_home
+        gs.home_quarter_fouls = 0   # team fouls reset each period (bonus tracking)
+        gs.away_quarter_fouls = 0
+        gs.home_last2_fouls = 0
+        gs.away_last2_fouls = 0
         oreb_depth = 0
         next_is_fastbreak = False
+        foul_reset_depth = 0        # consecutive pre-bonus non-shooting fouls on this possession
+        next_is_foul_reset = False  # the upcoming possession is the shot resumed after such a foul
 
         while quarter_clock > 0:
             # Strategic foul check — final period only (Q4 or any OT): intentional
@@ -365,12 +399,20 @@ def simulate_game(
                             current_is_home = not current_is_home
                             oreb_depth = 0
                             next_is_fastbreak = False
+                            foul_reset_depth = 0
+                            next_is_foul_reset = False
                             continue
 
             # Sample possession time
             if next_is_fastbreak:
                 poss_category = "fastbreak"
                 poss_time = max(3.0, min(12.0, rng.gauss(cfg.fastbreak_time_mean, cfg.fastbreak_time_std)))
+            elif next_is_foul_reset:
+                # shot resumed after a pre-bonus non-shooting foul: 14s reset clock, so a short
+                # possession (mirrors the OREB second_chance category; the reset TIME lives here
+                # now instead of being added inline to the foul's own event).
+                poss_category = "foul_reset"
+                poss_time = max(3.0, min(14.0, rng.gauss(cfg.foul_reset_time_mean, cfg.foul_reset_time_std)))
             elif oreb_depth > 0:
                 poss_category = "second_chance"
                 poss_time = max(3.0, min(14.0, rng.gauss(cfg.second_chance_time_mean, cfg.second_chance_time_std)))
@@ -412,10 +454,12 @@ def simulate_game(
                     diag.record_garbage_possession()
             home_active_ids = resolve_lineup(
                 home_rotation, current_minute, home_by_min, box,
-                MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED)
+                MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED,
+                foul_trouble_subs=cfg.use_foul_trouble_subs)
             away_active_ids = resolve_lineup(
                 away_rotation, current_minute, away_by_min, box,
-                MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED)
+                MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED,
+                foul_trouble_subs=cfg.use_foul_trouble_subs)
             in_mismatch = gs.home_conceded != gs.away_conceded
             pre_poss_margin = abs(gs.home_score - gs.away_score)
 
@@ -476,6 +520,15 @@ def simulate_game(
             diag.record_possession(poss_category, poss_time)
 
             poss_profile = profile_for_phase(phase, cfg) if cfg.use_behavior_profile else NORMAL_PROFILE
+            # the DEFENSIVE team (not on offense) is in the bonus at the team-foul limit,
+            # OR (NBA last-2:00 rule) once it has already committed a foul in the window,
+            # so its next (2nd) foul there draws FTs.
+            def_fouls_now = gs.away_quarter_fouls if current_is_home else gs.home_quarter_fouls
+            def_last2_now = gs.away_last2_fouls if current_is_home else gs.home_last2_fouls
+            defense_in_bonus = cfg.use_bonus_system and (
+                def_fouls_now >= cfg.bonus_foul_threshold
+                or (quarter_clock <= cfg.last2min_clock and def_last2_now >= 1)
+            )
             fouled_out_pid, event = _apply_possession(
                 home_active_ids, away_active_ids, current_is_home,
                 poss_time, poss_time / 60.0, q_idx,
@@ -485,6 +538,8 @@ def simulate_game(
                 adjustments=poss_adjustments,
                 quarter_clock=quarter_clock,
                 behavior_profile=poss_profile,
+                defense_in_bonus=defense_in_bonus,
+                resumed_after_foul=next_is_foul_reset,
             )
             behavior.update(event, current_is_home, game_state)
 
@@ -498,12 +553,31 @@ def simulate_game(
             for pid in away_active_ids:
                 if pid in away_player_gs:
                     away_player_gs[pid].minutes_played += poss_minutes
-            foul_pid = event.get("fouled_by")
-            if foul_pid is not None:
+            for foul_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
+                if foul_pid is None:
+                    continue
                 if foul_pid in home_player_gs:
                     home_player_gs[foul_pid].fouls += 1
                 elif foul_pid in away_player_gs:
                     away_player_gs[foul_pid].fouls += 1
+
+            # team fouls this period (bonus tracking) — only DEFENSIVE fouls count. A
+            # shooting/bonus foul has fouled_by != turnover_by (offensive fouls set both
+            # to the ball handler); a pre-bonus non-shooting foul is always defensive.
+            if cfg.use_bonus_system:
+                def_committed = int(
+                    event.get("fouled_by") is not None
+                    and event.get("fouled_by") != event.get("turnover_by")
+                ) + int(event.get("nonshooting_foul_by") is not None)
+                in_last2 = quarter_clock <= cfg.last2min_clock
+                if current_is_home:
+                    gs.away_quarter_fouls += def_committed
+                    if in_last2:
+                        gs.away_last2_fouls += def_committed
+                else:
+                    gs.home_quarter_fouls += def_committed
+                    if in_last2:
+                        gs.home_last2_fouls += def_committed
 
             if fouled_out_pid:
                 if fouled_out_pid in home_by_id:
@@ -512,22 +586,34 @@ def simulate_game(
                     patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1, box)
 
             next_is_fastbreak = False
-            rebounded_by = event.get("rebounded_by")
-            offense_ids = home_ids if current_is_home else away_ids
-            is_oreb = (
-                cfg.use_second_chance
-                and rebounded_by is not None
-                and rebounded_by in offense_ids
-                and event.get("shot_type") is not None
-                and not event.get("made")
-            )
-            if is_oreb and oreb_depth < cfg.oreb_chain_cap:
-                oreb_depth += 1
+            next_is_foul_reset = False
+            # Pre-bonus non-shooting foul: a discrete dead-ball event. The offense KEEPS the ball
+            # (don't flip) and its objective; the next possession is the resumed shot. Mirrors the
+            # OREB two-event lifecycle, capped like oreb_chain_cap so a foul chain can't run away.
+            if (event.get("shot_clock_reset") and event.get("shot_type") is None
+                    and foul_reset_depth < cfg.foul_reset_chain_cap):
+                foul_reset_depth += 1
+                next_is_foul_reset = True
+                diag.pre_bonus_fouls += 1
             else:
-                oreb_depth = 0
-                current_is_home = not current_is_home
-                if cfg.use_fast_break and event.get("steal_by") is not None:
-                    next_is_fastbreak = True
+                foul_reset_depth = 0
+                rebounded_by = event.get("rebounded_by")
+                offense_ids = home_ids if current_is_home else away_ids
+                is_oreb = (
+                    cfg.use_second_chance
+                    and rebounded_by is not None
+                    and rebounded_by in offense_ids
+                    and event.get("shot_type") is not None
+                    and not event.get("made")
+                )
+                if is_oreb and oreb_depth < cfg.oreb_chain_cap:
+                    oreb_depth += 1
+                else:
+                    oreb_depth = 0
+                    current_is_home = not current_is_home
+                    if (cfg.use_fast_break and event.get("steal_by") is not None
+                            and rng.random() < cfg.steal_fastbreak_prob):
+                        next_is_fastbreak = True
 
     for reg_q in range(4):
         _run_clock_period(
@@ -565,4 +651,10 @@ def simulate_game(
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
         "possession_accounting": diag.as_dict(),
+        # Rosters as the engine actually used them: `active` are the players who dressed
+        # (post-availability), `pool` is the full loaded roster so callers can render DNPs.
+        "home_active": home_players,
+        "away_active": away_players,
+        "home_pool": home_pool,
+        "away_pool": away_pool,
     }

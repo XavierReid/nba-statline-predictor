@@ -19,7 +19,7 @@ produce, so any comparison is apples-to-apples by construction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

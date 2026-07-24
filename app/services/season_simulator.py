@@ -14,7 +14,6 @@ from sqlalchemy import select, update
 from app.database import SessionLocal
 from app.models.game import Game
 from app.models.simulation import SimulatedGame, SimulatedPlayerLine, SimulationRun
-from app.models.team import Team
 from app.services.game_simulator import load_roster, simulate_game
 
 log = logging.getLogger(__name__)

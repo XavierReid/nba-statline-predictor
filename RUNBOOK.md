@@ -502,21 +502,20 @@ mismatches, so distribution metrics (blowout, margin) are less trustworthy
 here than in the schedule replay. Use >=1000 games when measuring blowout
 rate (sample-sensitive).
 
-### 2. diagnose_calibration.py — mechanism-level diagnostics
+### 2. the analysis pillar (`app/analysis/`) — mechanism-level diagnostics
 
-```bash
-python scratch/diagnose_calibration.py --games 300
-```
+The mechanism "WHY" behind headline metrics now lives in the analysis pillar
+(run as modules, e.g. `python -m app.analysis.game_texture --season 2024-25 --sims 2`):
 
-Reports the WHY behind the headline metrics:
-
-- **[1.4/acct] possession accounting** — counts + avg duration per possession
-  category vs the pace budget. Any new mechanic that affects possessions
-  must keep "excess vs budget" explainable (CLAUDE.md guardrail 5).
-- **[sf] strategic foul sequences** — frequency and length; validate against
-  real NBA behavior, don't compensate away.
-- **[1.3] quarterly margin walk + lead changes** — dispersion shape.
-- **[1.2] the OT funnel** — close-late rate × tie conversion = OT rate.
+- **`decomposition.py`** — possession/scoring accounting: PPP, shot-mix, and the
+  points-attribution waterfall (where the scoring gap comes from). Possession
+  counts + durations per category vs the pace budget are on every sim result at
+  `result["possession_accounting"]` (CLAUDE.md guardrail 5); strategic-foul
+  sequence counts/durations are there too.
+- **`game_texture.py`** — quarterly margin walk, Q4 compression / transition
+  deltas, lead changes, run/drought (`--runs`).
+- **`team_boxscore.py`** / **`player_accounting.py`** — box-score aggregates and
+  per-player reconciliation.
 
 ### 3. replay_schedule.py — real-schedule comparison (gold standard)
 
@@ -537,6 +536,6 @@ Also reports per-team strength calibration:
 
 SimConfig constants marked "measured" (`fastbreak_poss_frac`,
 `catch_up_clock_frac`) carry provenance comments: value, date, sample,
-preset. Re-measure via diagnose_calibration.py in measurement mode (set
-the constant to 0.0) whenever the mechanics feeding them change (steal
+preset. Re-measure via `result["possession_accounting"]` in measurement mode
+(set the constant to 0.0) whenever the mechanics feeding them change (steal
 rates, catch-up window, possession times).

@@ -49,7 +49,7 @@ class TestObjectiveModifier:
         mod = ObjectiveModifier(cfg)
         got = mod.get_adjustments(True, snap)
         obj, intensity = derive_objective(True, 10, 200.0, 3, cfg)  # q_idx = quarter-1
-        expected = objective_adjustments(obj, intensity, cfg)
+        expected = objective_adjustments(obj, intensity, cfg, 10)  # margin 10 = comfortable-lead regime
         assert got.shot_prob_delta == expected.shot_prob_delta
         assert got.pace_multiplier == expected.pace_multiplier
         assert got.three_rate_override == expected.three_rate_override

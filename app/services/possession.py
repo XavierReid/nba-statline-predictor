@@ -1,15 +1,23 @@
 """Possession resolution — simulate one possession and return an event dict."""
 import random
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from app.services.behavior_profile import NORMAL_PROFILE
-from app.services.modifiers.base import ModifierAdjustments
 
 
 def _profile(ctx):
     """The active BehaviorProfile for this possession (identity when none set)."""
     return ctx.behavior_profile or NORMAL_PROFILE
+
+
+def _credit_defender(defense, attr, rng):
+    """Credit a steal/block to a defender, chosen WEIGHTED by their ability rather than
+    always the single best on the floor. The event RATE is still gated by the best
+    defender (team totals unchanged), but crediting only the max funneled a team's entire
+    steal/block total onto one player — producing 16-steal / 11-block box lines. Real
+    defensive stats spread across the lineup, led by the specialist. gap 3.4d."""
+    return rng.choices(defense, weights=[p[attr] for p in defense])[0]["id"]
 
 OREB_RATE = 0.22            # offensive rebound rate on missed shots (NBA avg ~22%)
 LEAGUE_AVG_TOV_PER36 = 2.5  # used to normalize per-player turnover rates
@@ -70,14 +78,19 @@ _INTERIOR_TYPES  = frozenset({"layup", "dunk", "close"})
 # Contest probability scaling by sub-type — how reliably a defender can physically reach the shot.
 # Corner threes and floaters are harder to contest (rotation distance, arc).
 _CONTEST_REACH: Dict[str, float] = {
-    "corner_three":      0.65,
-    "above_break_three": 0.80,
-    "mid_range":         0.85,
-    "floater":           0.60,
+    # Threes: real tracking (LeagueDashTeamPtShot 2016-17) shows only ~14% of threes are
+    # taken with a defender within 4 ft — shooters mostly fire when open. Reach lowered so
+    # ~14-18% are flagged contested (was 0.65/0.80 -> ~53%, far too many).
+    "corner_three":      0.20,
+    "above_break_three": 0.22,
+    # Non-rim: lowered so ~40% of nonrim shots are contested (was 0.85 -> ~60%), matching real
+    # mid 10ft+ (~42% within 4 ft). Pairs with the additive _CONTEST_PENALTY above.
+    "mid_range":         0.55,
+    "floater":           0.40,
     "layup":             0.90,
     "dunk":              0.75,
     # fallback
-    "three": 0.75, "mid": 0.85, "close": 0.90,
+    "three": 0.22, "mid": 0.55, "close": 0.90,
 }
 
 # When contested: multiplier on the raw defense_penalty (separates reach from impact).
@@ -92,6 +105,75 @@ _CONTEST_IMPACT: Dict[str, float] = {
     # fallback
     "three": 1.00, "mid": 1.00, "close": 1.10,
 }
+
+# Additive contest-state penalty (make-probability points) applied when a shot is contested.
+# The multiplicative _CONTEST_IMPACT above is REPRESENTATIONALLY INCAPABLE of the measured
+# perimeter contest effect: the jump-shot defense_penalty is CENTERED on the lineup, so it
+# averages ~0.0006 for threes, and a multiplier on ~0 stays ~0 (ceiling proof 2026-07-16:
+# IMPACT~128 needed to reach the measured contested 3P% of 0.282). So the contest effect is
+# modeled as an additive term keyed by contest state — today calibrated only for threes from
+# real defender-distance splits (LeagueDashTeamPtShot 2016-17: open 3P% 0.369 vs contested
+# 0.282, ~0.087 gap; ~14% of threes contested). Mid/interior separations already match real
+# via defender-attribute selection, so they carry no additive term (0.0). Extensible: finer
+# contest qualities become more entries here, not a new mechanism.
+_CONTEST_PENALTY: Dict[str, float] = {
+    "corner_three":      0.088,
+    "above_break_three": 0.088,
+    "three":             0.088,
+    # Non-rim 2pt (paint-non-RA + mid) had the SAME inert-contest problem threes did before
+    # gap 3.9 — the multiplicative impact on a ~0 centered penalty moved contested make by
+    # 0.0000 in BOTH eras, so contested nonrim was as easy as open (real gap ~0.05). Additive
+    # penalty calibrated to real conditional splits (mid 10ft+, 2016-17): contested 0.380 /
+    # open ~0.425 / ~42% contested → aggregate emerges at ~0.406 (real 0.408).
+    "mid_range":         0.045,
+    "mid":               0.045,
+    "floater":           0.045,
+}
+
+# State-dependent foul hazard (foul-trouble caution). Real basketball is NOT memoryless:
+# a memoryless process with real per-player foul rates predicts ~3x the real foul-out rate,
+# and the sim (memoryless) matches that prediction while real collapses at the 5->6 step
+# (proof 2026-07-16: PF=6 real 0.9%/2.1% vs memoryless 3.1%/5.9%, both eras). A defender in
+# foul trouble converts a contest into a foul less often (shooting path) and is down-weighted
+# in the non-shooting draw. Applied at the foul-CONVERSION point — NOT to contest selection
+# (would perturb the defensive-matchup model).
+#
+# TWO measured PHASES (a decoupled sweep beat any single-strength profile by ~20% total
+# cross-era error): (1) EARLY caution at 3-4 shapes ACCUMULATION — how players reach foul
+# trouble (real redistributes mass to PF3-4, so the sim must too, or it piles up at PF5);
+# (2) LATE caution at 5 sets the FOUL-OUT rate (the 5->6 conversion). They behave differently
+# across eras, so a firm-early/mild-late profile threads both eras where a single strong-late
+# value over-suppressed old-era foul-outs. Multiplier by the defender's CURRENT foul count:
+_FOUL_CAUTION: Dict[int, float] = {3: 0.77, 4: 0.60, 5: 0.60}
+
+# League foul-rate ANCHOR for the player-rate-derived NON-SHOOTING foul hazard (gap 3.11). Total
+# team PF was era-FLAT because the foul paths normalized to the on-court LINEUP mean, dividing out
+# the absolute foul level (a low-foul modern lineup produced the same fouls as a high-foul old one).
+# The measured era difference lives in the NON-SHOOTING path (the modern PF excess is non-shooting;
+# shooting fouls drive FTA, which has its own target and must not be scaled here). So the
+# non-shooting hazard is scaled by the defending lineup's measured foul_rate against this FIXED
+# league anchor: a clean modern lineup draws proportionally fewer non-shooting fouls, so the real
+# era decline (team PF 22.8->19.9) EMERGES from the ingested player rates. The single constant
+# absorbs the era-INVARIANT level offset (roster-truncation + benching/rotation allocation) —
+# calibrated so league team PF matches real across eras (2005-06 22.7, 2016-17 20.2).
+LEAGUE_FOUL_RATE: float = 0.085
+
+
+def _lineup_foul_level(defense) -> float:
+    """Mean measured foul_rate of the on-court defenders relative to the league anchor. >1 for a
+    foul-prone (old-era) lineup, <1 for a clean (modern) lineup — this is what makes the team
+    foul LEVEL track the era instead of being flat. Applied to the non-shooting hazard only."""
+    m = sum(d.get("foul_rate", 0.09) for d in defense) / len(defense)
+    return m / LEAGUE_FOUL_RATE
+
+
+def _foul_caution(ctx, defender_id) -> float:
+    """Foul-trouble conversion/attribution multiplier for a defender by current foul count
+    (1.0 if not enabled or not in trouble). Early caution (3-4) shapes accumulation; late
+    caution (5) sets the foul-out rate."""
+    if not ctx.cfg.use_foul_caution or not ctx.foul_counts:
+        return 1.0
+    return _FOUL_CAUTION.get(ctx.foul_counts.get(defender_id, 0), 1.0)
 
 # Stage B signal gain — league-average make probability per sub-type, measured from
 # the engine itself (300 games DRAMA_M3, 2026-07-08, post attribute-v2). signal_gain
@@ -135,6 +217,12 @@ _LEAGUE_AVG_FOUL_DRAW_RATE: float = 0.22
 # Cap on foul_drawing_rate — low-FGA players produce absurd FTA/FGA ratios (seeded max 1.92).
 # Elite real foul drawers (Giannis, Embiid) sit near 0.55; 0.60 leaves headroom without outliers.
 _FOUL_DRAW_RATE_CAP: float = 0.60
+
+# Normalization anchor for the two-sided shooting-foul draw (gap 3.4): the shot-weighted league
+# mean foul_drawing_rate, so shooter_draw_mod averages ~1 (redistributive) and the base probability
+# keeps league FTA anchored — NOT the 0.22 no-history floor, which is below the shot-weighted mean
+# (stars shoot more) and would bake a level boost into the weights.
+_SHOOTER_DRAW_ANCHOR: float = 0.28
 
 _GUARD_POSITIONS = frozenset({"G", "G-F"})
 _WING_POSITIONS  = frozenset({"F", "F-G", "F-C"})
@@ -190,7 +278,12 @@ def _free_throw_prob(player: dict) -> float:
 
 
 def describe_event(event: dict, name_map: dict) -> str:
-    """Return a human-readable description of a possession event."""
+    """Human-readable description of the possession event. A pre-bonus non-shooting foul is now
+    its OWN terminal event (OREB-style two-event lifecycle), so it is described here directly."""
+    return _describe_outcome(event, name_map)
+
+
+def _describe_outcome(event: dict, name_map: dict) -> str:
     def name(pid: Optional[int]) -> str:
         return name_map.get(pid, f"Player {pid}") if pid else "Unknown"
 
@@ -203,9 +296,13 @@ def describe_event(event: dict, name_map: dict) -> str:
             return f"{name(event['turnover_by'])} commits an offensive foul"
         return f"{name(event['turnover_by'])} turns it over"
 
+    if event.get("nonshooting_foul_by"):
+        return (f"Non-shooting foul: {name(event['nonshooting_foul_by'])} on "
+                f"{name(event.get('nonshooting_foul_on'))}")
+
     if not event.get("shot_type"):
         ftm, fta = event.get("ftm", 0), event.get("fta", 0)
-        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul)"
+        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul by {name(event.get('fouled_by'))})"
 
     shot_labels = {
         "three": "3-pointer", "mid": "mid-range jumper", "close": "layup/close shot",
@@ -224,14 +321,14 @@ def describe_event(event: dict, name_map: dict) -> str:
             reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
             desc += f" — {name(event['rebounded_by'])} ({reb_type})"
         if event.get("fta"):
-            desc += f" — shooting foul, {event['ftm']}/{event['fta']} FTs"
+            desc += f" — shooting foul by {name(event.get('fouled_by'))}, {event['ftm']}/{event['fta']} FTs"
         return desc
 
     desc = f"{name(scorer)} hits a {shot}"
     if event.get("assisted_by"):
         desc += f" (assisted by {name(event['assisted_by'])})"
     if event.get("fta"):
-        desc += f" — and-1, {event['ftm']}/1 FT"
+        desc += f" — and-1 (foul by {name(event.get('fouled_by'))}), {event['ftm']}/1 FT"
     return desc
 
 
@@ -266,6 +363,7 @@ class Matchup:
 class ShotQuality:
     """How likely the attempt is to go in, after everything."""
     make_prob: float
+    contested: Optional[bool] = None   # instrumentation: contest-model outcome for this attempt
 
 
 def _empty_result() -> dict:
@@ -274,6 +372,8 @@ def _empty_result() -> dict:
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
         "fouled_by": None, "fta": 0, "ftm": 0,
+        "nonshooting_foul_by": None, "nonshooting_foul_on": None, "shot_clock_reset": False,
+        "contested": None,
     }
 
 
@@ -306,11 +406,13 @@ def resolve_possession(ctx: "PossessionContext") -> dict:
 
 # --- stage 1: select_action -------------------------------------------------
 
-def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
-    """Non-shooting (over-the-limit) foul probability for this ball handler.
+def _nonshooting_foul_prob(ctx, ball_handler: dict) -> float:
+    """Non-shooting defensive foul probability for this ball handler.
 
     use_foul_drawing: player-specific rate (FTA/FGA x scale), floored at the league
     average and escalated late in close games. Otherwise the flat pre-M3e 5.5%.
+    Scaled by nonshooting_foul_scale under the bonus system (pre-bonus fouls draw no
+    FTs, so more fouls are needed to hold FTA while total PF rises to real ~19-20).
     """
     cfg = ctx.cfg
     if not cfg.use_foul_drawing:
@@ -331,7 +433,7 @@ def _bonus_foul_prob(ctx, ball_handler: dict) -> float:
             prob *= cfg.foul_draw_late_zone2_mult
         elif margin <= cfg.foul_draw_late_zone1_margin:
             prob *= cfg.foul_draw_late_zone1_mult
-    return prob
+    return prob * cfg.nonshooting_foul_scale
 
 
 def _select_action(ctx, result: dict) -> Action:
@@ -357,20 +459,51 @@ def _select_action(ctx, result: dict) -> Action:
     init_weights = [p["assist_rate"] for p in offense]
     initiator = rng.choices(offense, weights=init_weights)[0]
 
-    # bonus foul (non-shooting)
-    if rng.random() < _bonus_foul_prob(ctx, ball_handler):
-        result["scorer"] = ball_handler["id"]
-        result["fouled_by"] = rng.choice(defense)["id"]
-        ft_prob = _free_throw_prob(ball_handler)
-        result["fta"] = 2
-        result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
+    # non-shooting defensive foul. In the bonus (or when the bonus system is off — the
+    # pre-3.7 behavior) it awards 2 FTs and ends the possession. Before the bonus it is a
+    # common foul: PF + team foul only, NO FTs, and the shot clock resets to 14. It ENDS this
+    # event (returns terminal) and the game loop re-runs the possession for the resumed shot —
+    # the same OREB-style two-event lifecycle (the foul is a discrete dead-ball event; the
+    # offense keeps the ball and its objective, only the ball handler is re-drawn).
+    # At most ONE pre-shot non-shooting foul opportunity per offensive possession: a resumed shot
+    # (after such a foul reset the clock) already had it, so it is skipped here — the possession
+    # otherwise re-enters the pipeline normally (shot selection, steals, turnovers, shooting fouls).
+    ns_prob = 0.0 if ctx.resumed_after_foul else _nonshooting_foul_prob(ctx, ball_handler)
+    if cfg.use_foul_rate_level and ns_prob:
+        ns_prob *= _lineup_foul_level(defense)   # era-level: fewer non-shooting fouls for a clean lineup
+    if rng.random() < ns_prob:
+        # A non-shooting foul isn't tied to a specific shot contest, so the fouler is
+        # drawn WEIGHTED by each defender's measured per-minute foul propensity rather
+        # than uniformly. The uniform draw made fouls minutes-driven, funneling foul-outs
+        # onto high-minute starters (91% of DQs) — the opposite of the real NBA, where
+        # stars foul the least per minute. Team foul total is unchanged; only WHO commits
+        # it. Shooting fouls stay tied to the contest defender (causal chain preserved).
+        # Foul-trouble caution also enters HERE (gap 3.10 (A)): a non-shooting foul isn't a
+        # contest, so a player in foul trouble is down-weighted in the draw and the foul
+        # REDISTRIBUTES to a teammate — total team PF preserved, unlike the shooting path
+        # where caution just lowers conversion. Closes the residual non-shooting memoryless
+        # path that bounded the modern PF=6 tail after the shooting-only caution.
+        fouler = rng.choices(defense, weights=[
+            d.get("foul_rate", 0.09) * _foul_caution(ctx, d["id"]) for d in defense])[0]["id"]
+        if ctx.defense_in_bonus or not cfg.use_bonus_system:
+            result["scorer"] = ball_handler["id"]
+            result["fouled_by"] = fouler
+            ft_prob = _free_throw_prob(ball_handler)
+            result["fta"] = 2
+            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            _credit_ft_rebound(ctx, result, last_missed)
+            return Action(ball_handler, terminal=True)
+        result["nonshooting_foul_by"] = fouler
+        result["nonshooting_foul_on"] = ball_handler["id"]
+        result["shot_clock_reset"] = True
         return Action(ball_handler, terminal=True)
 
-    # steal (~1.7%): best on-ball defender
+    # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
+    # volume; total TOV held via tov_scale). Still charges the ball handler a turnover.
     best_defender = max(defense, key=lambda p: p["steal"])
-    if rng.random() < (best_defender["steal"] / 100.0) * 0.034:
+    if rng.random() < (best_defender["steal"] / 100.0) * cfg.steal_rate:
         result["turnover_by"] = ball_handler["id"]
-        result["steal_by"] = best_defender["id"]
+        result["steal_by"] = _credit_defender(defense, "steal", rng)
         return Action(ball_handler, terminal=True)
 
     # unforced turnover — driven by the player's observed per-possession turnover
@@ -398,7 +531,10 @@ def _select_action(ctx, result: dict) -> Action:
     # shot type — objective three_rate_override then phase shot-profile multiplier
     three_rate = ball_handler["three_point_rate"]
     if ctx.adjustments and ctx.adjustments.three_rate_override:
-        three_rate = min(0.60, max(0.0, three_rate + ctx.adjustments.three_rate_override))
+        # 0.85 ceiling (not 0.60): a team down 3 at the buzzer (gap 3.3 tie-seek) shoots
+        # a three ~80% of the time — the normal 0.60 shot-mix cap was never meant to bound
+        # that forced choice. Only a strong positive override (tie-seek down 3) reaches here.
+        three_rate = min(0.85, max(0.0, three_rate + ctx.adjustments.three_rate_override))
     if profile.shot_profile.three_rate_mult != 1.0:
         three_rate = min(0.60, max(0.0, three_rate * profile.shot_profile.three_rate_mult))
     if ctx.is_fastbreak:
@@ -436,6 +572,25 @@ def _assign_rebound(ctx, result: dict) -> None:
         )[0]["id"]
 
 
+def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool]:
+    """Sample n free throws; return (makes, last_missed). Draws n rng values in the
+    same order as the old inline generator, so the FT outcomes are RNG-identical; the
+    last-FT flag is what lets us credit the live rebound on a missed final FT."""
+    makes = [rng.random() < ft_prob for _ in range(n)]
+    return sum(makes), not makes[-1]
+
+
+def _credit_ft_rebound(ctx, result: dict, last_missed: bool) -> None:
+    """A missed LAST free throw is a live rebound (gap 3.5). The possession already
+    flips to the defense in the game loop (no OREB-off-FT is modeled), so credit a
+    DEFENSIVE rebounder — is_oreb stays False, so this adds only the box-score credit
+    that was missing and cannot trigger a second chance (scoring/possession-neutral)."""
+    if last_missed:
+        result["rebounded_by"] = ctx.rng.choices(
+            ctx.defense, weights=[p["dreb_rate"] for p in ctx.defense]
+        )[0]["id"]
+
+
 def _resolve_matchup(ctx, action: Action, result: dict) -> Matchup:
     """Defensive response: rim protection first (a block ends the possession, with a
     rebound), then the on-ball defender assignment."""
@@ -447,7 +602,7 @@ def _resolve_matchup(ctx, action: Action, result: dict) -> Matchup:
         block_mult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
         best_blocker = max(defense, key=lambda p: p["block"])
         if rng.random() < (best_blocker["block"] / 100.0) * 0.04 * block_mult:
-            result["block_by"] = best_blocker["id"]
+            result["block_by"] = _credit_defender(defense, "block", rng)
             _assign_rebound(ctx, result)
             return Matchup(defender=None, blocked=True)
 
@@ -504,13 +659,18 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
         defense_penalty *= 0.80
 
     # contest model — separates whether the defender reaches the shot from its impact
+    is_contested = None
     if cfg.use_contest_model:
         def_attr = (
             defender["perimeter_defense"] if sub_type in _PERIMETER_TYPES
             else defender["interior_defense"]
         )
         is_contested = rng.random() < (def_attr / 100.0) * _CONTEST_REACH[sub_type]
-        defense_penalty *= _CONTEST_IMPACT[sub_type] if is_contested else 1.0
+        if is_contested:
+            # multiplicative IMPACT (interior, where the raw penalty is large enough to matter)
+            # PLUS an additive contest-state penalty (perimeter, where the centered penalty is ~0
+            # and a multiplier is inert — see _CONTEST_PENALTY).
+            defense_penalty = defense_penalty * _CONTEST_IMPACT[sub_type] + _CONTEST_PENALTY.get(sub_type, 0.0)
 
     shot_prob = (base_prob - defense_penalty) * ctx.team_defense_factor
     if cfg.signal_gain != 1.0:
@@ -525,7 +685,7 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
         else 0.0
     )
     make_prob = max(0.05, min(0.95, shot_prob + shot_delta + form_delta))
-    return ShotQuality(make_prob=make_prob)
+    return ShotQuality(make_prob=make_prob, contested=is_contested)
 
 
 # --- stage 4: resolve_outcome -----------------------------------------------
@@ -537,30 +697,63 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     sub_type, coarse_type = action.sub_type, action.coarse_type
 
     result["made"] = rng.random() < quality.make_prob
+    result["contested"] = quality.contested   # instrumentation only (None when contest model off)
     ft_prob = _free_throw_prob(ball_handler)
-    shoot_foul_mult = _FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0
+    shoot_foul_mult = (_FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0) * cfg.shooting_foul_scale
     # NB: the phase foul boost lives on the non-shooting bonus foul (which REPLACES a shot
     # with a low-variance FT trip). Boosting shooting fouls instead adds and-1s — higher
     # variance — so it is deliberately NOT applied here.
 
+    # and-1s (a foul on a MADE shot) are rarer than fouls that cause a miss — real
+    # shooting fouls skew to contested misses/drives. Rolling the foul independent of
+    # make over-produced and-1s (3-pt-ish plays), inflating points per FTA. This factor
+    # thins the foul rate on makes so FTA can reach real levels at neutral scoring (3.7 2b).
+    and1 = cfg.and1_rate_factor if result["made"] else 1.0
+    # Foul CONVERSION propensity: the contest defender still contests and (if fouled)
+    # commits the foul, but how often a contest becomes a shooting foul is scaled by that
+    # defender's measured per-minute foul rate, centered on the on-court five. Normalizing
+    # by the lineup mean keeps the TEAM shooting-foul rate invariant (the scale averages to
+    # ~1 over uniform contester selection) while redistributing fouls off high-minute stars
+    # onto the bigs — real players contest ~equally per minute (~8% spread) but foul less
+    # PER CONTEST (measured 2016-17: pf/contest is the dominant star signal). foul_rate is
+    # PF/min from ingested PF, used as an empirical propensity proxy (guardrail #7).
+    # Shooting fouls stay LINEUP-MEAN normalized (level-neutral redistribution): they drive FTA,
+    # which has its own real target, and the era-level foul difference lives in the NON-SHOOTING
+    # path (measured: the modern PF excess is non-shooting, FTA is not over-produced). So the
+    # gap-3.11 era-level anchor is applied only to the non-shooting hazard, not here.
+    lineup_mean_fr = sum(d.get("foul_rate", 0.09) for d in ctx.defense) / len(ctx.defense)
+    foul_conv = (defender.get("foul_rate", 0.09) / lineup_mean_fr) if lineup_mean_fr > 0 else 1.0
+    foul_conv *= _foul_caution(ctx, defender["id"])   # state-dependent: a contester in foul trouble converts contests to fouls less often
+    # Two-sided foul interaction (gap 3.4): the shooter's whistle-drawing ability, not just the
+    # defender's foul tendency. shooter_draw = measured foul_drawing_rate (FTA/FGA) normalized to
+    # the league mean, so it averages ~1 and the base probability keeps league FTA anchored — the
+    # defender side (foul_conv) is already lineup-mean normalized. Stars draw shooting fouls at
+    # their real elevated rate; flat before this (FTA/FGA ~0.24 for all vs real 0.35 star / 0.22 bench).
+    if cfg.use_foul_drawing:
+        shooter_draw = min(ball_handler.get("foul_drawing_rate") or _SHOOTER_DRAW_ANCHOR,
+                           _FOUL_DRAW_RATE_CAP) / _SHOOTER_DRAW_ANCHOR
+    else:
+        shooter_draw = 1.0
     # 3PT shooting foul (~2% x sub-type multiplier)
-    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult:
+    if coarse_type == "three" and rng.random() < 0.02 * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"] = 1 if rng.random() < ft_prob else 0
+            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 3
-            result["ftm"] = sum(1 for _ in range(3) if rng.random() < ft_prob)
+            result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
+        _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
-    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult:
+    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"] = 1 if rng.random() < ft_prob else 0
+            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 2
-            result["ftm"] = sum(1 for _ in range(2) if rng.random() < ft_prob)
+            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+        _credit_ft_rebound(ctx, result, last_missed)
 
     # assist on a make — credited to the possession INITIATOR when a teammate scored.
     # A self-created basket (initiator == shooter) is unassisted. The assist rate is
@@ -575,6 +768,19 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             ast_rate = 0.85 if coarse_type in ("three", "mid") else 0.66
             if rng.random() < ast_rate:
                 result["assisted_by"] = initiator["id"]
+
+    # block attribution on a missed rim shot (gap 3.5): a block is a KIND of missed FG.
+    # The forced-miss rim-protection path (_resolve_matchup) ends possessions; this
+    # relabels the REST of the missed block-eligible shots so total blocks reach real
+    # ~4.9. Pure box-score relabel — the shot already missed, so scoring/possession and
+    # the rebound below are untouched.
+    block_eligible = (sub_type in _BLOCK_ELIGIBLE) if cfg.use_shot_subtypes else (coarse_type != "three")
+    if (not result["made"] and result["fta"] == 0 and not ctx.is_fastbreak
+            and block_eligible and cfg.block_attribution_scale > 0):
+        blocker = max(ctx.defense, key=lambda p: p["block"])
+        bmult = _BLOCK_MULT.get(sub_type, 1.0) if cfg.use_shot_subtypes else 1.0
+        if rng.random() < (blocker["block"] / 100.0) * cfg.block_attribution_scale * bmult:
+            result["block_by"] = _credit_defender(ctx.defense, "block", rng)
 
     # rebound on a live miss (no free throws pending)
     if not result["made"] and result["fta"] == 0:

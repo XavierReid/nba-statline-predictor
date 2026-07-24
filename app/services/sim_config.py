@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -13,6 +13,10 @@ class SimConfig:
     use_momentum: bool = False        # per-team momentum from runs/stops/steals
     use_fatigue: bool = False         # heavy-minutes lineup efficiency decay
     use_foul_trouble: bool = False    # defense softens when players have 4+ fouls
+    use_foul_trouble_subs: bool = False  # bench a player in foul trouble until safe (Q4 plays through)
+    use_foul_caution: bool = False    # state-dependent foul hazard: a contester in foul trouble converts contests to fouls less often (real basketball is not memoryless)
+    use_foul_rate_level: bool = False # scale the foul hazard by on-court players' measured foul_rate vs a league anchor, so team PF tracks the era instead of being flat (gap 3.11)
+    use_bonus_system: bool = False    # team-foul/bonus: pre-bonus non-shooting fouls draw no FTs (reset shot clock), bonus (>=5) awards 2 FTs
     use_clutch: bool = False          # clutch_rating boosts late close-game efficiency
     use_player_variance: bool = False # per-game form factor drawn from player-specific distribution
     use_team_oreb: bool = False       # per-team OREB% from TeamSeasonStats replaces flat 22% constant
@@ -24,6 +28,11 @@ class SimConfig:
     use_positional_matchups: bool = False  # position-aware defender pool (uniform within group)
     use_foul_drawing: bool = False    # player-specific foul draw rate with shot-type multipliers
     use_endgame_pacing: bool = False  # incentive-driven possession time in the endgame window
+    use_tie_seek: bool = False         # trailing team matches late shot VALUE to the deficit (gap 3.3)
+    use_availability: bool = False     # per-game availability draw (gap 3.4): ~10 of a deeper roster play each game
+    roster_depth: int = 10             # players loaded per team (availability draws the active set from these)
+    availability_min_active: int = 8   # floor on active players dressed per game
+    availability_minutes_cap: float = 40.0  # soft cap: short-handed surplus fills toward this (bench absorbs)
     use_garbage_rotation: bool = False  # game-state-aware rotation: bench units in garbage time
     use_lineup_quality: bool = False    # defense quality emerges from the five on the floor
     use_behavior_profile: bool = False  # GamePhase resolves to a baseline-behavior profile
@@ -46,6 +55,19 @@ class SimConfig:
     endgame_milk_time_mean: float = 20.0     # leading offense — time over expected points
     endgame_milk_time_std: float = 2.0
 
+    # --- tie-seeking shot value (gap 3.3; late_game.tie_seek_three_shift) ---
+    # The base engine picks its normal CHASE shot mix regardless of deficit, so it
+    # under-shoots the tying three when down 3 and over-shoots threes when down 1 —
+    # measured deficit-insensitivity (down 1/2/3 made-3-share ~35/31/36% vs real
+    # ~18/28/48%), which leaks the end-of-regulation tie mass and halves the OT rate.
+    # Additive three-rate shift on the trailing team's late final-period possession,
+    # keyed on deficit and sharpening toward the buzzer (urgency). Deficit 1-3 is below
+    # objective_min_margin, so this is a distinct mechanism from CHASE, not a CHASE knob.
+    tie_seek_clock_window: float = 30.0  # seconds remaining (Q4/OT) for the bias to be active
+    tie_seek_down1_shift: float = -0.20  # down 1: a two takes the lead — fewer threes
+    tie_seek_down2_shift: float = -0.05  # down 2: mild
+    tie_seek_down3_shift: float = 0.45   # down 3: need the three to tie — more threes
+
     # --- Q4 team objectives (gap 3.1; late_game.derive_objective/objective_adjustments) ---
     # Behavior-first: selection + tempo only, efficiency emerges. Constants are
     # calibrated against the measured Q4 transition deltas (SIMULATION_GAPS.md).
@@ -61,6 +83,24 @@ class SimConfig:
     chase_three_shift: float = 0.0       # trailing variance (off by default — costs efficiency here)
     protect_pace_bonus: float = 0.10     # leading team: max +10% possession time (milk)
     chase_pace_bonus: float = 0.10       # trailing team: max -10% possession time (hurry)
+    # --- comfortable-lead PROTECT (gap 3.2; margin 9-20 in Q4, above competitive_late_margin) ---
+    # The clutch constants above own <=8 (gap 3.1) and are frozen. The 9-20 band is a
+    # DIFFERENT regime: a team protecting a comfortable (not decided) fourth-quarter
+    # lead manages the game harder — trades aggression for clock management and
+    # lower-risk possessions. Measured owner of gap 3.2: real NET(lead-trail) Q4 is
+    # negative every band (trailing team outscores leader = compression), strongest at
+    # 11-20 (-1.46); the sim's clutch-strength PROTECT was far too weak here (sim -0.42,
+    # even +0.22 at 6-10). These are a stronger, independently-calibrated PROTECT applied
+    # only in the comfortable band, swept against the NET(lead-trail) target. 0 would fall
+    # back to clutch strength (behavior-neutral vs pre-3.2). Leading-team-only: CHASE is
+    # unchanged (measurement showed the miss is dominated by the leader).
+    # Swept 2026-07-14 against the real Q4 NET(lead-trail) target (scratch/q4_role_split.py):
+    # cost 0.22 lands 11-20 at -1.54 (real -1.46), 21+ -0.99 (-0.91), 6-10 -0.50 (-0.67) —
+    # all bands within ~1 SE of the (noisy, single-season) real NET. Efficiency cost is the
+    # primary NET lever; pace/three milk the clock and pull Q4 totals toward real (~55).
+    comfortable_lead_efficiency_cost: float = 0.22  # worse leader shots (primary NET lever)
+    comfortable_lead_three_shift: float = 0.12      # fewer leader threes (lower risk)
+    comfortable_lead_pace_bonus: float = 0.16       # milk clock harder (also slows Q4 total)
 
     # --- M3e tuning constants ---
     # Naively 0.055 / 0.22 = 0.25 would match the old flat rate for a league-average
@@ -69,6 +109,32 @@ class SimConfig:
     # compensates for that correlation (measured: FTA/team/gm 21.6 baseline) so total
     # bonus foul volume stays at pre-M3e levels while distribution shifts to stars.
     foul_draw_scale: float = 0.19
+    # --- team-foul / bonus model (gap 3.7 step 2b) ---
+    bonus_foul_threshold: int = 5     # defensive team fouls per period before the bonus (2 FTs on non-shooting fouls)
+    last2min_clock: int = 120         # NBA rule: in the last 2:00 the 2nd team foul draws FTs (even if under threshold)
+    # Non-shooting foul rate is scaled up under the bonus system: pre-bonus ones draw NO
+    # FTs, so more fouls are needed to keep FTA (~21.8) while total PF rises to real ~19-20.
+    # Swept in Stage 1 (basketball counts) — see SIMULATION_GAPS 3.7.
+    nonshooting_foul_scale: float = 1.0
+    # Shooting-foul rate multiplier. The old always-FT "bonus" fouls masked that shooting
+    # fouls under-produced FTA; with the bonus system gating non-shooting FTs, real FTA
+    # (~21.8, mostly shooting fouls) needs this >1. Swept in Stage 1.
+    shooting_foul_scale: float = 1.0
+    # Multiplier on the shooting-foul rate when the shot was MADE (and-1). <1 thins
+    # and-1s toward the real ~25% share (vs the sim's ~50% from make-independent rolls),
+    # so FTA can be raised via 2-shot fouls on misses without inflating scoring. 1.0 = off.
+    and1_rate_factor: float = 1.0
+    # A pre-bonus non-shooting foul resets the shot clock to 14s: the possession continues
+    # and consumes this much ADDITIONAL game clock (analog of second_chance_time). Stage 1
+    # applies it UNCOMPENSATED and instruments the pace impact; Stage 2 adds one clock-budget
+    # compensation constant only if measurement shows one is needed.
+    foul_reset_time_mean: float = 10.0
+    foul_reset_time_std: float = 2.5
+    # Stage 2 pace compensation: fraction of distinct possessions that get a pre-bonus
+    # shot-clock reset. Folded into the halfcourt possession-time budget (like
+    # fastbreak_poss_frac) to offset the reset time and hold pace. MEASURED 2026-07-15
+    # from diag.pre_bonus_fouls (8.8/game) ÷ ~190 distinct poss/game. 0.0 = uncompensated.
+    foul_reset_poss_frac: float = 0.075
     foul_draw_late_zone1_clock: int = 120   # seconds: heightened intensity window
     foul_draw_late_zone1_margin: int = 8    # max margin for zone 1
     foul_draw_late_zone1_mult: float = 1.3
@@ -88,6 +154,7 @@ class SimConfig:
 
     # --- tuning constants ---
     oreb_chain_cap: int = 5
+    foul_reset_chain_cap: int = 3   # max consecutive pre-bonus non-shooting fouls on one possession (OREB-style)
     fastbreak_time_mean: float = 7.0
     fastbreak_time_std: float = 1.5
     halfcourt_time_std: float = 3.0
@@ -100,7 +167,7 @@ class SimConfig:
     # --- possession-mixture compensation (measured, not heuristic) ---
     # Pace budgets already include short possessions; these fractions lengthen the
     # halfcourt possession-time mean to offset them. Values come from possession
-    # accounting runs (scratch/diagnose_calibration.py), not analytic estimates.
+    # accounting runs (result["possession_accounting"] / app/analysis/), not analytic estimates.
     # 0.0 = no compensation (measurement mode).
     fastbreak_poss_frac: float = 0.026  # measured 2026-07-07, 300 games DRAMA_M3 (2.6% of possessions)
     catch_up_clock_frac: float = 0.0026 # measured 2026-07-07: +7.4s/game saved = 0.26% of regulation clock
@@ -125,7 +192,25 @@ class SimConfig:
     # this. The player value sets the relative economy (flat across usage tiers);
     # this one league anchor keeps aggregate team TOV correct (steal / offensive-foul
     # paths also contribute, so <1). Swept against the turnover-economy harness.
-    tov_scale: float = 1.0
+    tov_scale: float = 1.0  # DRAMA_M3 lowers this (0.9→0.44) to hold TOTAL TOV as steals rose (3.5, composition-only)
+    # Block attribution (gap 3.5): a block is a KIND of missed FG, so beyond the
+    # possession-ending rim-protection path (which forces a miss pre-draw), missed
+    # block-eligible shots are relabeled as blocked at this rate × the blocker's block
+    # attribute. Scoring/possession-neutral (only labels existing misses). Swept so
+    # blocks/team/game ≈ real 4.9 (sim was ~1.0 from the forced-miss path alone). 0 =
+    # off (pre-3.5 behavior).
+    block_attribution_scale: float = 0.60
+    # Steal rate (gap 3.5): live-ball steal prob = best on-ball defender's steal attr /
+    # 100 × this. Raised from the old 0.034 so steals ≈ real 8.1/team (was ~3.0); total
+    # TOV is held at real ~13.4 by lowering tov_scale in tandem (a steal and an unforced
+    # turnover are both a turnover charged to the ball handler — composition shift, not
+    # more turnovers). Real steals are ~60% of TOV; the sim was ~20%.
+    steal_rate: float = 0.093
+    # Only a FRACTION of steals lead to a transition possession — decouples the (now
+    # realistic) steal COUNT from fast-break frequency so the measured possession/pace
+    # budget (fastbreak_poss_frac) still holds. Set so fast breaks stay ~constant vs the
+    # pre-3.5 steal rate. Real: not every steal is a fast break.
+    steal_fastbreak_prob: float = 0.37
     league_avg_def_rating: float = 113.0
     league_avg_pace: float = 100.0
     momentum_max: float = 0.05
@@ -150,12 +235,32 @@ DRAMA_M3 = SimConfig(
     use_positional_matchups=True,
     use_foul_drawing=True,
     use_endgame_pacing=True,
+    use_tie_seek=True,
+    # Availability is OFF in the default path: it is aggregate-correct (real per-game roster
+    # turnover) but for a single NAMED-player game it randomly sits stars and — via the 240-min
+    # renormalization — silently reassigns their output to replacements (no team-strength cost).
+    # Kept as a toggle; DRAMA_M3_SEASON opts in. Replacement-quality is a separate open gap (3.4g).
+    use_availability=False,
+    roster_depth=18,
+    availability_min_active=9,
     use_garbage_rotation=True,
     use_lineup_quality=True,
     use_behavior_profile=True,
     usage_concentration=1.6,
-    tov_scale=0.9,
+    tov_scale=0.44,
+    use_foul_trouble_subs=True,
+    use_foul_caution=True,
+    use_foul_rate_level=True,
+    use_bonus_system=True,
+    nonshooting_foul_scale=1.3,
+    shooting_foul_scale=1.9,
+    and1_rate_factor=0.4,
 )
+
+# Season/aggregate path: re-enables per-game availability (real roster turnover across 82
+# games). Not for single named-game prediction — see the use_availability note above.
+from dataclasses import replace as _replace  # noqa: E402
+DRAMA_M3_SEASON = _replace(DRAMA_M3, use_availability=True)
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(
     use_second_chance=True,

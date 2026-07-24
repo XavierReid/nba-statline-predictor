@@ -2,12 +2,12 @@
 
 Every mechanic that affects possessions, clock, or lineup quality reports its
 contribution here (CLAUDE.md guardrail 5). The dict shape returned by as_dict()
-is the public contract consumed by scratch/diagnose_calibration.py and API
+is the public contract consumed by the analysis pillar (app/analysis/) and API
 callers via result["possession_accounting"] — extend it, don't reshape it.
 """
 from typing import Dict
 
-_CATEGORIES = ("halfcourt", "fastbreak", "second_chance", "strategic_foul", "endgame")
+_CATEGORIES = ("halfcourt", "fastbreak", "second_chance", "strategic_foul", "endgame", "foul_reset")
 
 
 class SimulationDiagnostics:
@@ -17,6 +17,8 @@ class SimulationDiagnostics:
         self.time: Dict[str, float] = {c: 0.0 for c in _CATEGORIES}
         self.catch_up_time_delta = 0.0   # net clock saved (+) / added (−) by pace multipliers
         self.endgame_time_delta = 0.0    # net clock saved (+) / added (−) by endgame pacing
+        self.foul_reset_time = 0.0       # extra clock consumed by pre-bonus foul shot-clock resets (3.7 2b)
+        self.pre_bonus_fouls = 0         # count of pre-bonus non-shooting fouls
         # garbage rotation (gap 2.1)
         self.garbage_entries = 0
         self.garbage_possessions = 0
@@ -58,6 +60,8 @@ class SimulationDiagnostics:
             "time": self.time,
             "catch_up_time_delta": self.catch_up_time_delta,
             "endgame_time_delta": self.endgame_time_delta,
+            "foul_reset_time": self.foul_reset_time,
+            "pre_bonus_fouls": self.pre_bonus_fouls,
             "garbage_rotation": {
                 "entries": self.garbage_entries,
                 "possessions": self.garbage_possessions,

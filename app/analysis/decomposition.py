@@ -13,8 +13,7 @@ import argparse
 import os
 import sys
 import zlib
-from dataclasses import replace
-from typing import List, Optional
+from typing import List
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -106,7 +105,6 @@ def compare(real: PossessionAccounting, sim: PossessionAccounting) -> None:
 
     # --- points attribution: gap = possession volume + per-component (vol + eff) ---
     gap = sim.points_per_game - real.points_per_game
-    rp, sp = _ppp_parts(real), _ppp_parts(sim)
     print(f"\n  Points attribution (per team-game, sums to the {gap:+.1f} gap):")
     print(f"  {'component':12}{'volume':>10}{'efficiency':>12}{'total':>10}")
     vol_term = real.ppp * (sim.possessions - real.possessions)

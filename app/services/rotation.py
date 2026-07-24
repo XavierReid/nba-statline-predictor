@@ -42,13 +42,25 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
     for p in bench:
         assign_minutes(p, p["minutes"], preferred_start=12)
 
-    sorted_by_min = sorted(players, key=lambda x: x["minutes"], reverse=True)
+    # Backfill short slots with the player furthest BELOW their target minutes, not the
+    # highest-mpg player: the old "grab the top name" rule piled every gap onto the star
+    # (34 mpg -> 46 scheduled) while mid-rotation players (whose assignment got squeezed out
+    # by full slots) went under-served. Deficit-based fill keeps everyone near their mpg.
+    count: dict = {}
+    for slot in slots:
+        for pid in slot:
+            count[pid] = count.get(pid, 0) + 1
     for slot in slots:
         while len(slot) < 5:
-            for p in sorted_by_min:
-                if p["id"] not in slot:
-                    slot.add(p["id"])
-                    break
+            cand = min(
+                (p for p in players if p["id"] not in slot),
+                key=lambda p: count.get(p["id"], 0) - p["minutes"],
+                default=None,
+            )
+            if cand is None:
+                break
+            slot.add(cand["id"])
+            count[cand["id"]] = count.get(cand["id"], 0) + 1
 
     return [list(s) for s in slots]
 

@@ -19,6 +19,38 @@ from app.models.team_season_stats import TeamSeasonStats
 
 log = logging.getLogger(__name__)
 
+# Canonical set of seasons the project ingests, oldest → newest. 1996-97 is the data
+# cliff (no LeagueDash* before it). Keep this the single source of truth for "all seasons"
+# so setup/verify iterate the same list instead of ad-hoc per-season runs.
+SEASONS = (
+    "1996-97", "2000-01", "2005-06", "2013-14", "2016-17",
+    "2019-20", "2020-21", "2024-25", "2025-26",
+)
+
+
+def verify_season_coverage(db: Session, season: str) -> list:
+    """Return a list of human-readable coverage gaps for a season, empty if clean.
+
+    Shot-LOCATION data (ra/paint/mid FGA) exists for every era back to 1996-97 and drives
+    the observed-zone-FG% make model; a season missing it silently falls back to the
+    attribute band and over-scores ~+12 (this is exactly how 2024-25 slipped through — the
+    endpoint soft-failed and nothing checked). Tracking DEFENSE is a separate matter (empty
+    pre-2013-14 by design) and is NOT flagged here.
+    """
+    from sqlalchemy import select
+    rows = db.execute(
+        select(PlayerSeasonStats).where(PlayerSeasonStats.season == season)
+    ).scalars().all()
+    gaps = []
+    if not rows:
+        return [f"{season}: no PlayerSeasonStats rows (run full ingestion)"]
+    n = len(rows)
+    have_shots = sum(1 for r in rows if r.ra_fga is not None)
+    if have_shots < n * 0.8:
+        gaps.append(f"{season}: shot-location data on {have_shots}/{n} players "
+                    f"(<80%) — make model will fall back to the attribute band and over-score")
+    return gaps
+
 
 def ingest_teams(db: Session) -> int:
     """Upsert teams. Returns count inserted/updated."""
@@ -583,6 +615,12 @@ def run_full_ingestion(season: str) -> dict[str, int]:
         counts["shot_defense"] = ingest_shot_defense(db, season); db.commit()
         counts["team_season_stats"] = ingest_team_season_stats(db, season); db.commit()
         counts["attributes"] = seed_player_attributes(db, season); db.commit()
+        # Fail LOUD, not silent: ingest_shot_defense soft-fails when the endpoint returns
+        # nothing, so verify coverage landed rather than trusting the (possibly 0) count.
+        gaps = verify_season_coverage(db, season)
+        for g in gaps:
+            log.warning("COVERAGE GAP — %s", g)
+        counts["coverage_ok"] = 0 if gaps else 1
     except Exception:
         db.rollback()
         raise

@@ -83,6 +83,9 @@ def simulate_game(
     # games_played. Eligibility only — the rotation engine is untouched. Returns fresh dicts.
     # Availability needs the deeper pool: if handed a shallow roster (a caller that loaded the
     # default depth), reload to roster_depth here so every path benefits without caller surgery.
+    # Full loaded pool (pre-selection) is retained so callers can distinguish who was
+    # rostered-but-inactive (DNP) from who simply never entered the box score.
+    home_pool, away_pool = home_players, away_players
     if cfg.use_availability:
         from app.services.availability import select_active_roster
         depth = getattr(cfg, "roster_depth", 10)
@@ -91,11 +94,11 @@ def simulate_game(
             hp = load_roster(db, home_team_id, season, depth=depth)
             ap = load_roster(db, away_team_id, season, depth=depth)
             if hp:
-                home_players = hp
+                home_pool = hp
             if ap:
-                away_players = ap
-        home_players = select_active_roster(home_players, rng, cfg)
-        away_players = select_active_roster(away_players, rng, cfg)
+                away_pool = ap
+        home_players = select_active_roster(home_pool, rng, cfg)
+        away_players = select_active_roster(away_pool, rng, cfg)
 
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
@@ -648,4 +651,10 @@ def simulate_game(
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
         "possession_accounting": diag.as_dict(),
+        # Rosters as the engine actually used them: `active` are the players who dressed
+        # (post-availability), `pool` is the full loaded roster so callers can render DNPs.
+        "home_active": home_players,
+        "away_active": away_players,
+        "home_pool": home_pool,
+        "away_pool": away_pool,
     }

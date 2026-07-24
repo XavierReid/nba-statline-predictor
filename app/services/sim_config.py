@@ -236,7 +236,11 @@ DRAMA_M3 = SimConfig(
     use_foul_drawing=True,
     use_endgame_pacing=True,
     use_tie_seek=True,
-    use_availability=True,
+    # Availability is OFF in the default path: it is aggregate-correct (real per-game roster
+    # turnover) but for a single NAMED-player game it randomly sits stars and — via the 240-min
+    # renormalization — silently reassigns their output to replacements (no team-strength cost).
+    # Kept as a toggle; DRAMA_M3_SEASON opts in. Replacement-quality is a separate open gap (3.4g).
+    use_availability=False,
     roster_depth=18,
     availability_min_active=9,
     use_garbage_rotation=True,
@@ -252,6 +256,11 @@ DRAMA_M3 = SimConfig(
     shooting_foul_scale=1.9,
     and1_rate_factor=0.4,
 )
+
+# Season/aggregate path: re-enables per-game availability (real roster turnover across 82
+# games). Not for single named-game prediction — see the use_availability note above.
+from dataclasses import replace as _replace  # noqa: E402
+DRAMA_M3_SEASON = _replace(DRAMA_M3, use_availability=True)
 
 DRAMA_M3_NO_SUBTYPES = SimConfig(
     use_second_chance=True,

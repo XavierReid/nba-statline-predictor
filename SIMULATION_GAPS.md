@@ -787,6 +787,28 @@ garbage-time untouched, per plan.
 Instruments: `scratch/gap34_minutes_input.py`, `gap34_minutes_factorial.py`, `gap34_availability_proxy.py`,
 `gap34_active_roster.py`, `gap34_availability_validate.py`; ingest `app/ingestion/jobs.ingest_player_game_logs`.
 
+## Gap 3.4g — Replacement quality: an absence has no team-strength cost (OPEN, 2026-07-24)
+
+Availability (3.4f) validated as intended, and in doing so exposed the NEXT missing behavior. Two things it
+does NOT model:
+- **Replacement quality (PRIORITY).** `select_active_roster` always renormalizes the active players to 240
+  minutes ([availability.py:89-100]). So when a star sits, his minutes AND usage flow to whoever is active and
+  the team scores about the same — a replacement-level player inherits star production. Availability should
+  reduce available TALENT, not merely redistribute minutes. Open questions: partial (not full) redistribution of
+  an absent star's minutes; replacement inherits minutes but NOT usage/efficiency; team offensive quality should
+  fall when high-value players are unavailable. This is the one that materially moves predicted stat lines.
+- **Absence correlation (SECONDARY).** Draws are independent Bernoulli, so ~10.6 is right on AVERAGE but too many
+  nights have multiple core players out together (measured OKC 2025-26: 2+ top-5 starters out in 27% of games,
+  3+ in ~4%). Real absences cluster/cap; fix via a team availability state or a cap on simultaneous core
+  absences — NOT by tuning individual probabilities (those are calibrated: SGA sim active 0.87 ≈ real gp/82).
+
+DECISION (2026-07-24): keep availability exactly as implemented; do NOT tune the Bernoulli probs. `use_availability`
+turned OFF in default `DRAMA_M3` (single named-game accuracy is the goal — it randomly sat stars and reassigned
+their output); re-enabled in new preset `DRAMA_M3_SEASON` / `drama-m3-season` for season/aggregate sims.
+Also fixed a DISPLAY bug: `simulate_game` now returns `home_active`/`away_active`/`home_pool`/`away_pool`, and
+`scratch/03_game_simulator.py` renders inactive players as `DNP` instead of dropping them (a sat star was
+invisible and the box silently summed to 240 among the rest).
+
 ## Gap 3.2-OLD — Mid-game dispersion (FOLDED INTO 3.2 above)
 
 **Status (2026-07-14):** the "sim lacks within-game correction" hypothesis is now the

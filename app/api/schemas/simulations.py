@@ -5,12 +5,15 @@ from typing import Optional
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.sim_config import DRAMA_M3, DRAMA_M3_NO_SUBTYPES, SimConfig
+from app.services.sim_config import (
+    DRAMA_M3, DRAMA_M3_NO_SUBTYPES, DRAMA_M3_SEASON, SimConfig,
+)
 
 
 _PRESETS: dict = {
     "baseline": SimConfig(),
     "drama-m3": DRAMA_M3,
+    "drama-m3-season": DRAMA_M3_SEASON,
     "drama-m3-no-subtypes": DRAMA_M3_NO_SUBTYPES,
 }
 

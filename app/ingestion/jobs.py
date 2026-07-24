@@ -31,13 +31,18 @@ SEASONS = (
 def verify_season_coverage(db: Session, season: str) -> list:
     """Return a list of human-readable coverage gaps for a season, empty if clean.
 
-    Shot-LOCATION data (ra/paint/mid FGA) exists for every era back to 1996-97 and drives
-    the observed-zone-FG% make model; a season missing it silently falls back to the
-    attribute band and over-scores ~+12 (this is exactly how 2024-25 slipped through — the
-    endpoint soft-failed and nothing checked). Tracking DEFENSE is a separate matter (empty
-    pre-2013-14 by design) and is NOT flagged here.
+    Flags the two ways a season has silently shipped incomplete (both seen on 2024-25):
+      - Shot-LOCATION data (ra/paint/mid FGA), which exists for every era back to 1996-97
+        and drives the observed-zone-FG% make model; missing it falls back to the attribute
+        band and over-scores ~+12 (the endpoint soft-failed and nothing checked).
+      - ATTRIBUTE/TENDENCY seeding: a player with season stats but no seeded attributes
+        can't be rostered, so the season isn't fully simulatable (this is the `ready` flag's
+        logic — kept here so ingestion fails loud, not just the /seasons endpoint).
+    Tracking DEFENSE is a separate matter (empty pre-2013-14 by design) and is NOT flagged.
     """
-    from sqlalchemy import select
+    from sqlalchemy import distinct, func, select
+    from app.models.player_attributes import PlayerAttributes
+    from app.models.player_tendencies import PlayerTendencies
     rows = db.execute(
         select(PlayerSeasonStats).where(PlayerSeasonStats.season == season)
     ).scalars().all()
@@ -49,6 +54,16 @@ def verify_season_coverage(db: Session, season: str) -> list:
     if have_shots < n * 0.8:
         gaps.append(f"{season}: shot-location data on {have_shots}/{n} players "
                     f"(<80%) — make model will fall back to the attribute band and over-score")
+    attrs = db.execute(select(func.count(distinct(PlayerAttributes.player_id)))
+                       .where(PlayerAttributes.season == season)).scalar() or 0
+    tends = db.execute(select(func.count(distinct(PlayerTendencies.player_id)))
+                       .where(PlayerTendencies.season == season)).scalar() or 0
+    if attrs < n:
+        gaps.append(f"{season}: attributes seeded for {attrs}/{n} players "
+                    f"— re-run seed_player_attributes (unseeded players can't be rostered)")
+    if tends < n:
+        gaps.append(f"{season}: tendencies seeded for {tends}/{n} players "
+                    f"— re-run seed_player_attributes")
     return gaps
 
 

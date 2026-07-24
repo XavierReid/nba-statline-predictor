@@ -83,7 +83,8 @@ docker compose up -d postgres              # start the database
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head                       # set up tables
-python -m scripts.run_ingestion --season 2024-25   # pull real NBA data
+python -m scripts.run_ingestion --all      # pull real NBA data for every season
+python -m scripts.run_ingestion --verify   # audit shot-location coverage across seasons
 uvicorn app.main:app --reload              # start the API
 ```
 

@@ -94,6 +94,12 @@ Simulate a single game with full play-by-play from the command line:
 python scratch/03_game_simulator.py BOS LAL 7 2025-26 --pbp
 ```
 
+Or use the web UI (`frontend/` — React + Vite). With the API running on :8000:
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:5173, proxies to the API
+```
+
 ---
 
 ## Where it's headed

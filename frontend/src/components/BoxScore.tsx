@@ -3,7 +3,7 @@ import type { PlayerLine } from "../types";
 
 type SortKey = keyof Pick<
   PlayerLine,
-  "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers" | "personal_fouls"
+  "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers" | "personal_fouls" | "plus_minus"
 >;
 
 const COLS: { key: SortKey; label: string }[] = [
@@ -15,9 +15,20 @@ const COLS: { key: SortKey; label: string }[] = [
   { key: "blocks", label: "BLK" },
   { key: "turnovers", label: "TOV" },
   { key: "personal_fouls", label: "PF" },
+  { key: "plus_minus", label: "+/-" },
 ];
 
-export default function BoxScore({ title, players }: { title: string; players: PlayerLine[] }) {
+function pm(v: number): string {
+  return v > 0 ? `+${v}` : `${v}`;
+}
+
+interface Props {
+  title: string;
+  players: PlayerLine[];
+  onSelectPlayer: (p: PlayerLine) => void;
+}
+
+export default function BoxScore({ title, players, onSelectPlayer }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("points");
 
   const played = players.filter((p) => p.minutes >= 0.5);
@@ -43,7 +54,7 @@ export default function BoxScore({ title, players }: { title: string; players: P
         </thead>
         <tbody>
           {sorted.map((p) => (
-            <tr key={p.player_id}>
+            <tr key={p.player_id} className="clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">
                 {p.name}
                 {p.fouled_out && <span className="fo">FO</span>}
@@ -56,16 +67,17 @@ export default function BoxScore({ title, players }: { title: string; players: P
               <td>{p.blocks}</td>
               <td>{p.turnovers}</td>
               <td>{p.personal_fouls}</td>
+              <td>{pm(p.plus_minus)}</td>
               <td>{p.fgm}/{p.fga}</td>
               <td>{p.fg3m}/{p.fg3a}</td>
               <td>{p.ftm}/{p.fta}</td>
             </tr>
           ))}
           {dnp.map((p) => (
-            <tr key={p.player_id} className="dnp">
+            <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">{p.name}</td>
               <td>DNP</td>
-              <td colSpan={10}></td>
+              <td colSpan={11}></td>
             </tr>
           ))}
         </tbody>

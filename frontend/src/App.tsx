@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { getSeasons, getTeams, simulateGame } from "./api";
-import type { SeasonCoverage, SimulateGameResponse, Team } from "./types";
+import type { PlayerLine, SeasonCoverage, SimulateGameResponse, Team } from "./types";
 import GameControls from "./components/GameControls";
 import LineScore from "./components/LineScore";
 import BoxScore from "./components/BoxScore";
 import PlayByPlay from "./components/PlayByPlay";
+import PlayerModal from "./components/PlayerModal";
 
 export default function App() {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
@@ -17,6 +18,7 @@ export default function App() {
   const [game, setGame] = useState<SimulateGameResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<PlayerLine | null>(null);
 
   useEffect(() => {
     getSeasons()
@@ -94,11 +96,21 @@ export default function App() {
         <>
           <LineScore game={game} />
           <div className="boxes">
-            <BoxScore title={`${game.away_team} (Away)`} players={game.away_box} />
-            <BoxScore title={`${game.home_team} (Home)`} players={game.home_box} />
+            <BoxScore title={`${game.away_team} (Away)`} players={game.away_box} onSelectPlayer={setSelected} />
+            <BoxScore title={`${game.home_team} (Home)`} players={game.home_box} onSelectPlayer={setSelected} />
           </div>
           <PlayByPlay game={game} />
         </>
+      )}
+
+      {selected && game && (
+        <PlayerModal
+          key={selected.player_id}
+          line={selected}
+          season={game.season}
+          events={game.events ?? []}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import BoxScore from "./BoxScore";
 import type { PlayerLine } from "../types";
 
@@ -36,28 +36,35 @@ const players: PlayerLine[] = [
 
 describe("BoxScore", () => {
   it("defaults to sorting by points", () => {
-    render(<BoxScore title="Home" players={players} />);
+    render(<BoxScore title="Home" players={players} onSelectPlayer={() => {}} />);
     const rows = screen.getAllByRole("row").slice(1); // drop header
     expect(within(rows[0]).getByText("Star")).toBeInTheDocument();
   });
 
   it("renders a DNP row for a player with no minutes", () => {
-    render(<BoxScore title="Home" players={players} />);
+    render(<BoxScore title="Home" players={players} onSelectPlayer={() => {}} />);
     const dnp = screen.getByText("BenchDNP").closest("tr");
     expect(dnp).toHaveClass("dnp");
     expect(within(dnp!).getByText("DNP")).toBeInTheDocument();
   });
 
   it("marks a fouled-out player", () => {
-    render(<BoxScore title="Home" players={players} />);
+    render(<BoxScore title="Home" players={players} onSelectPlayer={() => {}} />);
     const row = screen.getByText("FouledOut").closest("tr");
     expect(within(row!).getByText("FO")).toBeInTheDocument();
   });
 
   it("re-sorts when a column header is clicked", () => {
-    render(<BoxScore title="Home" players={players} />);
+    render(<BoxScore title="Home" players={players} onSelectPlayer={() => {}} />);
     fireEvent.click(screen.getByText("REB"));
     const rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("Big")).toBeInTheDocument(); // 12 reb tops the list
+  });
+
+  it("invokes onSelectPlayer with the clicked player's line", () => {
+    const onSelect = vi.fn();
+    render(<BoxScore title="Home" players={players} onSelectPlayer={onSelect} />);
+    fireEvent.click(screen.getByText("Star"));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "Star" }));
   });
 });

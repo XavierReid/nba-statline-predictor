@@ -122,3 +122,70 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .empty { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
 .loading { color: var(--muted); text-align: center; padding: 40px 0; }
+
+/* box rows drill into the player modal */
+.box tr.clickable { cursor: pointer; }
+.box tr.clickable:hover td { background: var(--panel-2); }
+
+/* --- player-detail modal --- */
+.pm-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 40px 16px; overflow-y: auto; z-index: 50;
+}
+.pm-modal {
+  position: relative; width: 100%; max-width: 860px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px 22px 24px;
+}
+.pm-close {
+  position: absolute; top: 12px; right: 14px; background: none; border: none;
+  color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1;
+}
+.pm-close:hover { color: var(--text); }
+.pm-section { padding: 14px 0; border-top: 1px solid var(--line); }
+.pm-section:first-of-type { border-top: none; }
+.pm-section h4 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.pm-header { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; }
+.pm-name { font-size: 20px; font-weight: 700; }
+.pm-sub { color: var(--muted); font-size: 13px; }
+
+/* flex (not 1fr grid) so stats pack together at a fixed rhythm instead of stretching to
+   fill the wide modal; wraps only when the viewport is genuinely narrow. */
+.pm-statgrid { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.pm-stat { min-width: 40px; }
+.pm-stat { display: flex; flex-direction: column; gap: 2px; }
+.pm-stat-k { font-size: 10px; text-transform: uppercase; color: var(--muted); }
+.pm-stat-v { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.pm-pbp { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; overflow-x: hidden; }
+/* the scroll region is not an interactive control — drop the UA focus ring (a light bar on
+   dark bg) and give it a dark, thin scrollbar instead of the default. */
+.pm-pbp:focus, .pm-pbp:focus-visible { outline: none; }
+.pm-pbp::-webkit-scrollbar { width: 8px; }
+.pm-pbp::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.pm-pbp::-webkit-scrollbar-track { background: transparent; }
+/* minmax(0, 1fr) — a bare 1fr keeps min-width:auto and won't shrink below the longest
+   description, forcing horizontal overflow (a stray scrollbar); 0 lets it wrap instead. */
+.pm-pbp li { display: grid; grid-template-columns: 64px auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.pm-clock { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pm-tags { display: flex; gap: 3px; }
+.pm-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+.pm-desc { color: var(--text); }
+.pm-empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
+
+.pm-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.pm-chip {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 3px 11px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px; cursor: pointer;
+}
+.pm-chip.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+
+.pm-ratings { display: grid; grid-template-columns: 1fr; gap: 7px; }
+@media (min-width: 480px) { .pm-ratings { grid-template-columns: 1fr 1fr; gap: 8px 20px; } }
+.pm-rating { display: grid; grid-template-columns: 72px 1fr 28px; gap: 8px; align-items: center; font-size: 12px; }
+.pm-rating-label { color: var(--muted); }
+.pm-bar { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.pm-bar-fill { display: block; height: 100%; background: var(--accent-2); }
+.pm-rating-val { text-align: right; font-variant-numeric: tabular-nums; }

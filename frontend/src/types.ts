@@ -48,6 +48,38 @@ export interface PossessionEvent {
   running_home_score?: number | null;
   running_away_score?: number | null;
   description?: string | null;
+  made?: boolean | null;
+  // per-player involvement ids — let the modal filter a game's PBP to one player
+  scorer?: number | null;
+  assisted_by?: number | null;
+  rebounded_by?: number | null;
+  turnover_by?: number | null;
+  steal_by?: number | null;
+  block_by?: number | null;
+  fouled_by?: number | null;
+  nonshooting_foul_by?: number | null;
+}
+
+export interface PlayerProfile {
+  id: number;
+  full_name: string;
+  position: string;
+  team: string | null;
+  season: string;
+  season_averages: {
+    gp: number;
+    min: number;
+    pts: number;
+    reb: number;
+    ast: number;
+    stl: number;
+    blk: number;
+    tov: number;
+    fg_pct: number | null;
+    fg3_pct: number | null;
+    ft_pct: number | null;
+  };
+  ratings: Record<string, number>;
 }
 
 export interface SimulateGameResponse {

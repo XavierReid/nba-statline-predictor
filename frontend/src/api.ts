@@ -1,4 +1,4 @@
-import type { SeasonCoverage, SimulateGameResponse, Team } from "./types";
+import type { PlayerProfile, SeasonCoverage, SimulateGameResponse, Team } from "./types";
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -13,6 +13,10 @@ export async function getSeasons(): Promise<SeasonCoverage[]> {
 
 export async function getTeams(season: string): Promise<Team[]> {
   return get<Team[]>(`/teams?season=${encodeURIComponent(season)}`);
+}
+
+export async function getPlayerProfile(id: number, season: string): Promise<PlayerProfile> {
+  return get<PlayerProfile>(`/players/${id}/profile?season=${encodeURIComponent(season)}`);
 }
 
 export interface SimulateArgs {

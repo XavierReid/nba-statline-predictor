@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSeasons, simulateGame } from "./api";
+import { getPlayerProfile, getSeasons, simulateGame } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -69,5 +69,13 @@ describe("simulateGame", () => {
     await expect(
       simulateGame({ home_team: "A", away_team: "B", season: "2025-26", preset: "baseline", include_pbp: false })
     ).rejects.toThrow(/Simulation failed/);
+  });
+});
+
+describe("getPlayerProfile", () => {
+  it("requests the profile endpoint with an encoded season", async () => {
+    const fn = mockFetch({ id: 1, ratings: {} });
+    await getPlayerProfile(203999, "2025-26");
+    expect(fn.mock.calls[0][0]).toBe("/players/203999/profile?season=2025-26");
   });
 });

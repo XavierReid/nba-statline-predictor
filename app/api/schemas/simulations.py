@@ -151,6 +151,7 @@ class PossessionEvent(BaseModel):
     steal_by: Optional[int] = None
     block_by: Optional[int] = None
     fouled_by: Optional[int] = None
+    nonshooting_foul_by: Optional[int] = None
     fta: Optional[int] = None
     ftm: Optional[int] = None
 

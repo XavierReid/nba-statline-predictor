@@ -10,8 +10,7 @@ Two accumulator styles coexist during the event-sourced PBP refactor (RFC.md
 """
 from typing import Iterable, List, Optional, Tuple
 
-
-_THREE_SHOT_TYPES = ("three", "corner_three", "above_break_three")
+from app.services.possession_events import THREE_SHOT_TYPES
 
 
 def empty_stats() -> dict:
@@ -113,7 +112,7 @@ def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
 
     if etype == "SHOT":
         if pid in box:
-            is_three = event.get("shot_type") in _THREE_SHOT_TYPES
+            is_three = event.get("shot_type") in THREE_SHOT_TYPES
             box[pid]["fga"] += 1
             if is_three:
                 box[pid]["fg3a"] += 1

@@ -10,24 +10,30 @@ from typing import Optional
 from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats
-from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
-from app.services.box_score import apply_typed_event, empty_stats, snapshot_box
-from app.services.possession_events import describe_typed_event, possession_to_events
-from app.services.diagnostics import SimulationDiagnostics
-from app.services.game_state import GameState
-from app.services.game_phase import derive_phase
-from app.services.behavior_profile import NORMAL_PROFILE, profile_for_phase
 from app.services.behavior.pipeline import BehaviorPipeline
+from app.services.behavior_profile import NORMAL_PROFILE, profile_for_phase
+from app.services.box_score import apply_typed_event, empty_stats, snapshot_box
+from app.services.diagnostics import SimulationDiagnostics
+from app.services.game_phase import derive_phase
+from app.services.game_state import GameState
 from app.services.late_game import (
-    build_context, possession_time_override, should_concede,
+    build_context,
+    possession_time_override,
+    should_concede,
 )
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
+from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
 from app.services.possession import OREB_RATE, resolve_possession
 from app.services.possession_context import make_context
+from app.services.possession_events import describe_typed_event, possession_to_events
 from app.services.roster import load_roster
 from app.services.rotation import (
-    GAME_MINUTES, MODE_GARBAGE, MODE_SCHEDULED,
-    build_rotation, patch_rotation, resolve_lineup,
+    GAME_MINUTES,
+    MODE_GARBAGE,
+    MODE_SCHEDULED,
+    build_rotation,
+    patch_rotation,
+    resolve_lineup,
 )
 
 # Re-export so existing callers (API, tests, scratch scripts) need no changes.

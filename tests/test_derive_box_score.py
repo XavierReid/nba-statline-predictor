@@ -11,7 +11,6 @@ from app.services.box_score import (
 )
 from app.services.possession_events import possession_to_events
 
-
 ROSTER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 HDR = dict(possession=1, quarter=1, game_clock_seconds=720, is_home=True)
 

@@ -56,8 +56,7 @@ function involvement(ev: PossessionEvent, id: number): string[] {
   return tags;
 }
 
-// order in which filter chips appear — FT is now its own category (was hidden
-// inside SHOT under legacy shape; fixed at task #16).
+// Order in which filter chips appear.
 const TAG_ORDER = ["SCORE", "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL"];
 
 function pct(x: number | null): string {

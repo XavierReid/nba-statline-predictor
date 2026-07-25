@@ -277,63 +277,6 @@ def _free_throw_prob(player: dict) -> float:
     return p if p is not None else attr_to_prob(player["free_throw"], lo=0.60, hi=0.95)
 
 
-def describe_event(event: dict, name_map: dict) -> str:
-    """Human-readable description of the possession event. A pre-bonus non-shooting foul is now
-    its OWN terminal event (OREB-style two-event lifecycle), so it is described here directly."""
-    return _describe_outcome(event, name_map)
-
-
-def _describe_outcome(event: dict, name_map: dict) -> str:
-    def name(pid: Optional[int]) -> str:
-        return name_map.get(pid, f"Player {pid}") if pid else "Unknown"
-
-    scorer = event.get("scorer")
-
-    if event.get("turnover_by"):
-        if event.get("steal_by"):
-            return f"{name(event['turnover_by'])} turns it over — stolen by {name(event['steal_by'])}"
-        if event.get("fouled_by") == event.get("turnover_by"):
-            return f"{name(event['turnover_by'])} commits an offensive foul"
-        return f"{name(event['turnover_by'])} turns it over"
-
-    if event.get("nonshooting_foul_by"):
-        return (f"Non-shooting foul: {name(event['nonshooting_foul_by'])} on "
-                f"{name(event.get('nonshooting_foul_on'))}")
-
-    if not event.get("shot_type"):
-        ftm, fta = event.get("ftm", 0), event.get("fta", 0)
-        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul by {name(event.get('fouled_by'))})"
-
-    shot_labels = {
-        "three": "3-pointer", "mid": "mid-range jumper", "close": "layup/close shot",
-        "corner_three": "corner 3-pointer", "above_break_three": "3-pointer",
-        "mid_range": "mid-range jumper", "floater": "floater",
-        "layup": "layup", "dunk": "dunk",
-    }
-    shot = shot_labels.get(event["shot_type"], "shot")
-
-    if event.get("block_by"):
-        return f"{name(scorer)} blocked by {name(event['block_by'])}"
-
-    if not event.get("made"):
-        if event.get("fta"):
-            # No FGA on a foul-negated attempt — describe as a shooting foul, not a miss.
-            return (f"Shooting foul on {name(scorer)} by {name(event.get('fouled_by'))}"
-                    f" — {event['ftm']}/{event['fta']} FTs")
-        desc = f"{name(scorer)} misses a {shot}"
-        if event.get("rebounded_by"):
-            reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
-            desc += f" — {name(event['rebounded_by'])} ({reb_type})"
-        return desc
-
-    desc = f"{name(scorer)} hits a {shot}"
-    if event.get("assisted_by"):
-        desc += f" (assisted by {name(event['assisted_by'])})"
-    if event.get("fta"):
-        desc += f" — and-1 (foul by {name(event.get('fouled_by'))}), {event['ftm']}/1 FT"
-    return desc
-
-
 # ---------------------------------------------------------------------------
 # Decision pipeline (roadmap stage D) — a possession resolves as a sequence of
 # named basketball stages, each visible on its own:
@@ -380,8 +323,9 @@ def _empty_result() -> dict:
 
 
 def _finish(ctx, result: dict) -> dict:
-    if ctx.name_map is not None:
-        result["description"] = describe_event(result, ctx.name_map)
+    # Descriptions are attached later per typed event (describe_typed_event) — the
+    # legacy monolithic describe_event ran here but its output was never read under
+    # the event-sourced flow. Kept as a hook in case a future stage needs one.
     return result
 
 

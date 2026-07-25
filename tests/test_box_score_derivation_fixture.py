@@ -30,7 +30,6 @@ from app.services.box_score import derive_box_score
 from app.services.franchise import resolve_abbreviation
 from app.services.game_simulator import load_roster, simulate_game
 
-
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "box_score_baseline.json")
 
 # Numeric box-score keys that the derived box maintains. plus_minus and min are

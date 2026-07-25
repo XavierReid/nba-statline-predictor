@@ -2,7 +2,6 @@
 canonical ordering row in RFC.md "Event-Sourced PBP"."""
 from app.services.possession_events import describe_typed_event, possession_to_events
 
-
 HEADER = dict(possession=1, quarter=1, game_clock_seconds=720, is_home=True)
 
 SHOOTER = 100

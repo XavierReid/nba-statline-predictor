@@ -12,8 +12,7 @@ reproduce the pre-refactor box exactly.
 """
 from typing import List, Optional
 
-
-_THREE_SHOT_TYPES = ("three", "corner_three", "above_break_three")
+THREE_SHOT_TYPES = ("three", "corner_three", "above_break_three")
 
 _SHOT_LABELS = {
     "three": "3-pointer",
@@ -113,7 +112,7 @@ def possession_to_events(
             return events
 
         # Made shot or clean miss — emit SHOT.
-        is_three = result["shot_type"] in _THREE_SHOT_TYPES
+        is_three = result["shot_type"] in THREE_SHOT_TYPES
         shot_pts = (3 if is_three else 2) if made else 0
         events = [_event(
             "SHOT", shooter, header,

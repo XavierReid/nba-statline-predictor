@@ -6,9 +6,11 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.sim_config import (
-    DRAMA_M3, DRAMA_M3_NO_SUBTYPES, DRAMA_M3_SEASON, SimConfig,
+    DRAMA_M3,
+    DRAMA_M3_NO_SUBTYPES,
+    DRAMA_M3_SEASON,
+    SimConfig,
 )
-
 
 _PRESETS: dict = {
     "baseline": SimConfig(),

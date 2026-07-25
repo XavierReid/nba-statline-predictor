@@ -47,6 +47,10 @@ def test_clean_made_three_with_assist():
     assert [e["type"] for e in events] == ["SHOT", "AST"]
     assert events[0]["pts"] == 3
     assert events[1]["player_id"] == ASSISTER
+    # AST carries shot_by / shot_type so it can stand alone in a filtered view
+    # (e.g. modal filtered to the assister).
+    assert events[1]["shot_by"] == SHOOTER
+    assert events[1]["shot_type"] == "three"
 
 
 def test_clean_missed_two_with_dreb():
@@ -66,6 +70,9 @@ def test_clean_missed_with_block():
     events = possession_to_events(r, **HEADER)
     assert [e["type"] for e in events] == ["SHOT", "BLK", "REB"]
     assert events[1]["player_id"] == BLOCKER
+    # BLK carries shot_by / shot_type for the same reason as AST.
+    assert events[1]["shot_by"] == SHOOTER
+    assert events[1]["shot_type"] == "close"
 
 
 def test_missed_with_oreb():
@@ -259,11 +266,34 @@ def test_describe_reb_dreb_and_oreb():
     assert describe_typed_event(oreb, NAMES) == "Rebounder offensive rebound"
 
 
-def test_describe_tov_stl_blk_ast():
+def test_describe_tov_and_stl():
     assert describe_typed_event(_typed("TOV", SHOOTER), NAMES) == "Shooter turnover"
     assert describe_typed_event(_typed("STL", STEALER), NAMES) == "Stealer steal"
-    assert describe_typed_event(_typed("BLK", BLOCKER), NAMES) == "Blocker blocks the shot"
-    assert describe_typed_event(_typed("AST", ASSISTER), NAMES) == "Assister assist"
+
+
+def test_describe_ast_with_shot_by_names_the_shooter():
+    ev = _typed("AST", ASSISTER, shot_by=SHOOTER, shot_type="mid")
+    assert describe_typed_event(ev, NAMES) == "Assister assists Shooter's mid-range jumper"
+
+
+def test_describe_ast_without_shot_by_falls_back():
+    ev = _typed("AST", ASSISTER)
+    assert describe_typed_event(ev, NAMES) == "Assister assist"
+
+
+def test_describe_blk_with_shot_by_names_the_shooter():
+    ev = _typed("BLK", BLOCKER, shot_by=SHOOTER, shot_type="close")
+    assert describe_typed_event(ev, NAMES) == "Blocker blocks Shooter's layup/close shot"
+
+
+def test_describe_blk_without_shot_by_falls_back():
+    ev = _typed("BLK", BLOCKER)
+    assert describe_typed_event(ev, NAMES) == "Blocker blocks the shot"
+
+
+def test_describe_intentional_foul():
+    ev = _typed("FOUL", DEF, foul_kind="non_shooting", fouled_on=SHOOTER, intentional=True)
+    assert describe_typed_event(ev, NAMES) == "Defender commits an intentional foul on Shooter"
 
 
 def test_describe_falls_back_gracefully_for_unknown_player():

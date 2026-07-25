@@ -68,6 +68,7 @@ export interface SimEvent {
   // FOUL
   foul_kind?: "shooting" | "non_shooting" | "offensive" | null;
   fouled_on?: number | null;
+  intentional?: boolean | null;
 
   // FT
   attempt?: number | null;
@@ -75,6 +76,10 @@ export interface SimEvent {
 
   // REB
   is_oreb?: boolean | null;
+
+  // AST / BLK — reference back to the parent SHOT so an event can stand alone
+  // in a filtered view (e.g. a modal filtered to the assister/blocker).
+  shot_by?: number | null;
 }
 
 // Back-compat alias for existing imports.

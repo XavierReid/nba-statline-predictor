@@ -415,26 +415,39 @@ def simulate_game(
                                 gs.away_score += pts
                                 gs.quarter_scores["away"][q_idx] += pts
                             gs.possession_number += 1
-                            # Emit typed events for the intentional foul + FTs so the
-                            # PBP surfaces them. NOTE: these are NOT applied to the box
-                            # via apply_typed_event — the strategic-foul path has never
-                            # touched box_score (pre-existing bookkeeping omission;
-                            # documented follow-up). Scoring reaches gs.home/away_score
-                            # directly above so line score is correct.
+                            # Pick a defender to display as the fouler. Foul-rate
+                            # weighted so the choice mirrors the normal non-shooting
+                            # foul selection in possession.py. NOTE (documented follow-up):
+                            # the fouler's PF is NOT credited to the box_score here —
+                            # the strategic-foul path never touched box_score before
+                            # the refactor, and preserving that omission is what keeps
+                            # the 90-game fixture fence byte-identical. Real NBA
+                            # credits the PF; naming the fouler for display without
+                            # applying to box is a halfway state we accept for now.
+                            defense_on_court = [
+                                p for p in (away_players if current_is_home else home_players)
+                                if p["id"] in (away_ids if current_is_home else home_ids)
+                            ]
+                            # Deterministic pick: the defender most willing to foul (matches
+                            # the coaching pattern of sending a bench player with fouls to
+                            # spare). Draws no RNG so the 90-game fence stays byte-identical.
+                            fouler = max(defense_on_court,
+                                         key=lambda p: (p.get("foul_rate", 0.09), p["id"]))
                             hdr = dict(
                                 possession=gs.possession_number,
                                 quarter=q_idx + 1,
                                 game_clock_seconds=int(quarter_clock),
-                                is_home=current_is_home,
+                                is_home=not current_is_home,  # defender's team
                             )
                             strategic_events = [
-                                {**hdr, "type": "FOUL", "player_id": None, "pts": 0,
+                                {**hdr, "type": "FOUL", "player_id": fouler["id"], "pts": 0,
                                  "foul_kind": "non_shooting", "fouled_on": target["id"],
-                                 "strategic": True},
+                                 "intentional": True, "strategic": True},
                             ]
+                            ft_hdr = dict(hdr, is_home=current_is_home)  # shooter's team
                             for i in range(fta):
                                 strategic_events.append({
-                                    **hdr, "type": "FT", "player_id": target["id"],
+                                    **ft_hdr, "type": "FT", "player_id": target["id"],
                                     "pts": 1 if i < ftm else 0,
                                     "attempt": i + 1, "of": fta, "made": i < ftm,
                                     "strategic": True,
@@ -442,11 +455,6 @@ def simulate_game(
                             if name_map is not None:
                                 for tev in strategic_events:
                                     tev["description"] = describe_typed_event(tev, name_map)
-                                # Prefix the FOUL description with "Intentional" so PBP
-                                # reads distinctly from a regular non-shooting foul.
-                                strategic_events[0]["description"] = (
-                                    f"Intentional foul on {target['name']} — {ftm}/{fta} FTs"
-                                )
                             _typed_all.extend(strategic_events)
                             if steps:
                                 current_chunk_events.extend(strategic_events)

@@ -1,5 +1,7 @@
 # UAT — PR #9 Event-Sourced PBP
 
+**Status: complete (2026-07-25).** First pass surfaced 6 display-layer gaps (A–F below); all fixed on branch. Re-UAT after fixes → pass.
+
 **Per CONTEXT_PRIMER.md step 6:** run `python scripts/purge_sims.py --confirm` before starting.
 
 Then open `localhost:5173` and walk through each scenario. Mark ✅ / ❌ / notes in the "Result" column.
@@ -42,10 +44,36 @@ Prereqs already verified in Build (not part of this UAT — noted so you don't r
 - **Missing events at OT boundaries** — check quarter labels stay consistent.
 - **Console errors** in the browser devtools during any scenario.
 
+## First-pass findings (2026-07-25)
+
+Xavier ran `OKC@BOS 2025-26 seed=26` and `OKC@SAS 2025-26 seed=23`. Scenarios 1–6 + 9 passed as written. The remaining findings became fixes A–F below (all display-layer, invariance fence untouched).
+
+| Fix | Scenario | Finding | Resolution |
+|-----|----------|---------|------------|
+| A | 5 (modal FT chip), and modal AST rows generally | Assist row in the player modal reads `"Shai assist"` with no context about whose shot it enabled. Same failure mode would hit BLK for shot-blockers. | AST/BLK events now carry `shot_by` + `shot_type`. `describe_typed_event` renders `"Shai assists Hartenstein's mid-range jumper"` / `"Blocker blocks Shooter's layup"`. Falls back to the old form if `shot_by` isn't set (defensive). |
+| B | 7 (intentional foul) | Description was `"Intentional foul on X — 2/2 FTs"` — no fouler name, and the "N/M FTs" tail duplicated info the FT rows already carry. | Strategic-foul path now picks a fouler (deterministic — highest `foul_rate` defender, matches real coaching pattern of sending a bench player with fouls to spare). FOUL event gets `player_id=fouler_id` and `intentional=True`. `describe_foul` renders `"Bench Guy commits an intentional foul on Isaiah Hartenstein"`. The FT tail is gone — each FT event describes itself as `"Hartenstein makes free throw 1 of 2"`. |
+| C | 7 (fouler in FOUL chip) | Once B lands, the fouler's modal shows the intentional foul under the FOUL chip. | Free with (B) — `player_id` is now set on the event, involvement logic tags it. |
+| D | 7 (FT tail format) | The "N/N FTs" tail assumed FTs would always be awarded. | Removed the tail entirely — FT events describe themselves. Robust to a future pre-bonus intentional foul that awards 0 FTs. |
+| E | 3 (STL collation) | STL rendered as its own row after the parent TOV: `"Sam Hauser turnover"` then `"Isaiah Joe steal"`. | Collation extended: STL folds onto its parent TOV as `"Sam Hauser turns it over (Isaiah Joe steals)"` in the main PBP. STL still shows standalone in the player modal (filtered view). |
+| F | 3 (offensive foul collation) | `TOV(P) + FOUL(offensive, same P)` rendered as two rows. | Collation extended: the TOV row is dropped and the FOUL row becomes the single `"P commits an offensive foul"` line. |
+
+**Known limitation carried into this PR (documented follow-up):**
+
+The strategic-foul fouler's PF is **not** credited to their box score. In real NBA, an intentional foul is a personal foul on the fouler. The sim never credited it (pre-existing pre-refactor behavior), and preserving that omission is what keeps the 90-game byte-identical fence green. Naming the fouler for display without applying to the box is a halfway state we accept for now — flagged in the strategic-foul path in `app/services/game_simulator.py` with a comment linking to this note. Correcting it fully = re-capture the fixture with the new correct behavior. Left for a follow-up PR.
+
+## Feature asks parked as follow-ups (NOT in this PR)
+
+- Quarter filter on the main PBP (dropdown / chip row for Q1/Q2/Q3/Q4/OT).
+- Search box on the main PBP for descriptions (`"Shai"`, `"intentional foul"`, etc.).
+- Chip toggles on the main PBP (same tag row as PlayerModal, per event type not per player).
+- Running per-player stat inline in the modal PBP (`"Shai makes free throw 1 of 2 [PTS 15]"`).
+
+All four are natural next-iteration features. None affect correctness of the event-sourced PBP — they extend PBP navigation UX. Own PR when they land.
+
 ## Sign-off
 
-- [ ] All 10 scenarios pass
-- [ ] No console errors during the walk
-- [ ] Ready to merge PR #9
+- [x] All 10 scenarios pass (post-fix re-UAT)
+- [x] No console errors during the walk
+- [x] Ready to merge PR #9
 
 If any fail, note the scenario # + what you saw in the PR review and I'll dig in.

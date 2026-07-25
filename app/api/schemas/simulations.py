@@ -170,6 +170,13 @@ class SimEvent(BaseModel):
     # REB
     is_oreb: Optional[bool] = None
 
+    # AST / BLK — reference back to the parent SHOT so an event can stand alone in
+    # a filtered view (e.g. a modal filtered to the assister or blocker).
+    shot_by: Optional[int] = None
+
+    # FOUL — set when a strategic (intentional) foul was committed.
+    intentional: Optional[bool] = None
+
 
 # Back-compat alias — existing route imports read `PossessionEvent`.
 PossessionEvent = SimEvent

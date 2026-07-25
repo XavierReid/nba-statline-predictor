@@ -124,7 +124,13 @@ def possession_to_events(
 
         if made:
             if result.get("assisted_by"):
-                events.append(_event("AST", result["assisted_by"], header))
+                # `shot_by` gives the AST event enough context to render "X assists
+                # Y's mid-range jumper" — matters when the modal filters PBP to one
+                # player (the assister) and the shot row isn't there to collate onto.
+                events.append(_event(
+                    "AST", result["assisted_by"], header,
+                    shot_by=shooter, shot_type=result["shot_type"],
+                ))
             # And-1: made shot + foul + 1 FT.
             if fta > 0:
                 events.append(_event(
@@ -136,7 +142,12 @@ def possession_to_events(
         else:
             # Clean miss: BLK (attribution) and REB (live rebound) if present.
             if result.get("block_by"):
-                events.append(_event("BLK", result["block_by"], header))
+                # Same reasoning as AST: shot_by lets BLK stand alone in the
+                # blocker's modal PBP as "X blocks Y's layup".
+                events.append(_event(
+                    "BLK", result["block_by"], header,
+                    shot_by=shooter, shot_type=result["shot_type"],
+                ))
             if result.get("rebounded_by"):
                 events.append(_event(
                     "REB", result["rebounded_by"], header,
@@ -229,13 +240,15 @@ def _describe_shot(ev: dict, name_map: dict) -> str:
 
 def _describe_foul(ev: dict, name_map: dict) -> str:
     fouler = _name(name_map, ev.get("player_id"))
-    kind_label = _FOUL_LABELS.get(ev.get("foul_kind"), "foul")
     if ev.get("foul_kind") == "offensive":
         return f"{fouler} commits an offensive foul"
+    # `intentional` flags a late-game strategic foul (see game_simulator strategic-
+    # foul path); rendered as "intentional foul" rather than the generic non-shooting.
+    kind_label = "intentional foul" if ev.get("intentional") else _FOUL_LABELS.get(ev.get("foul_kind"), "foul")
     fouled_on = ev.get("fouled_on")
     if fouled_on is None:
         return f"{fouler} commits a {kind_label}"
-    return f"{fouler} commits a {kind_label} on {_name(name_map, fouled_on)}"
+    return f"{fouler} commits a{'n' if kind_label[0] in 'aeiou' else ''} {kind_label} on {_name(name_map, fouled_on)}"
 
 
 def _describe_ft(ev: dict, name_map: dict) -> str:
@@ -260,11 +273,21 @@ def _describe_stl(ev: dict, name_map: dict) -> str:
 
 
 def _describe_blk(ev: dict, name_map: dict) -> str:
-    return f"{_name(name_map, ev.get('player_id'))} blocks the shot"
+    blocker = _name(name_map, ev.get("player_id"))
+    shot_by = ev.get("shot_by")
+    if shot_by is None:
+        return f"{blocker} blocks the shot"
+    label = _SHOT_LABELS.get(ev.get("shot_type"), "shot")
+    return f"{blocker} blocks {_name(name_map, shot_by)}'s {label}"
 
 
 def _describe_ast(ev: dict, name_map: dict) -> str:
-    return f"{_name(name_map, ev.get('player_id'))} assist"
+    assister = _name(name_map, ev.get("player_id"))
+    shot_by = ev.get("shot_by")
+    if shot_by is None:
+        return f"{assister} assist"
+    label = _SHOT_LABELS.get(ev.get("shot_type"), "shot")
+    return f"{assister} assists {_name(name_map, shot_by)}'s {label}"
 
 
 _DESCRIBE = {

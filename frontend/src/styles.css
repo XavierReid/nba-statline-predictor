@@ -150,9 +150,10 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-name { font-size: 20px; font-weight: 700; }
 .pm-sub { color: var(--muted); font-size: 13px; }
 
-/* auto-fit + a small min lets the ~11 stats sit on one row in the wide modal, and wrap
-   gracefully only when the viewport is genuinely narrow. */
-.pm-statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 10px 8px; }
+/* flex (not 1fr grid) so stats pack together at a fixed rhythm instead of stretching to
+   fill the wide modal; wraps only when the viewport is genuinely narrow. */
+.pm-statgrid { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.pm-stat { min-width: 40px; }
 .pm-stat { display: flex; flex-direction: column; gap: 2px; }
 .pm-stat-k { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 .pm-stat-v { font-size: 15px; font-variant-numeric: tabular-nums; }

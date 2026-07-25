@@ -316,12 +316,14 @@ def _describe_outcome(event: dict, name_map: dict) -> str:
         return f"{name(scorer)} blocked by {name(event['block_by'])}"
 
     if not event.get("made"):
+        if event.get("fta"):
+            # No FGA on a foul-negated attempt — describe as a shooting foul, not a miss.
+            return (f"Shooting foul on {name(scorer)} by {name(event.get('fouled_by'))}"
+                    f" — {event['ftm']}/{event['fta']} FTs")
         desc = f"{name(scorer)} misses a {shot}"
         if event.get("rebounded_by"):
             reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
             desc += f" — {name(event['rebounded_by'])} ({reb_type})"
-        if event.get("fta"):
-            desc += f" — shooting foul by {name(event.get('fouled_by'))}, {event['ftm']}/{event['fta']} FTs"
         return desc
 
     desc = f"{name(scorer)} hits a {shot}"

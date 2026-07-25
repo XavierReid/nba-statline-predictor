@@ -1368,3 +1368,6 @@ Curated ratings + `overall`; include the this-game line; DNP rows clickable; rat
   coverage beyond the current 2 seasons).
 - Cross-season / career view.
 - Attribute editing / what-if overrides.
+- **Visual redesign (ESPN-style), team logos, player headshots** — after core functionality (Xavier, 2026-07-24).
+- **Real historical positions** — `LeagueDashPlayerStats` carries none, so pre-current players show POS `—`;
+  would need a position source (e.g. per-season roster endpoint) to backfill `Player.position`.

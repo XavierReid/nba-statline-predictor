@@ -134,7 +134,7 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 40px 16px; overflow-y: auto; z-index: 50;
 }
 .pm-modal {
-  position: relative; width: 100%; max-width: 640px;
+  position: relative; width: 100%; max-width: 860px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
   padding: 8px 22px 24px;
 }
@@ -150,7 +150,9 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-name { font-size: 20px; font-weight: 700; }
 .pm-sub { color: var(--muted); font-size: 13px; }
 
-.pm-statgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px 8px; }
+/* auto-fit + a small min lets the ~11 stats sit on one row in the wide modal, and wrap
+   gracefully only when the viewport is genuinely narrow. */
+.pm-statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 10px 8px; }
 .pm-stat { display: flex; flex-direction: column; gap: 2px; }
 .pm-stat-k { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 .pm-stat-v { font-size: 15px; font-variant-numeric: tabular-nums; }
@@ -170,6 +172,14 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
 .pm-desc { color: var(--text); }
 .pm-empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
+
+.pm-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.pm-chip {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 3px 11px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px; cursor: pointer;
+}
+.pm-chip.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
 
 .pm-ratings { display: grid; grid-template-columns: 1fr; gap: 7px; }
 @media (min-width: 480px) { .pm-ratings { grid-template-columns: 1fr 1fr; gap: 8px 20px; } }

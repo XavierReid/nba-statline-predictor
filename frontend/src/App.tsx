@@ -105,6 +105,7 @@ export default function App() {
 
       {selected && game && (
         <PlayerModal
+          key={selected.player_id}
           line={selected}
           season={game.season}
           events={game.events ?? []}

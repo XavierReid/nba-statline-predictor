@@ -27,9 +27,12 @@ function involvement(ev: PossessionEvent, id: number): string[] {
   if (ev.steal_by === id) tags.push("STL");
   if (ev.block_by === id) tags.push("BLK");
   if (ev.turnover_by === id) tags.push("TOV");
-  if (ev.fouled_by === id) tags.push("FOUL");
+  if (ev.fouled_by === id || ev.nonshooting_foul_by === id) tags.push("FOUL");
   return tags;
 }
+
+// order in which filter chips appear
+const TAG_ORDER = ["SCORE", "SHOT", "AST", "REB", "STL", "BLK", "TOV", "FOUL"];
 
 function pct(x: number | null): string {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
@@ -72,6 +75,22 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
   }, [onClose]);
 
   const myEvents = events.filter((ev) => involvement(ev, line.player_id).length > 0);
+  const availableTags = TAG_ORDER.filter((t) =>
+    myEvents.some((ev) => involvement(ev, line.player_id).includes(t))
+  );
+  // start with every available tag active; App keys the modal per player so this
+  // initializer re-runs on a new player (no reset effect / empty first render).
+  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(availableTags));
+  const toggleTag = (t: string) =>
+    setActiveTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  const shownEvents = myEvents.filter((ev) =>
+    involvement(ev, line.player_id).some((t) => activeTags.has(t))
+  );
   const a = profile?.season_averages;
 
   return (
@@ -85,7 +104,7 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           <div className="pm-header">
             <span className="pm-name">{line.name}</span>
             <span className="pm-sub">
-              {profile ? `${profile.position} · ${profile.team ?? "—"} · ${season}` : season}
+              {profile ? `${profile.position ?? "—"} · ${profile.team ?? "—"} · ${season}` : season}
             </span>
           </div>
         </Section>
@@ -110,22 +129,41 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           {myEvents.length === 0 ? (
             <p className="pm-empty">No play-by-play events.</p>
           ) : (
-            <ul className="pm-pbp">
-              {myEvents.map((ev, i) => {
-                const period = ev.quarter <= 4 ? `Q${ev.quarter}` : `OT${ev.quarter - 4}`;
-                return (
-                  <li key={i}>
-                    <span className="pm-clock">{period} {clock(ev.game_clock_seconds)}</span>
-                    <span className="pm-tags">
-                      {involvement(ev, line.player_id).map((t) => (
-                        <span key={t} className="pm-tag">{t}</span>
-                      ))}
-                    </span>
-                    <span className="pm-desc">{ev.description}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              {availableTags.length > 1 && (
+                <div className="pm-filters">
+                  {availableTags.map((t) => (
+                    <button
+                      key={t}
+                      className={activeTags.has(t) ? "pm-chip on" : "pm-chip"}
+                      onClick={() => toggleTag(t)}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {shownEvents.length === 0 ? (
+                <p className="pm-empty">No events match the filter.</p>
+              ) : (
+                <ul className="pm-pbp">
+                  {shownEvents.map((ev, i) => {
+                    const period = ev.quarter <= 4 ? `Q${ev.quarter}` : `OT${ev.quarter - 4}`;
+                    return (
+                      <li key={i}>
+                        <span className="pm-clock">{period} {clock(ev.game_clock_seconds)}</span>
+                        <span className="pm-tags">
+                          {involvement(ev, line.player_id).map((t) => (
+                            <span key={t} className="pm-tag">{t}</span>
+                          ))}
+                        </span>
+                        <span className="pm-desc">{ev.description}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
           )}
         </Section>
 

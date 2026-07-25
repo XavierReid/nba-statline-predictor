@@ -57,6 +57,7 @@ export interface PossessionEvent {
   steal_by?: number | null;
   block_by?: number | null;
   fouled_by?: number | null;
+  nonshooting_foul_by?: number | null;
 }
 
 export interface PlayerProfile {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PlayerModal from "./PlayerModal";
 import type { PlayerLine, PlayerProfile, PossessionEvent } from "../types";
@@ -42,6 +42,21 @@ describe("PlayerModal", () => {
     const tags = [...container.querySelectorAll(".pm-tag")].map((t) => t.textContent);
     expect(tags).toContain("SCORE");
     expect(tags).toContain("AST");
+  });
+
+  it("tags a non-shooting foul (nonshooting_foul_by) as FOUL", () => {
+    const evs = [ev({ nonshooting_foul_by: 5, description: "Non-shooting foul: Test Guy on X" })];
+    const { container } = render(<PlayerModal line={line()} season="2025-26" events={evs} onClose={() => {}} />);
+    const tags = [...container.querySelectorAll(".pm-tag")].map((t) => t.textContent);
+    expect(tags).toContain("FOUL");
+  });
+
+  it("hides events whose tag is toggled off", () => {
+    render(<PlayerModal line={line()} season="2025-26" events={events} onClose={() => {}} />);
+    const scoreChip = screen.getAllByRole("button").find((b) => b.textContent === "SCORE")!;
+    fireEvent.click(scoreChip);
+    expect(screen.queryByText("Test Guy makes a layup")).not.toBeInTheDocument();
+    expect(screen.getByText("Teammate scores (assisted by Test Guy)")).toBeInTheDocument();
   });
 
   it("shows an empty message when the player has no events", () => {

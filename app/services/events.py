@@ -56,6 +56,7 @@ def flatten_and_enrich(
                 "steal_by": event.get("steal_by"),
                 "block_by": event.get("block_by"),
                 "fouled_by": event.get("fouled_by"),
+                "nonshooting_foul_by": event.get("nonshooting_foul_by"),
                 "fta": event.get("fta", 0),
                 "ftm": event.get("ftm", 0),
                 "description": event.get("description"),

@@ -3,7 +3,7 @@ import type { PlayerLine } from "../types";
 
 type SortKey = keyof Pick<
   PlayerLine,
-  "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers" | "personal_fouls"
+  "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers" | "personal_fouls" | "plus_minus"
 >;
 
 const COLS: { key: SortKey; label: string }[] = [
@@ -15,7 +15,12 @@ const COLS: { key: SortKey; label: string }[] = [
   { key: "blocks", label: "BLK" },
   { key: "turnovers", label: "TOV" },
   { key: "personal_fouls", label: "PF" },
+  { key: "plus_minus", label: "+/-" },
 ];
+
+function pm(v: number): string {
+  return v > 0 ? `+${v}` : `${v}`;
+}
 
 interface Props {
   title: string;
@@ -62,6 +67,7 @@ export default function BoxScore({ title, players, onSelectPlayer }: Props) {
               <td>{p.blocks}</td>
               <td>{p.turnovers}</td>
               <td>{p.personal_fouls}</td>
+              <td>{pm(p.plus_minus)}</td>
               <td>{p.fgm}/{p.fga}</td>
               <td>{p.fg3m}/{p.fg3a}</td>
               <td>{p.ftm}/{p.fta}</td>
@@ -71,7 +77,7 @@ export default function BoxScore({ title, players, onSelectPlayer }: Props) {
             <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">{p.name}</td>
               <td>DNP</td>
-              <td colSpan={10}></td>
+              <td colSpan={11}></td>
             </tr>
           ))}
         </tbody>

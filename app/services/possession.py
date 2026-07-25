@@ -1,7 +1,7 @@
 """Possession resolution — simulate one possession and return an event dict."""
 import random
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.services.behavior_profile import NORMAL_PROFILE
 
@@ -373,7 +373,7 @@ def _empty_result() -> dict:
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
-        "fouled_by": None, "fta": 0, "ftm": 0,
+        "fouled_by": None, "fta": 0, "ftm": 0, "ft_makes": [],
         "nonshooting_foul_by": None, "nonshooting_foul_on": None, "shot_clock_reset": False,
         "contested": None,
     }
@@ -492,7 +492,7 @@ def _select_action(ctx, result: dict) -> Action:
             result["fouled_by"] = fouler
             ft_prob = _free_throw_prob(ball_handler)
             result["fta"] = 2
-            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(2, ft_prob, rng)
             _credit_ft_rebound(ctx, result, last_missed)
             return Action(ball_handler, terminal=True)
         result["nonshooting_foul_by"] = fouler
@@ -574,12 +574,13 @@ def _assign_rebound(ctx, result: dict) -> None:
         )[0]["id"]
 
 
-def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool]:
-    """Sample n free throws; return (makes, last_missed). Draws n rng values in the
-    same order as the old inline generator, so the FT outcomes are RNG-identical; the
-    last-FT flag is what lets us credit the live rebound on a missed final FT."""
+def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool, List[bool]]:
+    """Sample n free throws; return (made_count, last_missed, per_shot_makes). Draws n
+    rng values in the same order as the old inline generator, so the FT outcomes are
+    RNG-identical; last-FT flag credits the live rebound on a missed final FT, and the
+    per-shot list gives event-sourced PBP per-FT fidelity ("1 of 2" made / missed)."""
     makes = [rng.random() < ft_prob for _ in range(n)]
-    return sum(makes), not makes[-1]
+    return sum(makes), not makes[-1], makes
 
 
 def _credit_ft_rebound(ctx, result: dict, last_missed: bool) -> None:
@@ -749,20 +750,20 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 3
-            result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
     elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 2
-            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(2, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
 
     # assist on a make — credited to the possession INITIATOR when a teammate scored.

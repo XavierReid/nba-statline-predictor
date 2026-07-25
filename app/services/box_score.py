@@ -37,16 +37,21 @@ def apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
         if pid in box:
             shot_type = event.get("shot_type")
             if shot_type:  # bonus fouls have no shot attempt — skip FGA
+                # A miss that draws a shooting foul is not a FGA in real NBA — the attempt is
+                # negated and the shooter goes to the line. And-1 (made + fta) still counts.
+                counts_as_attempt = event["made"] or event["fta"] == 0
                 if shot_type in ("three", "corner_three", "above_break_three"):
-                    box[pid]["fg3a"] += 1
-                    box[pid]["fga"] += 1
+                    if counts_as_attempt:
+                        box[pid]["fg3a"] += 1
+                        box[pid]["fga"] += 1
                     if event["made"]:
                         box[pid]["fg3m"] += 1
                         box[pid]["fgm"] += 1
                         box[pid]["pts"] += 3
                         pts = 3
                 else:
-                    box[pid]["fga"] += 1
+                    if counts_as_attempt:
+                        box[pid]["fga"] += 1
                     if event["made"]:
                         box[pid]["fgm"] += 1
                         box[pid]["pts"] += 2

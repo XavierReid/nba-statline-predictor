@@ -1371,3 +1371,114 @@ Curated ratings + `overall`; include the this-game line; DNP rows clickable; rat
 - **Visual redesign (ESPN-style), team logos, player headshots** — after core functionality (Xavier, 2026-07-24).
 - **Real historical positions** — `LeagueDashPlayerStats` carries none, so pre-current players show POS `—`;
   would need a position source (e.g. per-season roster endpoint) to backfill `Player.position`.
+
+
+# RFC: Event-Sourced PBP (Engine + Frontend, Phase 3)
+
+**Status:** approved to build (2026-07-25). Priority #2 (b) per project-next-session-focus; follows PR #8 (priority #2 (a), FGA accounting fix), which deliberately preserved the current event dict shape so (b) can reshape without conflict.
+
+## Overview
+Rewrite play-by-play as a stream of granular, typed events (`SHOT` / `FOUL` / `FT` / `REB` / `TOV` / `STL` / `BLK` / `AST`). The box score becomes a **derived** view over that stream (`derive_box_score(events) -> box`) rather than an accumulator populated inside `resolve_possession`. Free throws become their own filterable category. Foul-drawn misses and bonus FTs get correct chip categorization (they stop being miscategorized as "SHOT").
+
+Foundation for player timelines, possession replay, advanced stats derived from events, and real-NBA-PBP export/compare.
+
+## Goals
+- One source of truth: a granular event stream. Box score, PBP display, chips, and future analytics all read from it.
+- FTs as their own filterable category, per Xavier's stated goal since the modal shipped.
+- Fix the chip miscategorization surfaced during PR #8: bonus FTs and (after PR #8) foul-drawn misses are currently tagged `SHOT` because `apply_event` reads `scorer` regardless of whether a shot was attempted.
+- **Behavior invariance** — this is a representation change, not a behavior change. Same seeds must produce byte-identical box scores.
+
+## Behavioral invariant (non-negotiable)
+Same seeds must produce byte-identical box scores. Per `feedback-refactor-behavior-invariance`: a structural refactor must change representation, not the stochastic process. Achieve this by leaving `resolve_possession` untouched — same RNG draw order, same possession outcomes. Only the OUTPUT of `resolve_possession` is translated: the single possession-result dict is expanded into a sequence of granular events post-resolution.
+
+**Regression fence:** capture pre-(b) box-score fingerprints on 3 fixed pairs × 3 seasons × 10 seeds = 90 games, serialized as a fixture. A test loads the fixture and asserts identical box scores from `derive_box_score(events)` after the refactor.
+
+## Event schema
+
+Every event shares a header:
+```
+{ type, possession, quarter, game_clock_seconds, is_home, player_id, pts,
+  ...type-specific fields }
+```
+
+| type    | player_id | pts       | type-specific fields |
+|---------|-----------|-----------|----------------------|
+| `SHOT`  | shooter   | 2 / 3 / 0 | `shot_type`, `sub_type`, `made` |
+| `FOUL`  | fouler    | 0         | `foul_kind` (`shooting` / `non_shooting` / `offensive`), `fouled_on` |
+| `FT`    | shooter   | 1 / 0     | `attempt` (1-based), `of` (total in trip), `made` |
+| `REB`   | rebounder | 0         | `is_oreb` |
+| `TOV`   | committer | 0         | — |
+| `STL`   | stealer   | 0         | — (paired with a `TOV` in same possession) |
+| `BLK`   | blocker   | 0         | — (paired with a missed `SHOT` in same possession) |
+| `AST`   | passer    | 0         | — (paired with a made `SHOT` in same possession) |
+
+**Grouping**: events within a possession share a `possession` int. The frontend collates related events onto one readable row (e.g. a made shot + its assist render as `"P1 makes a 3 (P2 assists)"`) — this is a display concern, not a model concern. Real NBA PBP works the same way: row display is a view over granular stat attributions.
+
+## Canonical event orderings per possession outcome
+
+| outcome | event sequence |
+|---|---|
+| Clean make | `SHOT(made) [+ AST]` |
+| Clean miss (no rebound seen this possession) | `SHOT(missed) [+ BLK]` |
+| Clean miss + DREB | `SHOT(missed) [+ BLK] → REB(is_oreb=false)` |
+| OREB → next attempt | `SHOT(missed) → REB(is_oreb=true) → SHOT(...)` (same possession) |
+| And-1 | `SHOT(made) → FOUL(shooting) → FT(1 of 1)` |
+| Foul-drawn miss | `FOUL(shooting) → FT(1 of N) → ... → FT(N of N)` — no SHOT event (this is the PR #8 fix at the event layer) |
+| Bonus FTs | `FOUL(non_shooting) → FT(1 of N) → ... → FT(N of N)` |
+| Non-shooting foul (no bonus) | `FOUL(non_shooting)` |
+| Turnover | `TOV [+ STL]` |
+| Offensive foul | `TOV → FOUL(offensive)` (same player id on both) |
+
+## Chip categorization (frontend)
+
+**Chips**: `SCORE`, `SHOT`, `FT`, `AST`, `REB`, `STL`, `BLK`, `TOV`, `FOUL` (9). Involvement is per-event, derived from `type` + `player_id`. This fixes today's miscategorizations automatically:
+
+| case | today (before (b)) | after (b) |
+|---|---|---|
+| Bonus FTs | shooter tagged `SHOT` (bug) | shooter tagged `FT`; fouler tagged `FOUL` |
+| Foul-drawn miss (post PR #8) | shooter tagged `SHOT` on a FGA=0 event | no SHOT event exists; shooter tagged `FT`; fouler tagged `FOUL` |
+| And-1 | shooter tagged `SHOT`+`SCORE` (fouled_by field only) | shooter tagged `SHOT`+`SCORE`+`FT`; fouler tagged `FOUL` |
+
+## Engine changes
+- New `app/services/possession_events.py`: `possession_to_events(possession_result, header_ctx) -> list[dict]`. Pure translator, no RNG, no state. One test per outcome row above.
+- New `derive_box_score(events, roster_ids) -> box_dict`. Pure. Replaces `apply_event`.
+- `game_simulator.simulate_game`: after each `resolve_possession`, translate to events, append to `all_events`. The engine still needs a **live** box during simulation for rotation / foul-out patching. Approach: incrementally derive per-event as events are emitted (same order → deterministic), OR fold the foul-out check into event emission (a `FOUL` event whose target's cumulative PF hits 6 flags fouled-out on the event). Decide during implementation; prefer whichever keeps `derive_box_score` a pure function.
+- Delete `box_score.apply_event`. Old tests replaced with `possession_to_events` + `derive_box_score` tests.
+- `describe_event` → per-type dispatch (one small function per type). Cleaner.
+
+## Frontend changes
+- `types.ts`: `PossessionEvent` → discriminated union `SimEvent = ShotEvent | FoulEvent | FTEvent | RebEvent | TovEvent | StlEvent | BlkEvent | AstEvent`. Each has a `type` literal + typed fields.
+- PBP renderer: switch on `type` → one line per event, with AST/BLK collated onto the parent SHOT row for display (one readable row per basketball moment, matching NBA official PBP conventions).
+- `PlayerModal` involvement: derive tags from `(event.type, event.player_id === modalPlayerId)`, not field-sniffing.
+- Chips: add `FT`. Fix `SHOT` involvement (only tag it on `SHOT` events, not "any event where scorer is this player").
+
+## Testing
+
+- **Regression fence** (backs the invariant): `tests/test_box_score_derivation_fixture.py` — loads a serialized fixture of 90 games' box scores captured on the parent commit and asserts `derive_box_score(events)` produces identical dicts. Fixture generation script committed to `scratch/` for future regen.
+- **Unit** (`tests/test_possession_events.py`): one test per row in the canonical orderings table above.
+- **Unit** (`tests/test_derive_box_score.py`): synthesized event streams → expected box dicts; edge cases (all-DNP roster, foul-out mid-quarter, OT continues correctly).
+- **Frontend Vitest**: renderer per event type; FT chip; PlayerModal involvement filter under new shape; AST/BLK collation.
+- **UAT**: single game — PBP reads naturally; every chip filters correctly; and-1 shows as one collated row; bonus FTs filter under `FT` and `FOUL` (not `SHOT`).
+
+## Definition of Done
+- [ ] `possession_to_events` + `derive_box_score` implemented; `apply_event` deleted
+- [ ] 90-game fixture captured on parent commit; regression test asserts identical box scores
+- [ ] `describe_event` per-type dispatch
+- [ ] Frontend `SimEvent` union, PBP renderer, FT chip, collated display
+- [ ] `PlayerModal` involvement + filters correct under new shape
+- [ ] Full pytest + Vitest suites green; `npm run build` clean
+- [ ] UAT: PBP, chips, PlayerModal all correct on drama-m3 single game
+- [ ] Update CLAUDE.md / RFC.md guardrail to state box score is derived, not accumulated
+
+## Decisions (locked 2026-07-25)
+- **Full split**: SHOT / FOUL / FT / REB / TOV / STL / BLK / AST each as separate events (not middle-ground; not the "keep AST/BLK inline" variant).
+- **Derived box score** via pure function; accumulator removed. Streamed events banked for later, not this pass.
+- **One PR** covering backend refactor + frontend PBP + chips.
+- **Frontend collates** AST/BLK onto parent SHOT row for display (readable, matches real NBA PBP).
+- **Baseline fixture** captured pre-refactor as the regression fence (90 games: 3 pairs × 3 seasons × 10 seeds).
+
+## Future considerations (banked, NOT this pass)
+- **Streamed events** for live/replay UI. Emit incrementally via callback/generator; frontend consumes as they arrive. Enables step-through playback and future spectator mode.
+- **Real-NBA PBP export/compare** — granular typed events make a comparator against ingested NBA PBP feeds tractable.
+- **Advanced stats derived from events** — usage on true FGA, foul-drawn rate on real shots, TS% on honest denominator, etc. Lands cleanly on top of the event stream; the honest-denominator finding from PR #8 becomes actionable here.
+- **Per-player timeline UI** — event ribbon in `PlayerModal`.

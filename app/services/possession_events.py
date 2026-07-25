@@ -28,12 +28,16 @@ def possession_to_events(
     Order matches the canonical orderings in RFC.md "Event-Sourced PBP":
       Clean make:        SHOT(made) [+ AST]
       Clean miss:        SHOT(missed) [+ BLK] [+ REB]
-      And-1:             SHOT(made) [+ AST] -> FOUL(shooting) -> FT
-      Foul-drawn miss:   FOUL(shooting) -> FT x N   (no SHOT — PR #8 at the event layer)
-      Bonus FTs:         FOUL(non_shooting) -> FT x N
+      And-1:             SHOT(made) [+ AST] -> FOUL(shooting) -> FT [+ REB]
+      Foul-drawn miss:   FOUL(shooting) -> FT x N [+ REB]   (no SHOT — PR #8)
+      Bonus FTs:         FOUL(non_shooting) -> FT x N [+ REB]
       Non-shooting foul: FOUL(non_shooting)
       Turnover:          TOV [+ STL]
       Offensive foul:    TOV -> FOUL(offensive)
+
+    A trailing REB on any FT trip is the live rebound on a missed LAST FT
+    (see _credit_ft_rebound in possession.py). Always defensive (is_oreb=False)
+    — no OREB-off-FT is modeled.
     """
     header = {
         "possession": possession,
@@ -70,6 +74,7 @@ def possession_to_events(
             foul_kind="non_shooting", fouled_on=result["scorer"],
         )]
         events.extend(_ft_events(result, header))
+        _append_ft_rebound(events, result, header)
         return events
 
     # Shot paths.
@@ -85,6 +90,7 @@ def possession_to_events(
                 foul_kind="shooting", fouled_on=shooter,
             )]
             events.extend(_ft_events(result, header))
+            _append_ft_rebound(events, result, header)
             return events
 
         # Made shot or clean miss — emit SHOT.
@@ -108,6 +114,7 @@ def possession_to_events(
                     foul_kind="shooting", fouled_on=shooter,
                 ))
                 events.extend(_ft_events(result, header))
+                _append_ft_rebound(events, result, header)
         else:
             # Clean miss: BLK (attribution) and REB (live rebound) if present.
             if result.get("block_by"):
@@ -123,6 +130,18 @@ def possession_to_events(
     # Defensive: no known outcome. Should not happen in practice — resolve_possession
     # always returns one of the shapes above — but returning [] keeps this pure.
     return []
+
+
+def _append_ft_rebound(events: List[dict], result: dict, header: dict) -> None:
+    """Emit a REB event for the live rebound off a missed LAST FT, if present.
+
+    `_credit_ft_rebound` in possession.py sets result["rebounded_by"] only when
+    the last FT missed, and only ever credits a DEFENSIVE rebounder — no
+    OREB-off-FT is modeled. So `is_oreb=False` always.
+    """
+    rebounded_by = result.get("rebounded_by")
+    if rebounded_by is not None:
+        events.append(_event("REB", rebounded_by, header, is_oreb=False))
 
 
 def _event(event_type: str, player_id: Optional[int], header: dict, **fields) -> dict:

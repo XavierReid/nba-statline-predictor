@@ -11,7 +11,8 @@ from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
-from app.services.box_score import apply_event, empty_stats, snapshot_box
+from app.services.box_score import apply_event, apply_typed_event, empty_stats, snapshot_box
+from app.services.possession_events import possession_to_events
 from app.services.diagnostics import SimulationDiagnostics
 from app.services.game_state import GameState
 from app.services.game_phase import derive_phase
@@ -181,6 +182,10 @@ def simulate_game(
     chunk_events: list = []
     current_chunk_events: list = []
     all_events: list = []
+    # Typed event stream (RFC.md "Event-Sourced PBP"). Always populated regardless of
+    # capture_descriptions/steps — it's the source of truth for box derivation and
+    # the regression fence. API layer still consumes chunk_events/all_events until #15.
+    typed_all_events: list = []
     gs = GameState()   # persistent, authoritative game state (roadmap stage B)
 
     def _maybe_snapshot(elapsed_minutes: float, current_q_idx: int) -> None:
@@ -252,7 +257,31 @@ def simulate_game(
         )
         event = resolve_possession(ctx)
 
-        pts, fouled_out_pid = apply_event(box, event)
+        # Event-sourced accumulation (RFC.md "Event-Sourced PBP"): translate the
+        # possession result into granular typed events, then apply each to the box
+        # via apply_typed_event. Replaces the legacy `apply_event(box, event)`
+        # accumulator. The poss_record + describe_event path below is unchanged so
+        # the API contract (PossessionEvent) keeps working until task #15 flips it.
+        gs.possession_number += 1
+        clock_secs = game_clock_override if game_clock_override is not None else round(gs.game_clock)
+        typed = possession_to_events(
+            event,
+            possession=gs.possession_number,
+            quarter=current_q_idx + 1,
+            game_clock_seconds=clock_secs,
+            is_home=is_home,
+        )
+        pts = 0
+        fouled_out_pid: Optional[int] = None
+        for tev in typed:
+            ev_pts, ev_fo = apply_typed_event(box, tev)
+            pts += ev_pts
+            if ev_fo is not None:
+                fouled_out_pid = ev_fo
+        typed_all_events.extend(typed)
+        # Match legacy apply_event's mutation of the possession result dict —
+        # momentum modifier + downstream code read event.get("pts", 0).
+        event["pts"] = pts
 
         if is_home:
             gs.home_score += pts
@@ -268,8 +297,6 @@ def simulate_game(
             if pid in box:
                 box[pid]["plus_minus"] -= home_delta
 
-        gs.possession_number += 1
-        clock_secs = game_clock_override if game_clock_override is not None else round(gs.game_clock)
         poss_record = {
             "possession": gs.possession_number,
             "game_clock_seconds": clock_secs,
@@ -656,6 +683,7 @@ def simulate_game(
         "chunks": chunks,
         "chunk_events": chunk_events,
         "events": all_events,
+        "typed_events": typed_all_events,
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
         "possession_accounting": diag.as_dict(),

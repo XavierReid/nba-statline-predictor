@@ -11,8 +11,8 @@ from sqlalchemy import select
 
 from app.models.team_season_stats import TeamSeasonStats
 from app.services.modifiers.base import GameSnapshot, ModifierAdjustments, PlayerGameState
-from app.services.box_score import apply_event, apply_typed_event, empty_stats, snapshot_box
-from app.services.possession_events import possession_to_events
+from app.services.box_score import apply_typed_event, empty_stats, snapshot_box
+from app.services.possession_events import describe_typed_event, possession_to_events
 from app.services.diagnostics import SimulationDiagnostics
 from app.services.game_state import GameState
 from app.services.game_phase import derive_phase
@@ -22,7 +22,7 @@ from app.services.late_game import (
     build_context, possession_time_override, should_concede,
 )
 from app.services.lineup_quality import compute_lineup_quality, rotation_baseline
-from app.services.possession import OREB_RATE, describe_event, resolve_possession
+from app.services.possession import OREB_RATE, resolve_possession
 from app.services.possession_context import make_context
 from app.services.roster import load_roster
 from app.services.rotation import (
@@ -31,7 +31,7 @@ from app.services.rotation import (
 )
 
 # Re-export so existing callers (API, tests, scratch scripts) need no changes.
-__all__ = ["load_roster", "simulate_game", "describe_event"]
+__all__ = ["load_roster", "simulate_game", "describe_typed_event"]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -181,11 +181,14 @@ def simulate_game(
     chunks: list = []
     chunk_events: list = []
     current_chunk_events: list = []
+    # Typed event stream (RFC.md "Event-Sourced PBP") — one list of granular typed
+    # events per possession (SHOT/FOUL/FT/REB/TOV/STL/BLK/AST). Descriptions attached
+    # server-side via describe_typed_event when name_map is available.
     all_events: list = []
-    # Typed event stream (RFC.md "Event-Sourced PBP"). Always populated regardless of
-    # capture_descriptions/steps — it's the source of truth for box derivation and
-    # the regression fence. API layer still consumes chunk_events/all_events until #15.
-    typed_all_events: list = []
+    # Always-populated typed stream (regardless of capture_descriptions/steps).
+    # Used by the regression fence + any consumer that wants raw events without
+    # opting into description building. Downstream of API routes ignore it.
+    _typed_all: list = []
     gs = GameState()   # persistent, authoritative game state (roadmap stage B)
 
     def _maybe_snapshot(elapsed_minutes: float, current_q_idx: int) -> None:
@@ -257,11 +260,10 @@ def simulate_game(
         )
         event = resolve_possession(ctx)
 
-        # Event-sourced accumulation (RFC.md "Event-Sourced PBP"): translate the
-        # possession result into granular typed events, then apply each to the box
-        # via apply_typed_event. Replaces the legacy `apply_event(box, event)`
-        # accumulator. The poss_record + describe_event path below is unchanged so
-        # the API contract (PossessionEvent) keeps working until task #15 flips it.
+        # Event-sourced possession (RFC.md "Event-Sourced PBP"): translate the
+        # possession result into granular typed events, apply each to the box via
+        # apply_typed_event, then emit into the event stream (chunk_events for
+        # steps, all_events otherwise) with per-event descriptions when captured.
         gs.possession_number += 1
         clock_secs = game_clock_override if game_clock_override is not None else round(gs.game_clock)
         typed = possession_to_events(
@@ -278,9 +280,8 @@ def simulate_game(
             pts += ev_pts
             if ev_fo is not None:
                 fouled_out_pid = ev_fo
-        typed_all_events.extend(typed)
-        # Match legacy apply_event's mutation of the possession result dict —
-        # momentum modifier + downstream code read event.get("pts", 0).
+        # Momentum modifier reads event.get("pts", 0) off the possession result;
+        # preserve that field for the behavior pipeline call below.
         event["pts"] = pts
 
         if is_home:
@@ -297,19 +298,19 @@ def simulate_game(
             if pid in box:
                 box[pid]["plus_minus"] -= home_delta
 
-        poss_record = {
-            "possession": gs.possession_number,
-            "game_clock_seconds": clock_secs,
-            "quarter": current_q_idx + 1,
-            "is_home": is_home,
-            "pts": pts,
-            "is_fastbreak": is_fastbreak,
-            **event,
-        }
+        if name_map is not None:
+            for tev in typed:
+                tev["description"] = describe_typed_event(tev, name_map)
+        # is_fastbreak is a per-possession context field the frontend uses to
+        # tint fast-break shots. Stamp it on every event in this possession.
+        if is_fastbreak:
+            for tev in typed:
+                tev["is_fastbreak"] = True
+        _typed_all.extend(typed)
         if steps:
-            current_chunk_events.append(poss_record)
+            current_chunk_events.extend(typed)
         elif capture_descriptions:
-            all_events.append(poss_record)
+            all_events.extend(typed)
 
         _maybe_snapshot(elapsed_minutes, current_q_idx)
         return fouled_out_pid, event
@@ -408,28 +409,43 @@ def simulate_game(
                                 gs.away_score += pts
                                 gs.quarter_scores["away"][q_idx] += pts
                             gs.possession_number += 1
-                            foul_event = {
-                                "scorer": target["id"], "shot_type": None, "made": False,
-                                "assisted_by": None, "rebounded_by": None,
-                                "turnover_by": None, "steal_by": None, "block_by": None,
-                                "fouled_by": None, "fta": fta, "ftm": ftm,
-                                "description": (
-                                    f"{target['name']} shoots {ftm}/{fta} FTs (intentional foul)"
-                                    if name_map else None
-                                ),
-                            }
-                            poss_record = {
-                                "possession": gs.possession_number,
-                                "game_clock_seconds": int(quarter_clock),
-                                "quarter": q_idx + 1,
-                                "is_home": current_is_home,
-                                "pts": pts,
-                                **foul_event,
-                            }
+                            # Emit typed events for the intentional foul + FTs so the
+                            # PBP surfaces them. NOTE: these are NOT applied to the box
+                            # via apply_typed_event — the strategic-foul path has never
+                            # touched box_score (pre-existing bookkeeping omission;
+                            # documented follow-up). Scoring reaches gs.home/away_score
+                            # directly above so line score is correct.
+                            hdr = dict(
+                                possession=gs.possession_number,
+                                quarter=q_idx + 1,
+                                game_clock_seconds=int(quarter_clock),
+                                is_home=current_is_home,
+                            )
+                            strategic_events = [
+                                {**hdr, "type": "FOUL", "player_id": None, "pts": 0,
+                                 "foul_kind": "non_shooting", "fouled_on": target["id"],
+                                 "strategic": True},
+                            ]
+                            for i in range(fta):
+                                strategic_events.append({
+                                    **hdr, "type": "FT", "player_id": target["id"],
+                                    "pts": 1 if i < ftm else 0,
+                                    "attempt": i + 1, "of": fta, "made": i < ftm,
+                                    "strategic": True,
+                                })
+                            if name_map is not None:
+                                for tev in strategic_events:
+                                    tev["description"] = describe_typed_event(tev, name_map)
+                                # Prefix the FOUL description with "Intentional" so PBP
+                                # reads distinctly from a regular non-shooting foul.
+                                strategic_events[0]["description"] = (
+                                    f"Intentional foul on {target['name']} — {ftm}/{fta} FTs"
+                                )
+                            _typed_all.extend(strategic_events)
                             if steps:
-                                current_chunk_events.append(poss_record)
+                                current_chunk_events.extend(strategic_events)
                             elif capture_descriptions:
-                                all_events.append(poss_record)
+                                all_events.extend(strategic_events)
                             _maybe_snapshot(gs.game_clock / 60, q_idx)
                             current_is_home = not current_is_home
                             oreb_depth = 0
@@ -683,7 +699,7 @@ def simulate_game(
         "chunks": chunks,
         "chunk_events": chunk_events,
         "events": all_events,
-        "typed_events": typed_all_events,
+        "typed_events": _typed_all,
         "went_to_ot": ot_period > 0,
         "ot_periods": ot_period,
         "possession_accounting": diag.as_dict(),

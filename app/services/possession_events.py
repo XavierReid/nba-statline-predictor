@@ -1,4 +1,5 @@
-"""Translate a possession result dict into a sequence of granular typed events.
+"""Translate a possession result dict into a sequence of granular typed events,
+and describe individual typed events as human-readable strings.
 
 Every simulation possession resolves via `resolve_possession` into a single result
 dict. `possession_to_events` expands that dict into an ordered list of typed events
@@ -13,6 +14,24 @@ from typing import List, Optional
 
 
 _THREE_SHOT_TYPES = ("three", "corner_three", "above_break_three")
+
+_SHOT_LABELS = {
+    "three": "3-pointer",
+    "corner_three": "corner 3-pointer",
+    "above_break_three": "3-pointer",
+    "mid": "mid-range jumper",
+    "mid_range": "mid-range jumper",
+    "close": "layup/close shot",
+    "layup": "layup",
+    "dunk": "dunk",
+    "floater": "floater",
+}
+
+_FOUL_LABELS = {
+    "shooting": "shooting foul",
+    "non_shooting": "non-shooting foul",
+    "offensive": "offensive foul",
+}
 
 
 def possession_to_events(
@@ -176,3 +195,86 @@ def _ft_events(result: dict, header: dict) -> List[dict]:
         )
         for i in range(fta)
     ]
+
+
+# ---------------------------------------------------------------------------
+# Description dispatch (RFC.md "Event-Sourced PBP")
+# ---------------------------------------------------------------------------
+
+
+def describe_typed_event(event: dict, name_map: dict) -> str:
+    """Human-readable description of a single typed event.
+
+    Server produces one string per event. Display collation (e.g. rendering an
+    AST inline on its parent SHOT row) is a frontend concern; each event
+    describes itself in isolation.
+    """
+    handler = _DESCRIBE.get(event["type"])
+    if handler is None:
+        return f"[unknown event type: {event['type']}]"
+    return handler(event, name_map)
+
+
+def _name(name_map: dict, pid: Optional[int]) -> str:
+    if pid is None:
+        return "Unknown"
+    return name_map.get(pid, f"Player {pid}")
+
+
+def _describe_shot(ev: dict, name_map: dict) -> str:
+    shooter = _name(name_map, ev.get("player_id"))
+    label = _SHOT_LABELS.get(ev.get("shot_type"), "shot")
+    verb = "hits" if ev.get("made") else "misses"
+    return f"{shooter} {verb} a {label}"
+
+
+def _describe_foul(ev: dict, name_map: dict) -> str:
+    fouler = _name(name_map, ev.get("player_id"))
+    kind_label = _FOUL_LABELS.get(ev.get("foul_kind"), "foul")
+    if ev.get("foul_kind") == "offensive":
+        return f"{fouler} commits an offensive foul"
+    fouled_on = ev.get("fouled_on")
+    if fouled_on is None:
+        return f"{fouler} commits a {kind_label}"
+    return f"{fouler} commits a {kind_label} on {_name(name_map, fouled_on)}"
+
+
+def _describe_ft(ev: dict, name_map: dict) -> str:
+    shooter = _name(name_map, ev.get("player_id"))
+    attempt, of, made = ev.get("attempt"), ev.get("of"), ev.get("made")
+    verb = "makes" if made else "misses"
+    return f"{shooter} {verb} free throw {attempt} of {of}"
+
+
+def _describe_reb(ev: dict, name_map: dict) -> str:
+    player = _name(name_map, ev.get("player_id"))
+    kind = "offensive rebound" if ev.get("is_oreb") else "defensive rebound"
+    return f"{player} {kind}"
+
+
+def _describe_tov(ev: dict, name_map: dict) -> str:
+    return f"{_name(name_map, ev.get('player_id'))} turnover"
+
+
+def _describe_stl(ev: dict, name_map: dict) -> str:
+    return f"{_name(name_map, ev.get('player_id'))} steal"
+
+
+def _describe_blk(ev: dict, name_map: dict) -> str:
+    return f"{_name(name_map, ev.get('player_id'))} blocks the shot"
+
+
+def _describe_ast(ev: dict, name_map: dict) -> str:
+    return f"{_name(name_map, ev.get('player_id'))} assist"
+
+
+_DESCRIBE = {
+    "SHOT": _describe_shot,
+    "FOUL": _describe_foul,
+    "FT":   _describe_ft,
+    "REB":  _describe_reb,
+    "TOV":  _describe_tov,
+    "STL":  _describe_stl,
+    "BLK":  _describe_blk,
+    "AST":  _describe_ast,
+}

@@ -1,6 +1,6 @@
-"""Unit tests for possession_to_events — one test per canonical ordering row in
-RFC.md "Event-Sourced PBP"."""
-from app.services.possession_events import possession_to_events
+"""Unit tests for possession_to_events + describe_typed_event — one test per
+canonical ordering row in RFC.md "Event-Sourced PBP"."""
+from app.services.possession_events import describe_typed_event, possession_to_events
 
 
 HEADER = dict(possession=1, quarter=1, game_clock_seconds=720, is_home=True)
@@ -201,3 +201,78 @@ def test_ft_makes_fallback_when_missing_uses_makes_first_order():
     ft_events = [e for e in events if e["type"] == "FT"]
     assert len(ft_events) == 3
     assert sum(e["made"] for e in ft_events) == 2
+
+
+# ---------------------------------------------------------------------------
+# describe_typed_event — one test per event type
+# ---------------------------------------------------------------------------
+
+NAMES = {SHOOTER: "Shooter", DEF: "Defender", ASSISTER: "Assister",
+         BLOCKER: "Blocker", REBOUNDER: "Rebounder", STEALER: "Stealer",
+         FOULED_ON: "FouledOn"}
+
+
+def _typed(type_, player_id, **kw):
+    return {**HEADER, "type": type_, "player_id": player_id, "pts": 0, **kw}
+
+
+def test_describe_shot_made_three():
+    ev = _typed("SHOT", SHOOTER, shot_type="three", sub_type="above_break_three", made=True, pts=3)
+    assert describe_typed_event(ev, NAMES) == "Shooter hits a 3-pointer"
+
+
+def test_describe_shot_missed_corner_three():
+    ev = _typed("SHOT", SHOOTER, shot_type="corner_three", made=False)
+    assert describe_typed_event(ev, NAMES) == "Shooter misses a corner 3-pointer"
+
+
+def test_describe_shot_missed_mid():
+    ev = _typed("SHOT", SHOOTER, shot_type="mid", made=False)
+    assert describe_typed_event(ev, NAMES) == "Shooter misses a mid-range jumper"
+
+
+def test_describe_shooting_foul_names_both_sides():
+    ev = _typed("FOUL", DEF, foul_kind="shooting", fouled_on=SHOOTER)
+    assert describe_typed_event(ev, NAMES) == "Defender commits a shooting foul on Shooter"
+
+
+def test_describe_non_shooting_foul_pre_bonus_no_fouled_on_shows_generic():
+    ev = _typed("FOUL", DEF, foul_kind="non_shooting", fouled_on=None)
+    assert describe_typed_event(ev, NAMES) == "Defender commits a non-shooting foul"
+
+
+def test_describe_offensive_foul_ignores_fouled_on():
+    ev = _typed("FOUL", SHOOTER, foul_kind="offensive", fouled_on=None)
+    assert describe_typed_event(ev, NAMES) == "Shooter commits an offensive foul"
+
+
+def test_describe_ft_made_and_missed():
+    ev1 = _typed("FT", SHOOTER, attempt=1, of=2, made=True, pts=1)
+    ev2 = _typed("FT", SHOOTER, attempt=2, of=2, made=False)
+    assert describe_typed_event(ev1, NAMES) == "Shooter makes free throw 1 of 2"
+    assert describe_typed_event(ev2, NAMES) == "Shooter misses free throw 2 of 2"
+
+
+def test_describe_reb_dreb_and_oreb():
+    dreb = _typed("REB", REBOUNDER, is_oreb=False)
+    oreb = _typed("REB", REBOUNDER, is_oreb=True)
+    assert describe_typed_event(dreb, NAMES) == "Rebounder defensive rebound"
+    assert describe_typed_event(oreb, NAMES) == "Rebounder offensive rebound"
+
+
+def test_describe_tov_stl_blk_ast():
+    assert describe_typed_event(_typed("TOV", SHOOTER), NAMES) == "Shooter turnover"
+    assert describe_typed_event(_typed("STL", STEALER), NAMES) == "Stealer steal"
+    assert describe_typed_event(_typed("BLK", BLOCKER), NAMES) == "Blocker blocks the shot"
+    assert describe_typed_event(_typed("AST", ASSISTER), NAMES) == "Assister assist"
+
+
+def test_describe_falls_back_gracefully_for_unknown_player():
+    ev = _typed("SHOT", 99999, shot_type="mid", made=True, pts=2)
+    assert describe_typed_event(ev, NAMES) == "Player 99999 hits a mid-range jumper"
+
+
+def test_describe_unknown_type_returns_placeholder():
+    ev = _typed("MYSTERY", SHOOTER)
+    out = describe_typed_event(ev, NAMES)
+    assert "MYSTERY" in out

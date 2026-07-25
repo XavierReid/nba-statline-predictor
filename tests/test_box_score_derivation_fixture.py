@@ -144,61 +144,34 @@ def test_event_stream_preserves_baseline_box_scores():
                 f"{game_label} ot_periods: expected {fx['ot_periods']} got {r['ot_periods']}"
             )
 
-        # (4) possession count self-consistency: length of the typed event stream's
-        # `possession` field range vs. the diagnostics counter.
+        # (4) possession count self-consistency: distinct possession numbers in the
+        # typed event stream match the diagnostics counter (strategic fouls are now
+        # in the typed stream too — they were the earlier off-by-strategic mismatch).
         typed = r.get("typed_events", [])
         assert typed, f"{game_label} — expected typed_events populated"
-        typed_max_possession = max(e["possession"] for e in typed) if typed else 0
-        # `possession_accounting["counts"]` sums across categories = total resolved
-        # possessions in the sim (excluding strategic-foul entries which increment
-        # possession_number separately). Cross-check with the event stream.
         accounting_counts = sum(r["possession_accounting"]["counts"].values())
-        # Strategic-foul possessions increment gs.possession_number but don't go
-        # through resolve_possession -> possession_to_events, so they inflate the
-        # max possession beyond accounting_counts by exactly the strategic-foul
-        # count. Compare accounting to typed-events distinct-possession count.
         typed_distinct_possessions = len({e["possession"] for e in typed})
-        strategic_fouls = r["possession_accounting"]["counts"].get("strategic_foul", 0)
-        if typed_distinct_possessions + strategic_fouls != accounting_counts:
+        if typed_distinct_possessions != accounting_counts:
             failures.append(
-                f"{game_label} possession count: typed {typed_distinct_possessions} + "
-                f"strategic {strategic_fouls} != accounting {accounting_counts}"
+                f"{game_label} possession count: typed distinct {typed_distinct_possessions} "
+                f"!= accounting {accounting_counts}"
             )
 
-        # (5) pts from typed events equals game totals (excludes strategic-foul FTs
-        # which don't apply to the box today — pre-existing bug, documented
-        # follow-up, kept in the game total via the legacy path).
+        # (5) pts from typed events equals game totals (typed stream now covers
+        # strategic-foul FTs too — sum should be identical to home+away).
         typed_pts_sum = sum(e.get("pts", 0) for e in typed)
-        strategic_pts = 0
-        # strategic-foul FTs still contribute to gs.home_score / gs.away_score via
-        # the direct pts add in the strategic-foul path — infer from difference.
         game_total = r["home_score"] + r["away_score"]
-        expected_typed_pts = game_total - strategic_pts  # noqa: F841
-        # If the typed pts don't match the game total minus strategic-foul pts, it
-        # indicates the typed events are missing scoring events. Since we don't
-        # capture strategic_pts directly, just check the sign: typed_pts_sum
-        # should be <= game_total.
-        if typed_pts_sum > game_total:
+        if typed_pts_sum != game_total:
             failures.append(
-                f"{game_label} typed pts sum {typed_pts_sum} > game total {game_total}"
-            )
-        # The exact game_total - typed_pts_sum should equal the strategic-foul FT
-        # points. Bound it: strategic fouls draw 2 FTs each, max 2 pts, so:
-        max_strategic_pts = 2 * strategic_fouls
-        if game_total - typed_pts_sum > max_strategic_pts:
-            failures.append(
-                f"{game_label} unaccounted pts: game {game_total} - typed {typed_pts_sum} "
-                f"= {game_total - typed_pts_sum}, but max strategic contribution = {max_strategic_pts}"
+                f"{game_label} typed pts sum {typed_pts_sum} != game total {game_total}"
             )
 
-        # (5b) derive_box_score(typed_events) equals live-accumulated box (the box
-        # returned by simulate_game IS live-accumulated via apply_typed_event on
-        # each event; deriving from scratch on the same events must reproduce it).
+        # (5b) derive_box_score(typed_events) equals live-accumulated box, EXCLUDING
+        # strategic-foul events (they're in the stream for display but never applied
+        # to box — pre-existing omission, documented follow-up).
+        applied_events = [e for e in typed if not e.get("strategic")]
         roster_ids = list(r["box_score"].keys())
-        derived = derive_box_score(typed, roster_ids)
-        # min and plus_minus are set by simulate_game outside of apply_typed_event,
-        # so derived rows have min=0 and plus_minus=0. Compare only accumulated
-        # box-score keys.
+        derived = derive_box_score(applied_events, roster_ids)
         for pid in roster_ids:
             for k in ("pts", "reb", "ast", "stl", "blk", "tov", "pf",
                       "fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "fouled_out"):

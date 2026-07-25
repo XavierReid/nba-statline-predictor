@@ -39,26 +39,46 @@ export interface QuarterScores {
   away: number[];
 }
 
-export interface PossessionEvent {
+// One granular typed event in the PBP stream (RFC.md "Event-Sourced PBP"). `type` is
+// the discriminator; type-specific fields are all optional so a single flexible shape
+// covers every event kind. See app/services/possession_events.py for the source of
+// truth on each shape.
+export type SimEventType =
+  | "SHOT" | "FOUL" | "FT" | "REB" | "TOV" | "STL" | "BLK" | "AST";
+
+export interface SimEvent {
+  type: SimEventType;
   possession: number;
-  game_clock_seconds: number;
   quarter: number;
+  game_clock_seconds: number;
   is_home: boolean;
+  player_id?: number | null;
   pts: number;
   running_home_score?: number | null;
   running_away_score?: number | null;
   description?: string | null;
+  is_fastbreak?: boolean | null;
+  strategic?: boolean | null;
+
+  // SHOT
+  shot_type?: string | null;
+  sub_type?: string | null;
   made?: boolean | null;
-  // per-player involvement ids — let the modal filter a game's PBP to one player
-  scorer?: number | null;
-  assisted_by?: number | null;
-  rebounded_by?: number | null;
-  turnover_by?: number | null;
-  steal_by?: number | null;
-  block_by?: number | null;
-  fouled_by?: number | null;
-  nonshooting_foul_by?: number | null;
+
+  // FOUL
+  foul_kind?: "shooting" | "non_shooting" | "offensive" | null;
+  fouled_on?: number | null;
+
+  // FT
+  attempt?: number | null;
+  of?: number | null;
+
+  // REB
+  is_oreb?: boolean | null;
 }
+
+// Back-compat alias for existing imports.
+export type PossessionEvent = SimEvent;
 
 export interface PlayerProfile {
   id: number;

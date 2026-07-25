@@ -20,14 +20,14 @@ function line(over: Partial<PlayerLine> = {}): PlayerLine {
   };
 }
 
-function ev(over: Partial<PossessionEvent>): PossessionEvent {
+function ev(over: Partial<PossessionEvent> & Pick<PossessionEvent, "type">): PossessionEvent {
   return { possession: 1, game_clock_seconds: 600, quarter: 1, is_home: true, pts: 0, ...over };
 }
 
 const events: PossessionEvent[] = [
-  ev({ scorer: 5, made: true, pts: 2, description: "Test Guy makes a layup" }),
-  ev({ scorer: 99, description: "Someone Else scores" }),
-  ev({ assisted_by: 5, description: "Teammate scores (assisted by Test Guy)" }),
+  ev({ type: "SHOT", player_id: 5, made: true, pts: 2, description: "Test Guy makes a layup" }),
+  ev({ type: "SHOT", player_id: 99, made: true, pts: 2, description: "Someone Else scores" }),
+  ev({ type: "AST", player_id: 5, description: "Test Guy assist" }),
 ];
 
 beforeEach(() => vi.mocked(api.getPlayerProfile).mockResolvedValue(profile));
@@ -36,7 +36,7 @@ describe("PlayerModal", () => {
   it("shows only the player's own PBP events, tagged by involvement", async () => {
     const { container } = render(<PlayerModal line={line()} season="2025-26" events={events} onClose={() => {}} />);
     expect(screen.getByText("Test Guy makes a layup")).toBeInTheDocument();
-    expect(screen.getByText("Teammate scores (assisted by Test Guy)")).toBeInTheDocument();
+    expect(screen.getByText("Test Guy assist")).toBeInTheDocument();
     expect(screen.queryByText("Someone Else scores")).not.toBeInTheDocument();
     // scope to the PBP involvement tags ("AST" also appears as a stat-column label)
     const tags = [...container.querySelectorAll(".pm-tag")].map((t) => t.textContent);
@@ -44,11 +44,28 @@ describe("PlayerModal", () => {
     expect(tags).toContain("AST");
   });
 
-  it("tags a non-shooting foul (nonshooting_foul_by) as FOUL", () => {
-    const evs = [ev({ nonshooting_foul_by: 5, description: "Non-shooting foul: Test Guy on X" })];
+  it("tags a non-shooting foul as FOUL", () => {
+    const evs = [ev({
+      type: "FOUL", player_id: 5, foul_kind: "non_shooting", fouled_on: 99,
+      description: "Test Guy commits a non-shooting foul on X",
+    })];
     const { container } = render(<PlayerModal line={line()} season="2025-26" events={evs} onClose={() => {}} />);
     const tags = [...container.querySelectorAll(".pm-tag")].map((t) => t.textContent);
     expect(tags).toContain("FOUL");
+  });
+
+  it("tags a free throw as FT (not SHOT)", () => {
+    // Previously bonus FTs and foul-drawn misses were mis-tagged SHOT because
+    // the legacy shape put the fouled-on player in `scorer`. Under typed events
+    // FT has its own type + chip.
+    const evs = [ev({
+      type: "FT", player_id: 5, attempt: 1, of: 2, made: true, pts: 1,
+      description: "Test Guy makes free throw 1 of 2",
+    })];
+    const { container } = render(<PlayerModal line={line()} season="2025-26" events={evs} onClose={() => {}} />);
+    const tags = [...container.querySelectorAll(".pm-tag")].map((t) => t.textContent);
+    expect(tags).toContain("FT");
+    expect(tags).not.toContain("SHOT");
   });
 
   it("hides events whose tag is toggled off", () => {
@@ -56,7 +73,7 @@ describe("PlayerModal", () => {
     const scoreChip = screen.getAllByRole("button").find((b) => b.textContent === "SCORE")!;
     fireEvent.click(scoreChip);
     expect(screen.queryByText("Test Guy makes a layup")).not.toBeInTheDocument();
-    expect(screen.getByText("Teammate scores (assisted by Test Guy)")).toBeInTheDocument();
+    expect(screen.getByText("Test Guy assist")).toBeInTheDocument();
   });
 
   it("shows an empty message when the player has no events", () => {

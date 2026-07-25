@@ -1,12 +1,7 @@
 """Box score helpers — accumulate and snapshot per-player stat lines.
 
-Two accumulator styles coexist during the event-sourced PBP refactor (RFC.md
-"Event-Sourced PBP"):
-
-- `apply_event` (legacy): consumes a monolithic possession result dict.
-  Being deleted once simulate_game is wired to the event stream.
-- `apply_typed_event` + `derive_box_score`: consume the granular typed events
-  from `possession_to_events`. Drop-in replacement for the legacy path.
+Event-sourced: consumers pass one typed event at a time to `apply_typed_event`,
+or a full stream to `derive_box_score`. Both are pure — no RNG, no I/O.
 """
 from typing import Iterable, List, Optional, Tuple
 
@@ -25,76 +20,6 @@ def empty_stats() -> dict:
 def snapshot_box(box: dict) -> dict:
     """Shallow-copy a box score dict. Safe because all values are primitives."""
     return {pid: dict(stats) for pid, stats in box.items()}
-
-
-def apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
-    """Apply one possession event to the box score in place.
-
-    Returns (pts_scored, fouled_out_player_id or None). Rotation patching for
-    foul-outs is left to the caller since it requires simulation state.
-    """
-    pts = 0
-
-    if event["turnover_by"] and event["turnover_by"] in box:
-        box[event["turnover_by"]]["tov"] += 1
-        if event.get("steal_by") and event["steal_by"] in box:
-            box[event["steal_by"]]["stl"] += 1
-
-    elif event["scorer"]:
-        if event.get("block_by") and event["block_by"] in box:
-            box[event["block_by"]]["blk"] += 1
-
-        pid = event["scorer"]
-        if pid in box:
-            shot_type = event.get("shot_type")
-            if shot_type:  # bonus fouls have no shot attempt — skip FGA
-                # A miss that draws a shooting foul is not a FGA in real NBA — the attempt is
-                # negated and the shooter goes to the line. And-1 (made + fta) still counts.
-                counts_as_attempt = event["made"] or event["fta"] == 0
-                if shot_type in ("three", "corner_three", "above_break_three"):
-                    if counts_as_attempt:
-                        box[pid]["fg3a"] += 1
-                        box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fg3m"] += 1
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 3
-                        pts = 3
-                else:
-                    if counts_as_attempt:
-                        box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 2
-                        pts = 2
-
-            if event["fta"] > 0:
-                box[pid]["fta"] += event["fta"]
-                box[pid]["ftm"] += event["ftm"]
-                box[pid]["pts"] += event["ftm"]
-                pts += event["ftm"]
-
-        if event.get("assisted_by") and event["assisted_by"] in box:
-            box[event["assisted_by"]]["ast"] += 1
-        if event.get("rebounded_by") and event["rebounded_by"] in box:
-            box[event["rebounded_by"]]["reb"] += 1
-
-    # both the shooting/bonus fouler and a pre-bonus non-shooting fouler count a personal foul
-    fouled_out_pid = None
-    for fouled_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
-        if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
-            box[fouled_pid]["pf"] += 1
-            if box[fouled_pid]["pf"] >= 6:
-                box[fouled_pid]["fouled_out"] = True
-                fouled_out_pid = fouled_pid
-
-    event["pts"] = pts
-    return pts, fouled_out_pid
-
-
-# ---------------------------------------------------------------------------
-# Event-sourced accumulation (RFC.md "Event-Sourced PBP")
-# ---------------------------------------------------------------------------
 
 
 def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:

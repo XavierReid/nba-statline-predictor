@@ -17,7 +17,13 @@ const COLS: { key: SortKey; label: string }[] = [
   { key: "personal_fouls", label: "PF" },
 ];
 
-export default function BoxScore({ title, players }: { title: string; players: PlayerLine[] }) {
+interface Props {
+  title: string;
+  players: PlayerLine[];
+  onSelectPlayer: (p: PlayerLine) => void;
+}
+
+export default function BoxScore({ title, players, onSelectPlayer }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("points");
 
   const played = players.filter((p) => p.minutes >= 0.5);
@@ -43,7 +49,7 @@ export default function BoxScore({ title, players }: { title: string; players: P
         </thead>
         <tbody>
           {sorted.map((p) => (
-            <tr key={p.player_id}>
+            <tr key={p.player_id} className="clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">
                 {p.name}
                 {p.fouled_out && <span className="fo">FO</span>}
@@ -62,7 +68,7 @@ export default function BoxScore({ title, players }: { title: string; players: P
             </tr>
           ))}
           {dnp.map((p) => (
-            <tr key={p.player_id} className="dnp">
+            <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">{p.name}</td>
               <td>DNP</td>
               <td colSpan={10}></td>

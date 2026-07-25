@@ -1301,3 +1301,70 @@ Ideas that surfaced mid-build but aren't in active scope. Review when planning t
 - psycopg2 requires PostgreSQL client libs — install after Docker Desktop
 - NBA API rate-limits aggressively — custom browser headers required
 - `game_status` stored as `String(16)` not Postgres ENUM
+
+---
+
+# Frontend RFC: Player-Detail Modal (Phase 2)
+
+**Status:** approved to build (2026-07-24). Second frontend feature after the single-game MVP.
+
+## Overview
+Clicking a player's row in a box score opens a modal showing that player's **season averages**,
+**derived ratings**, their **line in the game just simulated**, and **their play-by-play from that
+game**. It adds depth to the single-game view — you see *why* a player performed as they did (real
+profile) and *what* they did (their filtered PBP) without leaving the result.
+
+## Goals
+- Turn each box-score row into a drill-in to the player's profile for the game's season.
+- Reuse game data already in hand (the box line + the full event list) — no re-simulation, and the
+  player-PBP needs **no backend change** (events already carry per-player involvement ids).
+- Establish the pattern for player-scoped reads (`/players/{id}/profile`).
+
+## UX / flow
+1. Each box-score row (played AND DNP) is clickable.
+2. Click → modal opens (loading state) → fetches profile → renders.
+3. Sections: **header** (name · position · season-accurate team · season) · **This game** (the row's
+   line) · **Season averages** (real) · **Ratings** (labeled 0–100 bars) · **This game — play-by-play**
+   (events involving this player).
+4. Close on ✕, overlay click, or `Esc`. One modal at a time.
+
+## Backend — `GET /players/{id}/profile?season=<s>`
+Returns `{id, full_name, position, team (season-accurate), season, season_averages{gp,min,pts,reb,ast,
+stl,blk,tov,fg_pct,fg3_pct,ft_pct}, ratings{overall + curated: three_point, mid_range, layup, passing,
+ball_handle, perimeter_defense, interior_defense, offensive_rebound, defensive_rebound, clutch}}`.
+- 404 if the player has no `PlayerSeasonStats` for that season.
+- Reads existing `PlayerSeasonStats` + `PlayerAttributes` — **no new tables/migrations**.
+- `overall_rating` is display-only (guardrail #1: never a sim input).
+
+## Frontend
+- `api.ts`: `getPlayerProfile(id, season)`.
+- `types.ts`: extend `PossessionEvent` with the involvement ids (`scorer`, `assisted_by`,
+  `rebounded_by`, `turnover_by`, `steal_by`, `block_by`, `fouled_by`).
+- `App`: holds the selected player (id + clicked box line) and renders `<PlayerModal>`.
+- `PlayerModal.tsx`: the five sections. The PBP section filters `game.events` to events where the
+  player's id appears in any involvement field, rendered clock + description.
+- `BoxScore`: row `onClick` → `onSelectPlayer(line)`.
+
+## Testing
+- **Backend**: `/players/{id}/profile` test — 200 shape for a seeded player, 404 for unknown/no-season.
+- **Frontend (Vitest)**: `getPlayerProfile` URL; `PlayerModal` renders averages + ratings; the PBP
+  filter selects only the player's events; row click invokes the handler.
+- **UAT**: click a star → correct identity/averages/ratings + their PBP lines; close 3 ways; DNP row →
+  season profile shows with no game line and empty/short PBP; 2005-06 player → season-accurate team.
+
+## Definition of Done
+- [ ] `/players/{id}/profile` endpoint + test (200/404)
+- [ ] Modal opens from any box row, closes 3 ways, one-at-a-time
+- [ ] Season averages + ratings + this-game line + player-filtered PBP render; loading/error/404 handled
+- [ ] Vitest + backend suite green; `npm run build` clean
+- [ ] UAT signed off
+
+## Decisions (locked 2026-07-24)
+Curated ratings + `overall`; include the this-game line; DNP rows clickable; ratings as bars;
+**player PBP added** (filter the game's events by involvement id).
+
+## Future considerations (roadmap, NOT this pass — revisit later)
+- Real per-game game logs / "last N games" (needs `/players/{id}/history` implemented + `PlayerGameLog`
+  coverage beyond the current 2 seasons).
+- Cross-season / career view.
+- Attribute editing / what-if overrides.

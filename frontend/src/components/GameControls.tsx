@@ -17,7 +17,10 @@ interface Props {
   onSimulate: () => void;
 }
 
-const PRESETS = ["drama-m3", "drama-m3-season", "baseline"];
+// drama-m3-season (per-game availability) is a SEASON-path config — it sits players and the
+// single-game API returns only the active ones, so a named matchup would show missing rows
+// with no DNP. Single games dress everyone; availability belongs to the future season UI.
+const PRESETS = ["drama-m3", "baseline"];
 
 export default function GameControls(p: Props) {
   const teamOpts = p.teams.map((t) => (

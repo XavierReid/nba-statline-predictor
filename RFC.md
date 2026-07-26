@@ -1108,7 +1108,6 @@ After all five M3 groups are built and individually checked, run a final 1000-ga
 - [ ] 1000-game calibration run documented
 - [ ] All calibration targets met or gap explained
 - [ ] `RUNBOOK.md` updated with M3 modifier table and new calibration results
-- [ ] `CONTEXT_PRIMER.md` updated
 - [ ] Committed
 
 #### Post-M3 Calibration Diagnostic Arc (2026-07-07 → 2026-07-08) — COMPLETE

@@ -375,7 +375,7 @@ def seed_player_attributes(db: Session, season: str) -> int:
     from app.services.rating_engine import (
         compute_ratings_for_attribute, compute_tendencies,
         apply_overrides, position_defaults, compute_overall, SKILL_CONFIGS,
-        derive_box_score_defense,
+        derive_box_score_defense, compute_ball_handle_ratings,
     )
 
     all_stats = db.execute(
@@ -440,12 +440,19 @@ def seed_player_attributes(db: Session, season: str) -> int:
         prev_poss, prev_mins = team_totals.get(s.team_id, (0.0, 0.0))
         team_totals[s.team_id] = (prev_poss + poss, prev_mins + mins)
 
+    # Attribute v3 — ball_handle derivation. Needs team_totals for the usage_rate
+    # fallback path (when NBA-provided usg_pct is missing). Ineligible players
+    # (below the volume gates in _ball_handle_signals) are absent from the return
+    # dict; the position_defaults() merge below fills their ball_handle.
+    ratings_by_attr["ball_handle"] = compute_ball_handle_ratings(all_stats, team_totals)
+
     count = 0
+    all_derived = derived_attributes + ["ball_handle"]
     for stats in all_stats:
         pid = stats.player_id
         attr_vals = {
             attr: ratings_by_attr[attr][pid]
-            for attr in derived_attributes
+            for attr in all_derived
             if pid in ratings_by_attr[attr]
         }
 

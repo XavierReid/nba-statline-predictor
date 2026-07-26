@@ -7,12 +7,12 @@ This module is the single translation layer from observations ("what
 happened", PlayerSeasonStats) into simulation abilities ("how good is this
 player", PlayerAttributes). Since Attribute Derivation v2 most attributes are
 data-derived, including interior finishing (shot-location zones) and
-individual defense (defensive-matchup plus-minus). Only physical estimates
-(speed, strength, ball_handle, ...) remain position-adjusted defaults.
+individual defense (defensive-matchup plus-minus). Since Attribute v3
+`ball_handle` is derived too (usage + assist economy). Only pure physical
+estimates (speed, strength, acceleration, ...) remain position-adjusted defaults.
 """
 from dataclasses import dataclass
 from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Percentile -> rating curve
@@ -155,9 +155,11 @@ _OVERALL_GROUPS = [
     (["passing"],                                0.12, 0.12, 0.15),
     (["steal", "block"],                         0.18, 0.15, 0.12),
     (["offensive_rebound", "defensive_rebound"], 0.35, 0.20, 0.08),
-    # --- derived since Attribute v2 (shot-location + defensive-matchup data);
-    # ball_handle remains position-estimated ---
+    # --- derived since Attribute v2 (shot-location + defensive-matchup data) ---
     (["close_shot", "layup", "dunk"],            0.15, 0.12, 0.05),
+    # ball_handle: derived from usage + assists + turnover economy (Attribute v3).
+    # Below the eligibility gates in `_ball_handle_signals`, callers fall back to
+    # position_defaults() — same behavior as the v2 shot-location attributes.
     (["ball_handle"],                            0.03, 0.08, 0.17),
     (["perimeter_defense"],                      0.00, 0.08, 0.10),
     (["interior_defense"],                       0.05, 0.05, 0.05),
@@ -318,6 +320,110 @@ def _raw_passing(stats) -> Optional[float]:
     if not stats.assists:
         return None
     return stats.assists * min(1.0, (stats.games_played or 0) / 50)
+
+
+# ---------------------------------------------------------------------------
+# Ball-handle composite (Attribute v3)
+# ---------------------------------------------------------------------------
+# Three real signals per player-season, combined and percentile-mapped within
+# the eligible pool (RFC.md "Handle Rating derivation"):
+#   trust with ball  -> usage_rate       (weight 0.40)
+#   creation         -> assists_shrunken (weight 0.40, shrunken like _raw_passing)
+#   economy          -> 1 - tov_rate     (weight 0.20; lower TOV -> higher score)
+# Each signal is min-max normalized within the pool before combining so the very
+# different raw scales (usage% ~0.10-0.35, assists 100-800, tov_rate 0.08-0.20)
+# don't let one dimension dominate. `ball_handle` is display-only today (not
+# consumed by possession.py) — this is a rating fidelity change, not a sim
+# behavior change.
+_BALL_HANDLE_WEIGHTS = (0.40, 0.40, 0.20)
+_BALL_HANDLE_MIN_GAMES = 20
+_BALL_HANDLE_MIN_MINUTES = 15.0
+_BALL_HANDLE_MIN_USAGE = 0.10   # filter pure spot-up shooters / rim-runners
+
+
+def _ball_handle_signals(stats, team_totals: Optional[dict]) -> Optional[tuple]:
+    """Return (usage_rate, assists_shrunken, turnover_rate) for one player-season,
+    or None if the player doesn't clear the eligibility gates.
+
+    Usage/TOV computations mirror `compute_tendencies` so the two numbers used
+    for display (PlayerTendencies) and for the handle derivation stay consistent.
+    """
+    if (stats.games_played or 0) < _BALL_HANDLE_MIN_GAMES:
+        return None
+    if (stats.minutes_per_game or 0) < _BALL_HANDLE_MIN_MINUTES:
+        return None
+
+    fga = stats.fga or 0
+    fta = stats.fta or 0
+    tov = stats.turnovers or 0
+    minutes = stats.minutes_per_game or 1
+    player_possessions = fga + 0.44 * fta + tov
+    if player_possessions <= 0:
+        return None
+
+    if getattr(stats, "usg_pct", None) is not None:
+        usage_rate = stats.usg_pct
+    elif team_totals and stats.team_id in team_totals:
+        gp = stats.games_played or 1
+        team_poss_season, team_min_season = team_totals[stats.team_id]
+        player_poss_season = player_possessions * gp
+        player_min_season = minutes * gp
+        usage_rate = (player_poss_season * (team_min_season / 5)) / max(
+            player_min_season * team_poss_season, 1)
+    else:
+        return None
+
+    if usage_rate is None or usage_rate < _BALL_HANDLE_MIN_USAGE:
+        return None
+
+    if not stats.assists:
+        return None
+    assists_shrunken = stats.assists * min(1.0, (stats.games_played or 0) / 50)
+
+    turnover_rate = tov / player_possessions   # matches compute_tendencies
+
+    return (usage_rate, assists_shrunken, turnover_rate)
+
+
+def compute_ball_handle_ratings(all_stats: list, team_totals: Optional[dict] = None) -> dict:
+    """Return {player_id: 0-99 rating} for players eligible for a derived handle
+    score. Ineligible players are omitted so callers can fall back to
+    `position_defaults()["ball_handle"]` (the pre-v3 behavior for those players).
+    """
+    scored: list = []
+    for stats in all_stats:
+        signals = _ball_handle_signals(stats, team_totals)
+        if signals is not None:
+            scored.append((stats.player_id, signals))
+
+    if not scored:
+        return {}
+
+    usage_vals = [s[1][0] for s in scored]
+    assists_vals = [s[1][1] for s in scored]
+    tov_vals = [s[1][2] for s in scored]
+
+    def _norm(x: float, xs: list) -> float:
+        lo, hi = min(xs), max(xs)
+        return 0.5 if hi <= lo else (x - lo) / (hi - lo)
+
+    w_u, w_a, w_t = _BALL_HANDLE_WEIGHTS
+    composites: list = []
+    for pid, (u, a, t) in scored:
+        score = (
+            w_u * _norm(u, usage_vals)
+            + w_a * _norm(a, assists_vals)
+            + w_t * (1.0 - _norm(t, tov_vals))
+        )
+        composites.append((pid, score))
+
+    all_scores = [c[1] for c in composites]
+    ratings: dict = {}
+    for pid, score in composites:
+        rank = sum(1 for s in all_scores if s < score)
+        percentile = (rank / len(all_scores)) * 100
+        ratings[pid] = percentile_to_rating(percentile)
+    return ratings
 
 
 # ---------------------------------------------------------------------------

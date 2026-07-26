@@ -6,11 +6,11 @@ Tests four archetypes:
 - High-assist guard (Jokic/CP3-like)
 - Low-minute bench player
 """
-import pytest
 from app.services.rating_engine import (
+    SKILL_CONFIGS,
+    compute_ball_handle_ratings,
     compute_ratings_for_attribute,
     percentile_to_rating,
-    SKILL_CONFIGS,
 )
 
 
@@ -85,3 +85,85 @@ def test_players_below_attempt_minimum_get_default():
     all_stats = [shooter]
     ratings = compute_ratings_for_attribute("three_point", all_stats, SKILL_CONFIGS["three_point"])
     assert ratings[1] == 40
+
+
+# ---------------------------------------------------------------------------
+# ball_handle derivation (Attribute v3)
+# ---------------------------------------------------------------------------
+
+
+def _handle_stats(pid, usg=0.20, assists=5.0, tov=2.0, fga=12.0, fta=4.0,
+                  games=70, mpg=32.0):
+    """FakeStats configured for handle-rating tests. `usg` sets usg_pct directly
+    so the derivation short-circuits the team_totals fallback."""
+    s = FakeStats(pid, games_played=games, minutes_per_game=mpg,
+                  fga=fga, fta=fta, assists=assists, turnovers=tov)
+    s.usg_pct = usg
+    return s
+
+
+def test_ball_handle_monotonic_in_usage():
+    low = _handle_stats(1, usg=0.14, assists=5.0, tov=2.0)
+    mid = _handle_stats(2, usg=0.22, assists=5.0, tov=2.0)
+    hi  = _handle_stats(3, usg=0.30, assists=5.0, tov=2.0)
+    ratings = compute_ball_handle_ratings([low, mid, hi], team_totals={})
+    assert ratings[3] > ratings[2] > ratings[1]
+
+
+def test_ball_handle_monotonic_in_assists():
+    low = _handle_stats(1, usg=0.22, assists=2.0, tov=2.0)
+    mid = _handle_stats(2, usg=0.22, assists=5.0, tov=2.0)
+    hi  = _handle_stats(3, usg=0.22, assists=9.0, tov=2.0)
+    ratings = compute_ball_handle_ratings([low, mid, hi], team_totals={})
+    assert ratings[3] > ratings[2] > ratings[1]
+
+
+def test_ball_handle_monotonic_in_turnover_economy():
+    # Lower TOV rate should score HIGHER (more economy). fga/fta held constant
+    # so tov_per_poss = tov / (fga + 0.44*fta + tov) moves monotonically with tov.
+    hi_tov  = _handle_stats(1, usg=0.22, assists=5.0, tov=4.0)
+    mid_tov = _handle_stats(2, usg=0.22, assists=5.0, tov=2.5)
+    lo_tov  = _handle_stats(3, usg=0.22, assists=5.0, tov=1.5)
+    ratings = compute_ball_handle_ratings([hi_tov, mid_tov, lo_tov], team_totals={})
+    assert ratings[3] > ratings[2] > ratings[1]
+
+
+def test_ball_handle_star_guard_scores_higher_than_bench_role():
+    # Realistic guard vs role player: usage + assists both dominate.
+    star = _handle_stats(1, usg=0.30, assists=8.0, tov=2.8)
+    role = _handle_stats(2, usg=0.13, assists=1.5, tov=0.6)
+    filler = _handle_stats(3, usg=0.20, assists=3.0, tov=1.5)  # widen the pool
+    ratings = compute_ball_handle_ratings([star, role, filler], team_totals={})
+    assert ratings[1] > ratings[2]
+
+
+def test_ball_handle_below_games_gate_is_excluded():
+    # Below 20-game minimum → falls through to position_defaults (caller's job).
+    partial = _handle_stats(1, games=15)
+    starter = _handle_stats(2, games=70)
+    ratings = compute_ball_handle_ratings([partial, starter], team_totals={})
+    assert 1 not in ratings
+    assert 2 in ratings
+
+
+def test_ball_handle_below_minutes_gate_is_excluded():
+    bench = _handle_stats(1, mpg=8.0)
+    starter = _handle_stats(2, mpg=32.0)
+    ratings = compute_ball_handle_ratings([bench, starter], team_totals={})
+    assert 1 not in ratings
+    assert 2 in ratings
+
+
+def test_ball_handle_below_usage_gate_is_excluded():
+    # Pure spot-up shooter with 9% usage — not a testable handle signal.
+    spot_up = _handle_stats(1, usg=0.09, assists=1.0)
+    on_ball = _handle_stats(2, usg=0.22, assists=5.0)
+    ratings = compute_ball_handle_ratings([spot_up, on_ball], team_totals={})
+    assert 1 not in ratings
+    assert 2 in ratings
+
+
+def test_ball_handle_empty_pool_returns_empty_dict():
+    partial = _handle_stats(1, games=10)  # ineligible
+    ratings = compute_ball_handle_ratings([partial], team_totals={})
+    assert ratings == {}

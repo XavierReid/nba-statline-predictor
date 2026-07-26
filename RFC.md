@@ -1482,3 +1482,102 @@ Every event shares a header:
 - **Real-NBA PBP export/compare** — granular typed events make a comparator against ingested NBA PBP feeds tractable.
 - **Advanced stats derived from events** — usage on true FGA, foul-drawn rate on real shots, TS% on honest denominator, etc. Lands cleanly on top of the event stream; the honest-denominator finding from PR #8 becomes actionable here.
 - **Per-player timeline UI** — event ribbon in `PlayerModal`.
+
+
+# RFC: Handle Rating derivation (Attribute v3, Phase 3)
+
+**Status:** approved to build (2026-07-25). Priority #3 per project-next-session-focus. Follows PR #9 (event-sourced PBP); `ball_handle` is the last position-default attribute contributing meaningful weight to `overall_rating` for guards (0.17 for G) — replacing it makes the modal's Handle bar honest and shifts Overall for star ball-handlers versus rim-runners.
+
+## Overview
+Replace the position-default `ball_handle` (60 G / 45 F / 40 C for every player at that position) with a value derived from three real signals per player-season: **trust with the ball** (`usage_rate`), **creation** (`assists`, shrunken by games played), and **economy** (`turnover_rate`). Combines like the other v2 derived attributes: raw composite → within-pool percentile via `_percentile_ratings` → 0–100. Below a minimum-volume threshold, falls back to `position_defaults()`.
+
+## Goals
+- Replace the least-real rating with a defensible per-player derivation.
+- Move `overall_rating` for star ball-handlers (guards with real handle rep — Shai / Luka / Trae) up vs. spot-up shooters and rim-runners.
+- Zero sim impact. `ball_handle` is display-only today (not consumed by `possession.py` — verified). No fence to preserve. No behavior invariance to worry about.
+- Match the existing `rating_engine` pattern exactly so this becomes a one-entry addition, not a new subsystem.
+
+## Non-sim invariant
+This RFC does not touch `possession.py`, `resolve_possession`, or any code inside the possession chain. `ball_handle` remains display-only. If a future feature wants to use handle inside a possession, it becomes a `PlayerTendencies` addition, not this attribute.
+
+## Formula
+
+For each qualifying player-season, compute a raw composite:
+
+```
+raw = 0.40 * norm(usage_rate)
+    + 0.40 * norm(assists_shrunken)
+    + 0.20 * (1 - norm(turnover_rate))
+```
+
+- `norm(x)` = min-max scaled within the qualifying pool.
+- `assists_shrunken` = `stats.assists * min(1.0, games_played / 50)` — same pattern as `_raw_passing`; prevents a 20-game partial-season star from being over-weighted.
+- The `(1 - ...)` on `turnover_rate` inverts so **lower TOV → higher handle score**.
+
+Weights (0.4 / 0.4 / 0.2) chosen from basketball reasoning, not tuned:
+- **Usage** (0.4) — a player the offense trusts with the ball a lot has to be able to handle it.
+- **Assists** (0.4) — creating for others is a direct handle signal (dribble → decision → pass).
+- **Turnover economy** (0.2) — a tiebreaker; even elite handlers turn it over, so this shouldn't dominate the composite.
+
+Raw composites go through `_percentile_ratings(scored)` → 0–100 rating (identical to how `passing`, `steal`, `block`, etc. get their final rating).
+
+## Volume threshold (fallback pool)
+
+A player-season enters the qualifying pool if all three hold:
+- `games_played >= 20` (matches `SkillMetricConfig` default)
+- `minutes_per_game >= 15.0` (matches `SkillMetricConfig` default)
+- `usage_rate >= 0.10` — filters pure spot-up shooters / rim-runners whose "handle" is untestable
+
+Below any of these thresholds → `_raw_ball_handle` returns None → `seed_player_attributes` falls back to `position_defaults()["ball_handle"]` (unchanged behavior for that player). This preserves today's floor for bench players / short-season rookies.
+
+## Where it lives
+
+- New `_raw_ball_handle(stats, tendencies)` in `app/services/rating_engine.py` alongside `_raw_passing`.
+- Add `"ball_handle": SkillMetricConfig(volume_normalizer=..., minimum_attempts=...)` to `SKILL_CONFIGS` — TBD whether `volume_normalizer` is even meaningful for a composite; may end up as an unused knob and the threshold logic lives inside `_raw_ball_handle` instead.
+- Register `_raw_ball_handle` in the derivation dispatch dict (same as `"passing": _raw_passing` at line 402).
+- Remove `"ball_handle"` from `_ESTIMATED_ATTRIBUTES` at [rating_engine.py:125](app/services/rating_engine.py:125) so `_OVERALL_GROUPS` treats it as derived, not estimated. The Overall weights (0.03 C / 0.08 F / 0.17 G) at line 161 stay identical — only the underlying value changes.
+
+## Timing
+
+Derivation runs at ingestion, once per season, inside `seed_player_attributes` at [jobs.py:372](app/ingestion/jobs.py:372). Same pattern as every other derived attribute. Writes to `PlayerAttributes.ball_handle` and cascades into `PlayerAttributes.overall_rating` via `compute_overall`.
+
+## Re-seed plan
+
+After the code lands, re-run `seed_player_attributes(db, season)` for all 9 ingested seasons (1996–97, 2000–01, 2005–06, 2013–14, 2016–17, 2019–20, 2020–21, 2024–25, 2025–26). Each takes a couple minutes. Every `PlayerAttributes` row for a qualifying player-season updates: new `ball_handle` value + new `overall_rating`.
+
+## Testing
+
+- **Unit** (`tests/test_rating_engine.py` extension):
+  - `_raw_ball_handle` returns None for a low-volume synthetic player (< 20 games).
+  - `_raw_ball_handle` returns None for a low-usage synthetic player (usage_rate < 0.10).
+  - Higher usage, holding assists and TOV constant → higher raw composite (monotonicity).
+  - Higher assists (shrunken), holding usage and TOV → higher raw.
+  - Lower TOV, holding usage and assists → higher raw.
+- **Regression** (`tests/test_handle_rating_regression.py` — new):
+  - Seed a small fixture of 3 real player-seasons per position (star G / star F / star C / low-usage bench of each) from 2024–25. Assert direction:
+    - Star G ball_handle > star C ball_handle
+    - Star G overall_rating > position-default baseline (unchanged if handle is now derived and higher)
+    - Bench player falls back to position default (byte-identical to pre-change value)
+- **Full pytest suite** must stay green — no sim tests should move because `ball_handle` is not consumed by `possession.py`.
+- **UAT** — click the modal for a mix of star G / star C / bench player across 2024–25 and 2005–06; confirm the Handle bar and Overall bar match expectations. Scenarios drafted in `UAT_PR10.md` (or wherever; see delete-after-merge precedent from PR #9).
+
+## Definition of Done
+- [ ] `_raw_ball_handle` implemented + registered in dispatch dict
+- [ ] `"ball_handle"` moved from `_ESTIMATED_ATTRIBUTES` to derived
+- [ ] Unit tests: 5 monotonicity / threshold cases green
+- [ ] Regression test: known-player direction assertions green
+- [ ] Full pytest suite green (no sim tests should move)
+- [ ] All 9 seasons re-seeded; spot-check output for 5 known players per season
+- [ ] Frontend Vitest + `npm run build` clean (schema unchanged; visual UAT only)
+- [ ] Browser UAT signed off — Handle + Overall bars look right for star G / star C / bench
+
+## Decisions (locked 2026-07-25)
+- **Weighted composite** of usage / assists-shrunken / (1 − turnover_rate) at 0.4 / 0.4 / 0.2. Curved via existing `_percentile_ratings`.
+- **Position-default fallback** below the qualifying-pool thresholds (games 20 / mpg 15 / usage 10%).
+- **Ingestion-time seeding** (once per season), matching every other derived attribute.
+- **Re-seed all 9 ingested seasons** after landing so historical modals reflect the new rating.
+
+## Future considerations (banked, NOT this pass)
+- **Weight tuning** — 0.4/0.4/0.2 are basketball-reasoned, not fit. If the UAT surfaces cases that read wrong, revisit with a small calibration pass against real Handle proxies (2K ratings? assist-to-turnover ratio percentile?).
+- **Overall recompute-on-read** — the current design writes `overall_rating` at seed time. If future work adds many more derived attributes, moving overall to a read-time computation avoids stale re-seeds. Not this pass.
+- **Handle as a `PlayerTendencies` field for the sim** — if a future feature wants handle to affect possession outcomes (e.g. steal probability against low-handle ball-handlers), it becomes a new tendency, NOT a repurposing of this display attribute. Preserves the display / behavior separation.

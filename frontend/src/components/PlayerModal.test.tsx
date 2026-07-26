@@ -84,7 +84,8 @@ describe("PlayerModal", () => {
   it("renders season averages and ratings once the profile loads", async () => {
     render(<PlayerModal line={line()} season="2025-26" events={events} onClose={() => {}} />);
     expect(await screen.findByText("24.5")).toBeInTheDocument(); // season PTS
-    expect(screen.getByText("Overall")).toBeInTheDocument();
+    // Ratings section heading is unique (season averages section has its own header).
+    expect(screen.getByText("Ratings")).toBeInTheDocument();
   });
 
   it("closes on overlay click", () => {

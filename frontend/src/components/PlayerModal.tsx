@@ -63,9 +63,13 @@ function pct(x: number | null): string {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
 }
 
+// Only ratings actually consumed by the possession engine are surfaced. `overall`,
+// `ball_handle`, and `clutch` are display-only in the current model (grep-verified
+// against possession.py) and read wrong for stars vs role players — hidden until
+// their derivation is revamped.
 const RATING_ORDER = [
-  "overall", "three_point", "mid_range", "layup", "passing", "ball_handle",
-  "perimeter_defense", "interior_defense", "offensive_rebound", "defensive_rebound", "clutch",
+  "three_point", "mid_range", "layup", "passing",
+  "perimeter_defense", "interior_defense", "offensive_rebound", "defensive_rebound",
 ];
 const RATING_LABEL: Record<string, string> = {
   overall: "Overall", three_point: "3PT", mid_range: "Mid", layup: "Finishing",

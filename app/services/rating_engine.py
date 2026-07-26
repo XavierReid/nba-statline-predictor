@@ -385,44 +385,94 @@ def _ball_handle_signals(stats, team_totals: Optional[dict]) -> Optional[tuple]:
     return (usage_rate, assists_shrunken, turnover_rate)
 
 
-def compute_ball_handle_ratings(all_stats: list, team_totals: Optional[dict] = None) -> dict:
-    """Return {player_id: 0-99 rating} for players eligible for a derived handle
-    score. Ineligible players are omitted so callers can fall back to
-    `position_defaults()["ball_handle"]` (the pre-v3 behavior for those players).
+def _handle_composite(scored: list) -> list:
+    """[(pid, (u, a, t))] -> [(pid, composite)] using min-max within this pool."""
+    if not scored:
+        return []
+    usage_vals = [s[1][0] for s in scored]
+    assists_vals = [s[1][1] for s in scored]
+    tov_vals = [s[1][2] for s in scored]
+
+    def _norm(x, xs):
+        lo, hi = min(xs), max(xs)
+        return 0.5 if hi <= lo else (x - lo) / (hi - lo)
+
+    w_u, w_a, w_t = _BALL_HANDLE_WEIGHTS
+    return [(pid, w_u * _norm(u, usage_vals) + w_a * _norm(a, assists_vals)
+             + w_t * (1.0 - _norm(t, tov_vals)))
+            for pid, (u, a, t) in scored]
+
+
+def _pool_percentile_to_rating(composites: list) -> dict:
+    if not composites:
+        return {}
+    scores = [c[1] for c in composites]
+    return {pid: percentile_to_rating(sum(1 for s in scores if s < score) / len(scores) * 100)
+            for pid, score in composites}
+
+
+def _primary_position(pos: Optional[str]) -> Optional[str]:
+    if not pos:
+        return None
+    key = pos.upper().split("-")[0]
+    return key if key in ("G", "F", "C") else None
+
+
+# Position ceilings on handle. Percentile within pool still ranks players; the
+# ceiling compresses [40, 99] -> [40, cap] so a top-of-pool center doesn't hit 99.
+# Anchored to real 2K-style ranges: elite G 93-99, elite F 85-92, elite C 80-85.
+_HANDLE_POSITION_CEILING = {"G": 99, "F": 92, "C": 85}
+# Below this pool size percentiles are meaningless — those players get merged into
+# the position-blind pool (uncapped). Guards old-era seasons where Player.position
+# is null for most rows.
+_HANDLE_MIN_POOL_SIZE = 10
+
+
+def compute_ball_handle_ratings(
+    all_stats: list,
+    team_totals: Optional[dict] = None,
+    positions_by_pid: Optional[dict] = None,
+) -> dict:
+    """Handle ratings for eligible players. Absent pids fall through to position defaults.
+
+    With `positions_by_pid`: pool split by primary position (G/F/C) and each pool's
+    top compressed to a position-specific ceiling — so Jokic (top of C) reads ~85,
+    SGA (top of G) reads ~99, matching real basketball / 2K-style priors.
+    Without positions: single global pool, uncapped (preserved for existing tests).
     """
     scored: list = []
     for stats in all_stats:
         signals = _ball_handle_signals(stats, team_totals)
         if signals is not None:
             scored.append((stats.player_id, signals))
-
     if not scored:
         return {}
 
-    usage_vals = [s[1][0] for s in scored]
-    assists_vals = [s[1][1] for s in scored]
-    tov_vals = [s[1][2] for s in scored]
+    if positions_by_pid is None:
+        return _pool_percentile_to_rating(_handle_composite(scored))
 
-    def _norm(x: float, xs: list) -> float:
-        lo, hi = min(xs), max(xs)
-        return 0.5 if hi <= lo else (x - lo) / (hi - lo)
+    pools: dict = {"G": [], "F": [], "C": [], None: []}
+    for pid, sig in scored:
+        pools[_primary_position(positions_by_pid.get(pid))].append((pid, sig))
 
-    w_u, w_a, w_t = _BALL_HANDLE_WEIGHTS
-    composites: list = []
-    for pid, (u, a, t) in scored:
-        score = (
-            w_u * _norm(u, usage_vals)
-            + w_a * _norm(a, assists_vals)
-            + w_t * (1.0 - _norm(t, tov_vals))
-        )
-        composites.append((pid, score))
+    # Small pools (e.g. old-era seasons where Player.position is null for most
+    # players) produce degenerate percentiles — merge them into the position-blind
+    # pool so those players still get a meaningful rating (uncapped, matches the
+    # no-positions path).
+    for pos in ("G", "F", "C"):
+        if len(pools[pos]) < _HANDLE_MIN_POOL_SIZE:
+            pools[None].extend(pools[pos])
+            pools[pos] = []
 
-    all_scores = [c[1] for c in composites]
     ratings: dict = {}
-    for pid, score in composites:
-        rank = sum(1 for s in all_scores if s < score)
-        percentile = (rank / len(all_scores)) * 100
-        ratings[pid] = percentile_to_rating(percentile)
+    for pos, pool in pools.items():
+        pool_ratings = _pool_percentile_to_rating(_handle_composite(pool))
+        cap = _HANDLE_POSITION_CEILING.get(pos, 99)
+        if cap < 99:
+            span = cap - 40
+            pool_ratings = {pid: (round(40 + (r - 40) * span / 59) if r > 40 else r)
+                            for pid, r in pool_ratings.items()}
+        ratings.update(pool_ratings)
     return ratings
 
 

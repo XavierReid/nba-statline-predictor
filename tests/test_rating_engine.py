@@ -167,3 +167,46 @@ def test_ball_handle_empty_pool_returns_empty_dict():
     partial = _handle_stats(1, games=10)  # ineligible
     ratings = compute_ball_handle_ratings([partial], team_totals={})
     assert ratings == {}
+
+
+def test_ball_handle_per_position_ceilings_isolate_c_from_g():
+    # Top-of-pool center caps at 85, top-of-pool guard at 99. Pools sized above
+    # the _HANDLE_MIN_POOL_SIZE threshold so per-position pooling actually applies.
+    guards = [_handle_stats(i, usg=0.14 + i*0.015, assists=1 + i*0.6, tov=2.0)
+              for i in range(1, 13)]
+    centers = [_handle_stats(100 + i, usg=0.14 + i*0.015, assists=1 + i*0.6, tov=2.0)
+               for i in range(1, 13)]
+    positions = {p.player_id: "G" for p in guards}
+    positions.update({p.player_id: "C" for p in centers})
+    ratings = compute_ball_handle_ratings(
+        guards + centers, team_totals={}, positions_by_pid=positions,
+    )
+    top_g = max(guards, key=lambda p: p.player_id).player_id
+    top_c = max(centers, key=lambda p: p.player_id).player_id
+    assert ratings[top_g] > ratings[top_c]   # the key invariant Xavier flagged
+    assert ratings[top_c] <= 85              # C ceiling
+    assert ratings[top_g] <= 99
+
+
+def test_ball_handle_small_position_pool_falls_through_to_uncapped():
+    # Old-era seasons have Player.position null for most players → tiny per-position
+    # pools produce degenerate percentiles. Merge into position-blind pool (uncapped).
+    solo_c = _handle_stats(1, usg=0.30, assists=8.0, tov=2.5)  # only C
+    rest = [_handle_stats(10 + i, usg=0.14 + i*0.015, assists=1 + i*0.6, tov=2.0)
+            for i in range(1, 13)]  # positionless pool
+    positions = {solo_c.player_id: "C"}   # rest are None
+    ratings = compute_ball_handle_ratings(
+        [solo_c] + rest, team_totals={}, positions_by_pid=positions,
+    )
+    # solo_c should get a real percentile among the merged pool, not the 40 floor
+    # they'd get from being alone in the C pool with rank 0.
+    assert ratings[solo_c.player_id] > 40
+
+
+def test_ball_handle_no_positions_uses_single_pool_uncapped():
+    # Back-compat: without positions_by_pid, no ceilings apply.
+    stats = [_handle_stats(i, usg=0.14 + i*0.02, assists=1 + i*0.7, tov=2.0)
+             for i in range(1, 10)]
+    ratings = compute_ball_handle_ratings(stats, team_totals={})
+    top = max(stats, key=lambda p: p.player_id).player_id
+    assert ratings[top] > 85   # would have been capped under per-position path

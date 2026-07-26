@@ -440,11 +440,16 @@ def seed_player_attributes(db: Session, season: str) -> int:
         prev_poss, prev_mins = team_totals.get(s.team_id, (0.0, 0.0))
         team_totals[s.team_id] = (prev_poss + poss, prev_mins + mins)
 
-    # Attribute v3 — ball_handle derivation. Needs team_totals for the usage_rate
-    # fallback path (when NBA-provided usg_pct is missing). Ineligible players
-    # (below the volume gates in _ball_handle_signals) are absent from the return
-    # dict; the position_defaults() merge below fills their ball_handle.
-    ratings_by_attr["ball_handle"] = compute_ball_handle_ratings(all_stats, team_totals)
+    # Attribute v3 ball_handle — percentile pool split by primary position so a
+    # top-of-pool center ranks vs centers, not vs guards. Ineligible players are
+    # absent from the return; the pos_defaults merge below fills them.
+    positions_by_pid = {
+        p.id: p.position
+        for p in db.execute(select(Player)).scalars().all()
+    }
+    ratings_by_attr["ball_handle"] = compute_ball_handle_ratings(
+        all_stats, team_totals, positions_by_pid=positions_by_pid,
+    )
 
     count = 0
     all_derived = derived_attributes + ["ball_handle"]

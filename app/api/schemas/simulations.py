@@ -174,6 +174,10 @@ class SimEvent(BaseModel):
     # a filtered view (e.g. a modal filtered to the assister or blocker).
     shot_by: Optional[int] = None
 
+    # STL — reference back to the parent TOV so a STL can stand alone in the
+    # stealer's modal PBP as "X steals from Y".
+    stolen_from: Optional[int] = None
+
     # FOUL — set when a strategic (intentional) foul was committed.
     intentional: Optional[bool] = None
 

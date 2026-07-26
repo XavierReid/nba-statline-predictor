@@ -68,7 +68,12 @@ def possession_to_events(
     if result.get("turnover_by"):
         events: List[dict] = [_event("TOV", result["turnover_by"], header)]
         if result.get("steal_by"):
-            events.append(_event("STL", result["steal_by"], header))
+            # `stolen_from` mirrors AST/BLK's `shot_by`: gives the STL event enough
+            # context to stand alone in the stealer's modal PBP as "X steals from Y".
+            events.append(_event(
+                "STL", result["steal_by"], header,
+                stolen_from=result["turnover_by"],
+            ))
         # Offensive foul: fouled_by == turnover_by (same player charged both)
         if result.get("fouled_by") is not None and result.get("fouled_by") == result.get("turnover_by"):
             events.append(_event(
@@ -269,7 +274,11 @@ def _describe_tov(ev: dict, name_map: dict) -> str:
 
 
 def _describe_stl(ev: dict, name_map: dict) -> str:
-    return f"{_name(name_map, ev.get('player_id'))} steal"
+    stealer = _name(name_map, ev.get("player_id"))
+    stolen_from = ev.get("stolen_from")
+    if stolen_from is None:
+        return f"{stealer} steal"
+    return f"{stealer} steals from {_name(name_map, stolen_from)}"
 
 
 def _describe_blk(ev: dict, name_map: dict) -> str:

@@ -80,6 +80,9 @@ export interface SimEvent {
   // AST / BLK — reference back to the parent SHOT so an event can stand alone
   // in a filtered view (e.g. a modal filtered to the assister/blocker).
   shot_by?: number | null;
+
+  // STL — reference back to the parent TOV.
+  stolen_from?: number | null;
 }
 
 // Back-compat alias for existing imports.

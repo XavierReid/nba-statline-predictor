@@ -64,12 +64,12 @@ function collate(events: SimEvent[]): { rows: SimEvent[]; suffix: Record<number,
 }
 
 // Descriptions come from describe_typed_event. Pull the leading player name for
-// inline collation. Matches both the legacy shape ("P assist" / "P blocks the
-// shot") and the enriched form ("P assists Q's mid-range jumper" / "P blocks
-// Q's layup"), plus the STL form ("P steal").
+// inline collation. Matches both the legacy shapes ("P assist" / "P blocks the
+// shot" / "P steal") and the enriched forms ("P assists Q's mid-range jumper" /
+// "P blocks Q's layup" / "P steals from Q").
 function extractName(desc: string | null | undefined): string | null {
   if (!desc) return null;
-  const m = desc.match(/^(.+?) (assists?|blocks?|steal)\b/);
+  const m = desc.match(/^(.+?) (assists?|blocks?|steals?)\b/);
   return m ? m[1] : null;
 }
 

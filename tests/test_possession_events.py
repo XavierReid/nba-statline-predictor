@@ -171,6 +171,8 @@ def test_turnover_with_steal():
     events = possession_to_events(r, **HEADER)
     assert [e["type"] for e in events] == ["TOV", "STL"]
     assert events[1]["player_id"] == STEALER
+    # STL carries stolen_from so it can stand alone in the stealer's modal.
+    assert events[1]["stolen_from"] == SHOOTER
 
 
 def test_offensive_foul_is_tov_plus_foul_same_player():
@@ -266,9 +268,14 @@ def test_describe_reb_dreb_and_oreb():
     assert describe_typed_event(oreb, NAMES) == "Rebounder offensive rebound"
 
 
-def test_describe_tov_and_stl():
+def test_describe_tov_and_stl_without_context_fall_back():
     assert describe_typed_event(_typed("TOV", SHOOTER), NAMES) == "Shooter turnover"
     assert describe_typed_event(_typed("STL", STEALER), NAMES) == "Stealer steal"
+
+
+def test_describe_stl_with_stolen_from_names_the_victim():
+    ev = _typed("STL", STEALER, stolen_from=SHOOTER)
+    assert describe_typed_event(ev, NAMES) == "Stealer steals from Shooter"
 
 
 def test_describe_ast_with_shot_by_names_the_shooter():

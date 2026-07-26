@@ -67,8 +67,9 @@ The strategic-foul fouler's PF is **not** credited to their box score. In real N
 - Search box on the main PBP for descriptions (`"Shai"`, `"intentional foul"`, etc.).
 - Chip toggles on the main PBP (same tag row as PlayerModal, per event type not per player).
 - Running per-player stat inline in the modal PBP (`"Shai makes free throw 1 of 2 [PTS 15]"`).
+- **TOV subtypes** (from second-pass UAT): sample bad-pass / step-out / shot-clock violation / etc. in `resolve_possession` and surface them in the PBP as `"P turnover (bad pass)"`. Simulation modeling change, not display polish.
 
-All four are natural next-iteration features. None affect correctness of the event-sourced PBP — they extend PBP navigation UX. Own PR when they land.
+All five are natural next-iteration features. None affect correctness of the event-sourced PBP. Own PR when they land.
 
 ## Sign-off
 
@@ -77,3 +78,12 @@ All four are natural next-iteration features. None affect correctness of the eve
 - [x] Ready to merge PR #9
 
 If any fail, note the scenario # + what you saw in the PR review and I'll dig in.
+
+## Second-pass findings (2026-07-25 later)
+
+Xavier re-ran on `OKC@BOS 2025-26 seed=3` (a close 115-119 game with 2 strategic fouls). Scenarios 1–10 all pass. Two additional items surfaced:
+
+| Fix | Finding | Resolution |
+|-----|---------|------------|
+| G | STL description in the player modal reads `"Shai Gilgeous-Alexander steal"` — no context on whom he stole from. Same class of gap as Fix A (AST/BLK missing context). | STL event now carries `stolen_from` (= the turnover_by player id). `describe_typed_event` STL handler renders `"Shai steals from Payton Pritchard"`. Falls back to the old `"<Name> steal"` if `stolen_from` isn't set. Main-PBP collated form (`"Payton Pritchard turnover (Shai steals)"`) unchanged — the collation folds STL onto the parent TOV so the "from Y" repetition would be redundant. |
+| Feature (parked) | TOV subtypes — currently `"P turnover"` is opaque. Real NBA distinguishes bad pass / stepped out of bounds / shot clock violation / etc. | **NOT in this PR.** This isn't a display polish — the sim's `resolve_possession` doesn't distinguish unforced-TOV subtypes today, and adding them means sampling a distribution (with real NBA calibration data for the split) inside the possession loop. Cross-cuts modeling and would be a real behavior change. Parked as a follow-up feature alongside the earlier navigation asks. |

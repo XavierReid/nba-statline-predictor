@@ -1,126 +1,44 @@
 # CLAUDE.md — NBA Franchise Simulator
 
-Project-level instructions for Claude Code. These override default behavior where noted.
+Project-level instructions. Every-session content only. Ad-hoc reference lives in `RFC.md`, `ARCHITECTURE.md`, `RUNBOOK.md`, or the `project-next-session-focus` memory.
 
----
+## Stack
 
-## Project overview
+Possession-based NBA game sim. FastAPI + SQLAlchemy 2.0 + PostgreSQL + Docker Compose. Python **3.9** — use `Optional[X]`, `List[X]`, `Dict[K, V]` in model/schema files (not `X | None`, `list[X]`, `dict[K, V]`). Route files can use built-in generics.
 
-A possession-based NBA game simulation engine built with FastAPI + SQLAlchemy 2.0 + PostgreSQL + Docker Compose. Python 3.9 — use `Optional[X]`, not `X | None`.
+Primary files: `app/services/game_simulator.py`, `app/services/possession.py`, `app/services/box_score.py`, `app/services/possession_events.py`, `app/api/routes/`.
 
-Primary files: `app/services/game_simulator.py`, `app/services/possession.py`, `app/api/routes/`, `app/services/modifiers/`.
+Run tests: `docker compose run --rm api sh -c "pip install pytest httpx pytest-asyncio -q 2>/dev/null && python -m pytest tests/ -q 2>&1 | tail -3"`.
 
-Run tests: `docker compose run --rm api sh -c "pip install pytest httpx pytest-asyncio -q 2>/dev/null && python -m pytest tests/ -v"` (296 tests as of gap 3.4).
+## Simulation architecture guardrails (non-negotiable)
 
----
+If a feature request seems to require bypassing one, flag it and discuss first.
 
-## Simulation architecture guardrails
+1. **`overall_rating` is never a sim input.** It exists for UI/comparison only. `resolve_possession` reads underlying attributes (`three_point`, `perimeter_defense`, etc.) and tendencies (`usage_rate`, etc.).
 
-These are non-negotiable constraints that protect the causal possession chain. Do not suggest or implement shortcuts that bypass them — if a feature request seems to require one, flag it and discuss first.
+2. **Tendencies describe behavior; attributes describe execution.** `PlayerTendencies` = *what* a player does. `PlayerAttributes` = *how well*. Keep separate — high shooting ability + low three-point tendency is a valid profile.
 
-### 1. Overall ratings are never simulation inputs
+3. **Modifiers adjust probabilities, not ratings.** `GameStateModifier` returns `ModifierAdjustments` (probability deltas). Never writes to attributes. Never persists across games. Always toggled via `SimConfig`. See `app/services/modifiers/base.py`.
 
-`overall_rating` exists for UI display and roster comparison only. The game engine uses underlying attributes (`three_point`, `close_shot`, `perimeter_defense`, etc.) and tendencies (`usage_rate`, `three_point_rate`, etc.). Never use `overall_rating` in `resolve_possession`, `simulate_game`, or any modifier.
+4. **Outcomes emerge from possessions.** Never compute expected points and work backward. Flow: `context → decision → matchup → outcome → box score accumulation`.
 
-### 2. Tendencies describe behavior. Attributes describe execution.
+5. **Features affecting possession count must expose their contribution.** Season pace already contains fast breaks, second chances, late-game fouling. Predictable mechanics are compensated in the pace budget; state-dependent mechanics (strategic fouls) emerge but must report diagnostics. No feature silently adds possessions.
 
-- `PlayerTendencies` fields (usage_rate, three_point_rate, oreb_rate, etc.) control *what* a player does.
-- `PlayerAttributes` fields control *how well* they do it.
-- These must remain separate. A player can have high shooting ability (attribute) but low three-point tendency — that is a valid and distinct basketball profile.
+6. **Future systems extend the possession chain, not bypass it.** `TeamTendencies`, player archetypes, defensive assignments all plug INTO `resolve_possession`. No parallel resolution paths.
 
-### 3. Game state modifiers adjust probabilities, not ratings
+7. **Per-opportunity, not per-minute, for in-possession attributes.** Any attribute driving an in-possession event (shot make, TOV, foul draw, assist) is per-possession or per-attempt, NOT per-36 or per-game. Per-minute stats are VOLUME; treating them as intrinsic rate silently inflates high-usage players. Bug found + fixed 3 times (make-rate zones, three-point rate, `tov_per_poss`). Derive per-opportunity at roster load; anchor with league constants if needed.
 
-`GameStateModifier` implementations return `ModifierAdjustments` (shot_prob_delta, tov_prob_delta, defense_penalty_delta). They never write back to player attributes, never persist across games, and are always toggled via `SimConfig`. See `app/services/modifiers/base.py`.
+## Locked architecture facts
 
-### 4. Outcomes emerge from possessions, not projected box scores
-
-A player's stat line is the accumulated result of simulated possession events. Never compute a player's expected points and work backward. The correct flow is:
-```
-context → decision → matchup → outcome → box score accumulation
-```
-
-### 5. Features that affect possession count must expose their contribution
-
-Season pace is an average over every game state and already contains fast breaks,
-second chances, and late-game fouling. Any mechanic that shortens possessions or adds
-possession chains inflates the count beyond the pace budget unless compensated or
-measured. Predictable mechanics (fast breaks, second chances) are compensated
-analytically in the possession-time budget; state-dependent mechanics (strategic
-fouls) are left to emerge but must report diagnostics (counts, durations) so their
-contribution can be validated against real data. No feature gets to silently add
-possessions — see possession accounting in SIMULATION_GAPS.md §1.4.
-
-### 6. Future systems extend the possession chain, not bypass it
-
-- A `TeamTendencies` layer should influence action selection and tempo at the front of the possession chain.
-- Player archetypes should map to the same variance/tendency parameters currently approximated by proxies.
-- Defensive assignments should plug into the contest level input that `resolve_possession` already exposes.
-- Nothing should introduce a parallel resolution path that skips `resolve_possession`.
-
-### 7. Player attributes that drive in-possession events are PER-OPPORTUNITY, not per-minute
-
-Whenever a player attribute drives an event inside a possession (a shot make, a
-turnover, a foul drawn, an assist), its natural unit is "per opportunity" (per
-possession / per attempt), not "per 36" or "per game". Per-minute/per-game stats are
-VOLUME — they scale with how often the player is involved — and reading them as an
-intrinsic rate silently inflates high-usage players. This exact bug was found and
-fixed three times: shot make (observed zone FG% not a percentile band), three-point
-rate (real 0.0 not a fallback), and turnovers (tov_per_poss not TOV/36, gap 3.4b).
-Derive the per-opportunity form at roster load (like `ft_prob`, the zone probs,
-`tov_per_poss`); anchor the aggregate with one league constant if needed. Usage
-concentration (γ) makes any residual volume-as-rate error visible, so it must be
-caught here first.
-
----
-
-## Architectural decisions (locked)
-
-| Decision | Rationale |
-|---|---|
-| Possession-based simulation, not score projection | Forces realistic variance and emergence; see Simulation Philosophy in RFC |
-| `SimConfig` toggles for all modifiers | Every modifier can be isolated for testing and calibration |
-| Modifiers are additive probability deltas | Prevents compounding errors; deltas are clamped per possession |
-| No per-game persistence of modifier state | Modifiers reset between games; only box scores and seed are stored |
-| `TeamSeasonStats` for historical results only | Behavioral/tendency data goes in `TeamTendencies` (post-M3 milestone), not `TeamSeasonStats` |
-| Season simulation held until single-game engine is stable | Amplifying a broken game engine across 82 games creates harder-to-diagnose artifacts |
-| Box score is **derived** from the typed event stream, not accumulated inside `resolve_possession` | Single source of truth (the event stream); events also feed PBP display, chip filtering, and future advanced stats. `derive_box_score(events, roster_ids)` + `apply_typed_event` in `box_score.py`; the 90-game byte-identical fence at `tests/test_box_score_derivation_fixture.py` guards this invariant. |
-
----
+- Box score is **derived** from the typed event stream, not accumulated inside `resolve_possession`. `derive_box_score(events, roster_ids)` + `apply_typed_event` in `box_score.py`; 90-game byte-identical fence at `tests/test_box_score_derivation_fixture.py`.
+- Every modifier behind a `SimConfig` toggle so it can be isolated for calibration.
+- Modifiers are additive probability deltas, clamped per possession.
+- `TeamSeasonStats` holds historical results only; behavioral/tendency data will go in `TeamTendencies` when built.
 
 ## Code conventions
 
-- No comments explaining WHAT code does — only WHY when non-obvious (hidden constraint, workaround, subtle invariant).
-- No trailing summaries in responses — the diff is readable.
-- No defensive error handling for scenarios that can't happen inside the simulation engine.
-- Python 3.9: `Optional[X]`, `List[X]`, `Dict[K, V]` — not `X | None`, `list[X]`, `dict[K, V]` in model/schema files. Route files can use built-in generics (FastAPI requires 3.9+).
+- Comments explain WHY when non-obvious, never WHAT. No trailing summaries in responses.
+- No defensive error handling for scenarios that can't happen inside the sim engine.
 - Show significant changes for review before applying; small isolated fixes can be applied directly.
 
----
-
-## Feature roadmap (for context, not implementation scope)
-
-```
-✅ M3            — variance, OREB profiles, catch-up/garbage time, shot quality, foul drawing
-                   (M3a–M3e all shipped + post-M3 calibration diagnostic complete 2026-07-08)
-✅ Frontend MVP  — single-game simulator, player-detail modal (PR #5, #7)
-✅ FGA fix       — no FGA on foul-negated miss (PR #8; revealed honest make-model overshoot)
-✅ Event-sourced — typed events, derived box, per-FT PBP, 90-game byte-identical fence (PR #9)
-
-Currently active
-    Priority #3 — Handle rating: replace ball_handle position-default (~60 G / ~40 C) with a
-                  proxy derived from usage_rate + assist_rate + turnover_economy. Isolated;
-                  does not touch the possession chain.
-
-Deferred (each warrants its own RFC)
-    TeamTendencies model + ingestion (post-M3 milestone)
-    Strategic-foul PF crediting to box (from PR #9 follow-ups; needs fence re-capture)
-    TOV subtypes (bad pass / step-out / shot clock) — needs resolve_possession sampling
-    Old-era scoring residual (1996–2016 games over-score by 2.9–6.0 pts; behind frontend)
-    Full-league season sim (scaffold in app/services/season_simulator.py)
-    Playoff simulation
-    Player archetypes (derived from clustering), lineup synergy, foul-drawing tendencies
-    Phase 4 items: full-league, player development, injuries, contracts/free agency
-```
-
-The immediate priority is tracked in the `project-next-session-focus` memory; this block
-is for durable context. Phase 4 items each warrant their own RFC before implementation.
+Priority tracking: `project-next-session-focus` memory. Roadmap: `RFC.md` + memory. Not duplicated here.

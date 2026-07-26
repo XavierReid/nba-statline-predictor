@@ -18,21 +18,46 @@ function clock(sec: number): string {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 }
 
-// Which ways this player is involved in an event (a single event may match more than one).
+// Which ways this player is involved in a typed event. Under RFC.md "Event-Sourced
+// PBP" every event has exactly one primary actor (player_id) so involvement is
+// (type, player_id) → tag. Made SHOTs get both SCORE and SHOT chips.
 function involvement(ev: PossessionEvent, id: number): string[] {
+  if (ev.player_id !== id) return [];
   const tags: string[] = [];
-  if (ev.scorer === id) tags.push(ev.made ? "SCORE" : "SHOT");
-  if (ev.assisted_by === id) tags.push("AST");
-  if (ev.rebounded_by === id) tags.push("REB");
-  if (ev.steal_by === id) tags.push("STL");
-  if (ev.block_by === id) tags.push("BLK");
-  if (ev.turnover_by === id) tags.push("TOV");
-  if (ev.fouled_by === id || ev.nonshooting_foul_by === id) tags.push("FOUL");
+  switch (ev.type) {
+    case "SHOT":
+      // Mutually exclusive: SCORE = the shooter made it, SHOT = they missed. Lets
+      // the user isolate "attempts that missed" vs "scoring plays" without one
+      // chip dominating the other. Matches the pre-refactor semantic.
+      tags.push(ev.made ? "SCORE" : "SHOT");
+      break;
+    case "FT":
+      tags.push("FT");
+      break;
+    case "FOUL":
+      tags.push("FOUL");
+      break;
+    case "REB":
+      tags.push("REB");
+      break;
+    case "AST":
+      tags.push("AST");
+      break;
+    case "STL":
+      tags.push("STL");
+      break;
+    case "BLK":
+      tags.push("BLK");
+      break;
+    case "TOV":
+      tags.push("TOV");
+      break;
+  }
   return tags;
 }
 
-// order in which filter chips appear
-const TAG_ORDER = ["SCORE", "SHOT", "AST", "REB", "STL", "BLK", "TOV", "FOUL"];
+// Order in which filter chips appear.
+const TAG_ORDER = ["SCORE", "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL"];
 
 function pct(x: number | null): string {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;

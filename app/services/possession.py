@@ -1,7 +1,7 @@
 """Possession resolution — simulate one possession and return an event dict."""
 import random
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.services.behavior_profile import NORMAL_PROFILE
 
@@ -277,63 +277,6 @@ def _free_throw_prob(player: dict) -> float:
     return p if p is not None else attr_to_prob(player["free_throw"], lo=0.60, hi=0.95)
 
 
-def describe_event(event: dict, name_map: dict) -> str:
-    """Human-readable description of the possession event. A pre-bonus non-shooting foul is now
-    its OWN terminal event (OREB-style two-event lifecycle), so it is described here directly."""
-    return _describe_outcome(event, name_map)
-
-
-def _describe_outcome(event: dict, name_map: dict) -> str:
-    def name(pid: Optional[int]) -> str:
-        return name_map.get(pid, f"Player {pid}") if pid else "Unknown"
-
-    scorer = event.get("scorer")
-
-    if event.get("turnover_by"):
-        if event.get("steal_by"):
-            return f"{name(event['turnover_by'])} turns it over — stolen by {name(event['steal_by'])}"
-        if event.get("fouled_by") == event.get("turnover_by"):
-            return f"{name(event['turnover_by'])} commits an offensive foul"
-        return f"{name(event['turnover_by'])} turns it over"
-
-    if event.get("nonshooting_foul_by"):
-        return (f"Non-shooting foul: {name(event['nonshooting_foul_by'])} on "
-                f"{name(event.get('nonshooting_foul_on'))}")
-
-    if not event.get("shot_type"):
-        ftm, fta = event.get("ftm", 0), event.get("fta", 0)
-        return f"{name(scorer)} shoots {ftm}/{fta} FTs (bonus foul by {name(event.get('fouled_by'))})"
-
-    shot_labels = {
-        "three": "3-pointer", "mid": "mid-range jumper", "close": "layup/close shot",
-        "corner_three": "corner 3-pointer", "above_break_three": "3-pointer",
-        "mid_range": "mid-range jumper", "floater": "floater",
-        "layup": "layup", "dunk": "dunk",
-    }
-    shot = shot_labels.get(event["shot_type"], "shot")
-
-    if event.get("block_by"):
-        return f"{name(scorer)} blocked by {name(event['block_by'])}"
-
-    if not event.get("made"):
-        if event.get("fta"):
-            # No FGA on a foul-negated attempt — describe as a shooting foul, not a miss.
-            return (f"Shooting foul on {name(scorer)} by {name(event.get('fouled_by'))}"
-                    f" — {event['ftm']}/{event['fta']} FTs")
-        desc = f"{name(scorer)} misses a {shot}"
-        if event.get("rebounded_by"):
-            reb_type = "offensive rebound" if event.get("is_oreb") else "defensive rebound"
-            desc += f" — {name(event['rebounded_by'])} ({reb_type})"
-        return desc
-
-    desc = f"{name(scorer)} hits a {shot}"
-    if event.get("assisted_by"):
-        desc += f" (assisted by {name(event['assisted_by'])})"
-    if event.get("fta"):
-        desc += f" — and-1 (foul by {name(event.get('fouled_by'))}), {event['ftm']}/1 FT"
-    return desc
-
-
 # ---------------------------------------------------------------------------
 # Decision pipeline (roadmap stage D) — a possession resolves as a sequence of
 # named basketball stages, each visible on its own:
@@ -373,15 +316,16 @@ def _empty_result() -> dict:
         "scorer": None, "shot_type": None, "made": False,
         "assisted_by": None, "rebounded_by": None, "is_oreb": False,
         "turnover_by": None, "steal_by": None, "block_by": None,
-        "fouled_by": None, "fta": 0, "ftm": 0,
+        "fouled_by": None, "fta": 0, "ftm": 0, "ft_makes": [],
         "nonshooting_foul_by": None, "nonshooting_foul_on": None, "shot_clock_reset": False,
         "contested": None,
     }
 
 
 def _finish(ctx, result: dict) -> dict:
-    if ctx.name_map is not None:
-        result["description"] = describe_event(result, ctx.name_map)
+    # Descriptions are attached later per typed event (describe_typed_event) — the
+    # legacy monolithic describe_event ran here but its output was never read under
+    # the event-sourced flow. Kept as a hook in case a future stage needs one.
     return result
 
 
@@ -492,7 +436,7 @@ def _select_action(ctx, result: dict) -> Action:
             result["fouled_by"] = fouler
             ft_prob = _free_throw_prob(ball_handler)
             result["fta"] = 2
-            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(2, ft_prob, rng)
             _credit_ft_rebound(ctx, result, last_missed)
             return Action(ball_handler, terminal=True)
         result["nonshooting_foul_by"] = fouler
@@ -574,12 +518,13 @@ def _assign_rebound(ctx, result: dict) -> None:
         )[0]["id"]
 
 
-def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool]:
-    """Sample n free throws; return (makes, last_missed). Draws n rng values in the
-    same order as the old inline generator, so the FT outcomes are RNG-identical; the
-    last-FT flag is what lets us credit the live rebound on a missed final FT."""
+def _shoot_free_throws(n: int, ft_prob: float, rng) -> Tuple[int, bool, List[bool]]:
+    """Sample n free throws; return (made_count, last_missed, per_shot_makes). Draws n
+    rng values in the same order as the old inline generator, so the FT outcomes are
+    RNG-identical; last-FT flag credits the live rebound on a missed final FT, and the
+    per-shot list gives event-sourced PBP per-FT fidelity ("1 of 2" made / missed)."""
     makes = [rng.random() < ft_prob for _ in range(n)]
-    return sum(makes), not makes[-1]
+    return sum(makes), not makes[-1], makes
 
 
 def _credit_ft_rebound(ctx, result: dict, last_missed: bool) -> None:
@@ -749,20 +694,20 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 3
-            result["ftm"], last_missed = _shoot_free_throws(3, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
     # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
     elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1
-            result["ftm"], last_missed = _shoot_free_throws(1, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(1, ft_prob, rng)
         else:
             result["fta"] = 2
-            result["ftm"], last_missed = _shoot_free_throws(2, ft_prob, rng)
+            result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(2, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
 
     # assist on a make — credited to the possession INITIATOR when a teammate scored.

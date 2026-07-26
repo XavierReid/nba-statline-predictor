@@ -50,7 +50,7 @@ def make_team(id_offset: int) -> list:
 HOME = make_team(0)
 AWAY = make_team(100)
 SEED = 42
-OT_SEED = 19   # verified: produces OT with HOME/AWAY above (re-found after PF-weighted foul-attribution RNG shift)
+OT_SEED = 110  # produces OT (110-118) — re-found after event-sourced PBP wire-in exposed id-0 falsy check in legacy apply_event; new apply_typed_event correctly counts fouls on id 0, shifting RNG.
 
 
 # ---------------------------------------------------------------------------

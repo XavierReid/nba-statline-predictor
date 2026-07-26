@@ -6,9 +6,11 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.sim_config import (
-    DRAMA_M3, DRAMA_M3_NO_SUBTYPES, DRAMA_M3_SEASON, SimConfig,
+    DRAMA_M3,
+    DRAMA_M3_NO_SUBTYPES,
+    DRAMA_M3_SEASON,
+    SimConfig,
 )
-
 
 _PRESETS: dict = {
     "baseline": SimConfig(),
@@ -132,28 +134,56 @@ class QuarterScores(BaseModel):
     away: list[int]
 
 
-class PossessionEvent(BaseModel):
+class SimEvent(BaseModel):
+    """One granular typed event in the PBP stream (RFC.md "Event-Sourced PBP").
+
+    `type` is the discriminator (SHOT / FOUL / FT / REB / TOV / STL / BLK / AST).
+    Type-specific fields are all Optional so a single flexible schema covers every
+    event kind. See possession_events.possession_to_events for the shape per type.
+    """
+    type: str
     possession: int
-    game_clock_seconds: int
     quarter: int
+    game_clock_seconds: int
     is_home: bool
+    player_id: Optional[int] = None
     pts: int
     running_home_score: Optional[int] = None
     running_away_score: Optional[int] = None
     description: Optional[str] = None
-    scorer: Optional[int] = None
+    is_fastbreak: Optional[bool] = None
+    strategic: Optional[bool] = None
+
+    # SHOT
     shot_type: Optional[str] = None
+    sub_type: Optional[str] = None
     made: Optional[bool] = None
-    assisted_by: Optional[int] = None
-    rebounded_by: Optional[int] = None
+
+    # FOUL
+    foul_kind: Optional[str] = None  # shooting / non_shooting / offensive
+    fouled_on: Optional[int] = None
+
+    # FT
+    attempt: Optional[int] = None
+    of: Optional[int] = None
+
+    # REB
     is_oreb: Optional[bool] = None
-    turnover_by: Optional[int] = None
-    steal_by: Optional[int] = None
-    block_by: Optional[int] = None
-    fouled_by: Optional[int] = None
-    nonshooting_foul_by: Optional[int] = None
-    fta: Optional[int] = None
-    ftm: Optional[int] = None
+
+    # AST / BLK — reference back to the parent SHOT so an event can stand alone in
+    # a filtered view (e.g. a modal filtered to the assister or blocker).
+    shot_by: Optional[int] = None
+
+    # STL — reference back to the parent TOV so a STL can stand alone in the
+    # stealer's modal PBP as "X steals from Y".
+    stolen_from: Optional[int] = None
+
+    # FOUL — set when a strategic (intentional) foul was committed.
+    intentional: Optional[bool] = None
+
+
+# Back-compat alias — existing route imports read `PossessionEvent`.
+PossessionEvent = SimEvent
 
 
 class SimulateGameResponse(BaseModel):

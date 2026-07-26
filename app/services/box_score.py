@@ -1,5 +1,11 @@
-"""Box score helpers — accumulate and snapshot per-player stat lines."""
-from typing import Optional, Tuple
+"""Box score helpers — accumulate and snapshot per-player stat lines.
+
+Event-sourced: consumers pass one typed event at a time to `apply_typed_event`,
+or a full stream to `derive_box_score`. Both are pure — no RNG, no I/O.
+"""
+from typing import Iterable, List, Optional, Tuple
+
+from app.services.possession_events import THREE_SHOT_TYPES
 
 
 def empty_stats() -> dict:
@@ -16,66 +22,109 @@ def snapshot_box(box: dict) -> dict:
     return {pid: dict(stats) for pid, stats in box.items()}
 
 
-def apply_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
-    """Apply one possession event to the box score in place.
+def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
+    """Apply one typed event (SHOT / FOUL / FT / REB / TOV / STL / BLK / AST) to
+    the box score in place.
 
-    Returns (pts_scored, fouled_out_player_id or None). Rotation patching for
-    foul-outs is left to the caller since it requires simulation state.
+    Returns (pts_scored, fouled_out_player_id or None). Same return contract as
+    the legacy `apply_event` so the caller (simulate_game) can trigger rotation
+    patching on a foul-out without other changes.
     """
+    # Strategic (intentional) fouls emit typed events for PBP display but must
+    # not touch the box — the strategic-foul path in simulate_game has never
+    # credited the fouler's PF and doesn't award FT/pts through the box either
+    # (points reach the score via a direct gs increment). Preserving that
+    # omission is what keeps the 90-game fence byte-identical. Real NBA credits
+    # the PF; documented follow-up.
+    if event.get("strategic"):
+        return 0, None
+
+    etype = event["type"]
+    pid = event.get("player_id")
+    fouled_out_pid: Optional[int] = None
     pts = 0
 
-    if event["turnover_by"] and event["turnover_by"] in box:
-        box[event["turnover_by"]]["tov"] += 1
-        if event.get("steal_by") and event["steal_by"] in box:
-            box[event["steal_by"]]["stl"] += 1
-
-    elif event["scorer"]:
-        if event.get("block_by") and event["block_by"] in box:
-            box[event["block_by"]]["blk"] += 1
-
-        pid = event["scorer"]
+    if etype == "SHOT":
         if pid in box:
-            shot_type = event.get("shot_type")
-            if shot_type:  # bonus fouls have no shot attempt — skip FGA
-                # A miss that draws a shooting foul is not a FGA in real NBA — the attempt is
-                # negated and the shooter goes to the line. And-1 (made + fta) still counts.
-                counts_as_attempt = event["made"] or event["fta"] == 0
-                if shot_type in ("three", "corner_three", "above_break_three"):
-                    if counts_as_attempt:
-                        box[pid]["fg3a"] += 1
-                        box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fg3m"] += 1
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 3
-                        pts = 3
+            is_three = event.get("shot_type") in THREE_SHOT_TYPES
+            box[pid]["fga"] += 1
+            if is_three:
+                box[pid]["fg3a"] += 1
+            if event.get("made"):
+                box[pid]["fgm"] += 1
+                if is_three:
+                    box[pid]["fg3m"] += 1
+                    box[pid]["pts"] += 3
+                    pts = 3
                 else:
-                    if counts_as_attempt:
-                        box[pid]["fga"] += 1
-                    if event["made"]:
-                        box[pid]["fgm"] += 1
-                        box[pid]["pts"] += 2
-                        pts = 2
+                    box[pid]["pts"] += 2
+                    pts = 2
 
-            if event["fta"] > 0:
-                box[pid]["fta"] += event["fta"]
-                box[pid]["ftm"] += event["ftm"]
-                box[pid]["pts"] += event["ftm"]
-                pts += event["ftm"]
+    elif etype == "FT":
+        if pid in box:
+            box[pid]["fta"] += 1
+            if event.get("made"):
+                box[pid]["ftm"] += 1
+                box[pid]["pts"] += 1
+                pts = 1
 
-        if event.get("assisted_by") and event["assisted_by"] in box:
-            box[event["assisted_by"]]["ast"] += 1
-        if event.get("rebounded_by") and event["rebounded_by"] in box:
-            box[event["rebounded_by"]]["reb"] += 1
+    elif etype == "FOUL":
+        if pid is not None and pid in box and not box[pid]["fouled_out"]:
+            box[pid]["pf"] += 1
+            if box[pid]["pf"] >= 6:
+                box[pid]["fouled_out"] = True
+                fouled_out_pid = pid
 
-    # both the shooting/bonus fouler and a pre-bonus non-shooting fouler count a personal foul
-    fouled_out_pid = None
-    for fouled_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
-        if fouled_pid and fouled_pid in box and not box[fouled_pid]["fouled_out"]:
-            box[fouled_pid]["pf"] += 1
-            if box[fouled_pid]["pf"] >= 6:
-                box[fouled_pid]["fouled_out"] = True
-                fouled_out_pid = fouled_pid
+    elif etype == "REB":
+        if pid in box:
+            box[pid]["reb"] += 1
 
-    event["pts"] = pts
+    elif etype == "TOV":
+        if pid in box:
+            box[pid]["tov"] += 1
+
+    elif etype == "STL":
+        if pid in box:
+            box[pid]["stl"] += 1
+
+    elif etype == "BLK":
+        if pid in box:
+            box[pid]["blk"] += 1
+
+    elif etype == "AST":
+        if pid in box:
+            box[pid]["ast"] += 1
+
     return pts, fouled_out_pid
+
+
+def derive_box_score(events: Iterable[dict], roster_ids: Iterable[int]) -> dict:
+    """Fold a sequence of typed events into a full box_score dict.
+
+    Pure function: no I/O, no state, no RNG. The box_score for any list of events
+    is fully determined by that list; this backs the RFC's behavior-invariance
+    invariant (same events -> same box).
+
+    Note: `min` and `plus_minus` are simulation-wide accounting (rotation minutes,
+    plus/minus tracking); this function initializes them to zero. simulate_game
+    populates them independently.
+    """
+    box = {int(pid): empty_stats() for pid in roster_ids}
+    for event in events:
+        apply_typed_event(box, event)
+    return box
+
+
+def foul_outs_from_events(events: Iterable[dict], roster_ids: Iterable[int]) -> List[int]:
+    """Return the ordered list of player_ids that fouled out over the event stream.
+
+    Convenience for tests that want to verify the sequence of foul-outs without
+    threading return values through a manual accumulator loop.
+    """
+    box = {int(pid): empty_stats() for pid in roster_ids}
+    outs: List[int] = []
+    for event in events:
+        _, fouled_out_pid = apply_typed_event(box, event)
+        if fouled_out_pid is not None:
+            outs.append(fouled_out_pid)
+    return outs

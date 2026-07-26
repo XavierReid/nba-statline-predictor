@@ -114,7 +114,11 @@ quarters and OT are the same code with different initial conditions (720s vs
 6. **Modifiers** (`app/services/modifiers/`): momentum, fatigue, foul trouble,
    clutch, catch-up, garbage time — each returns `ModifierAdjustments`
    (probability deltas), toggled via `SimConfig`, never persisting across games
-7. `resolve_possession` → `box_score.apply_event` accumulates the stat lines
+7. `resolve_possession` → `possession_events.possession_to_events` translates the possession
+   result into a stream of granular typed events (SHOT / FOUL / FT / REB / TOV / STL / BLK /
+   AST) → `box_score.apply_typed_event` folds each into the live box (or
+   `derive_box_score(events, roster_ids)` reproduces the same box from the stream after the
+   fact — same result; guarded by the 90-game byte-identical fence)
 
 ## Layer 5 — Configuration (`app/services/sim_config.py`)
 

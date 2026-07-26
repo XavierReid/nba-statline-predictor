@@ -83,6 +83,7 @@ caught here first.
 | No per-game persistence of modifier state | Modifiers reset between games; only box scores and seed are stored |
 | `TeamSeasonStats` for historical results only | Behavioral/tendency data goes in `TeamTendencies` (post-M3 milestone), not `TeamSeasonStats` |
 | Season simulation held until single-game engine is stable | Amplifying a broken game engine across 82 games creates harder-to-diagnose artifacts |
+| Box score is **derived** from the typed event stream, not accumulated inside `resolve_possession` | Single source of truth (the event stream); events also feed PBP display, chip filtering, and future advanced stats. `derive_box_score(events, roster_ids)` + `apply_typed_event` in `box_score.py`; the 90-game byte-identical fence at `tests/test_box_score_derivation_fixture.py` guards this invariant. |
 
 ---
 
@@ -99,11 +100,27 @@ caught here first.
 ## Feature roadmap (for context, not implementation scope)
 
 ```
-M3 (active):   variance, OREB profiles, catch-up/garbage time, shot quality, foul drawing
-Post-M3:       TeamTendencies model + ingestion (separate milestone)
-Phase 2:       Shot sub-types, defensive assignments, positional matchups
-Phase 3:       Player archetypes (derived from clustering), lineup synergy, foul drawing tendencies
-Phase 4:       Full league simulation, player development, injuries, contracts/free agency
+✅ M3            — variance, OREB profiles, catch-up/garbage time, shot quality, foul drawing
+                   (M3a–M3e all shipped + post-M3 calibration diagnostic complete 2026-07-08)
+✅ Frontend MVP  — single-game simulator, player-detail modal (PR #5, #7)
+✅ FGA fix       — no FGA on foul-negated miss (PR #8; revealed honest make-model overshoot)
+✅ Event-sourced — typed events, derived box, per-FT PBP, 90-game byte-identical fence (PR #9)
+
+Currently active
+    Priority #3 — Handle rating: replace ball_handle position-default (~60 G / ~40 C) with a
+                  proxy derived from usage_rate + assist_rate + turnover_economy. Isolated;
+                  does not touch the possession chain.
+
+Deferred (each warrants its own RFC)
+    TeamTendencies model + ingestion (post-M3 milestone)
+    Strategic-foul PF crediting to box (from PR #9 follow-ups; needs fence re-capture)
+    TOV subtypes (bad pass / step-out / shot clock) — needs resolve_possession sampling
+    Old-era scoring residual (1996–2016 games over-score by 2.9–6.0 pts; behind frontend)
+    Full-league season sim (scaffold in app/services/season_simulator.py)
+    Playoff simulation
+    Player archetypes (derived from clustering), lineup synergy, foul-drawing tendencies
+    Phase 4 items: full-league, player development, injuries, contracts/free agency
 ```
 
-Phase 4 items (injuries, contracts, development) each warrant their own RFC before implementation begins.
+The immediate priority is tracked in the `project-next-session-focus` memory; this block
+is for durable context. Phase 4 items each warrant their own RFC before implementation.

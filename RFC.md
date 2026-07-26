@@ -1,7 +1,7 @@
 # RFC: NBA Franchise Simulator
 
 **Status:** In Progress  
-**Last Updated:** 2026-06-27
+**Last Updated:** 2026-07-25
 
 ---
 
@@ -1306,7 +1306,7 @@ Ideas that surfaced mid-build but aren't in active scope. Review when planning t
 
 # Frontend RFC: Player-Detail Modal (Phase 2)
 
-**Status:** approved to build (2026-07-24). Second frontend feature after the single-game MVP.
+**Status:** ✅ SHIPPED (PR #7, merged 2026-07-24). Second frontend feature after the single-game MVP.
 
 ## Overview
 Clicking a player's row in a box score opens a modal showing that player's **season averages**,
@@ -1353,11 +1353,11 @@ ball_handle, perimeter_defense, interior_defense, offensive_rebound, defensive_r
   season profile shows with no game line and empty/short PBP; 2005-06 player → season-accurate team.
 
 ## Definition of Done
-- [ ] `/players/{id}/profile` endpoint + test (200/404)
-- [ ] Modal opens from any box row, closes 3 ways, one-at-a-time
-- [ ] Season averages + ratings + this-game line + player-filtered PBP render; loading/error/404 handled
-- [ ] Vitest + backend suite green; `npm run build` clean
-- [ ] UAT signed off
+- [x] `/players/{id}/profile` endpoint + test (200/404)
+- [x] Modal opens from any box row, closes 3 ways, one-at-a-time
+- [x] Season averages + ratings + this-game line + player-filtered PBP render; loading/error/404 handled
+- [x] Vitest + backend suite green; `npm run build` clean
+- [x] UAT signed off
 
 ## Decisions (locked 2026-07-24)
 Curated ratings + `overall`; include the this-game line; DNP rows clickable; ratings as bars;
@@ -1375,7 +1375,7 @@ Curated ratings + `overall`; include the this-game line; DNP rows clickable; rat
 
 # RFC: Event-Sourced PBP (Engine + Frontend, Phase 3)
 
-**Status:** approved to build (2026-07-25). Priority #2 (b) per project-next-session-focus; follows PR #8 (priority #2 (a), FGA accounting fix), which deliberately preserved the current event dict shape so (b) can reshape without conflict.
+**Status:** ✅ SHIPPED (PR #9, merged 2026-07-25). Priority #2 (b) per project-next-session-focus; follows PR #8 (priority #2 (a), FGA accounting fix), which deliberately preserved the current event dict shape so (b) can reshape without conflict.
 
 ## Overview
 Rewrite play-by-play as a stream of granular, typed events (`SHOT` / `FOUL` / `FT` / `REB` / `TOV` / `STL` / `BLK` / `AST`). The box score becomes a **derived** view over that stream (`derive_box_score(events) -> box`) rather than an accumulator populated inside `resolve_possession`. Free throws become their own filterable category. Foul-drawn misses and bonus FTs get correct chip categorization (they stop being miscategorized as "SHOT").
@@ -1461,14 +1461,14 @@ Every event shares a header:
 - **UAT**: single game — PBP reads naturally; every chip filters correctly; and-1 shows as one collated row; bonus FTs filter under `FT` and `FOUL` (not `SHOT`).
 
 ## Definition of Done
-- [ ] `possession_to_events` + `derive_box_score` implemented; `apply_event` deleted
-- [ ] 90-game fixture captured on parent commit; regression test asserts identical box scores
-- [ ] `describe_event` per-type dispatch
-- [ ] Frontend `SimEvent` union, PBP renderer, FT chip, collated display
-- [ ] `PlayerModal` involvement + filters correct under new shape
-- [ ] Full pytest + Vitest suites green; `npm run build` clean
-- [ ] UAT: PBP, chips, PlayerModal all correct on drama-m3 single game
-- [ ] Update CLAUDE.md / RFC.md guardrail to state box score is derived, not accumulated
+- [x] `possession_to_events` + `derive_box_score` implemented; `apply_event` deleted
+- [x] 90-game fixture captured on parent commit; regression test asserts identical box scores
+- [x] `describe_event` per-type dispatch (`describe_typed_event`; legacy `describe_event` deleted)
+- [x] Frontend `SimEvent` union, PBP renderer, FT chip, collated display
+- [x] `PlayerModal` involvement + filters correct under new shape
+- [x] Full pytest + Vitest suites green; `npm run build` clean
+- [x] UAT: PBP, chips, PlayerModal all correct on drama-m3 single game (2 UAT passes → 7 display fixes A–G)
+- [x] Update CLAUDE.md / RFC.md guardrail to state box score is derived, not accumulated (this cleanup pass)
 
 ## Decisions (locked 2026-07-25)
 - **Full split**: SHOT / FOUL / FT / REB / TOV / STL / BLK / AST each as separate events (not middle-ground; not the "keep AST/BLK inline" variant).

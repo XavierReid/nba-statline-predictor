@@ -417,20 +417,17 @@ def simulate_game(
                             gs.possession_number += 1
                             # Pick a defender to display as the fouler. Foul-rate
                             # weighted so the choice mirrors the normal non-shooting
-                            # foul selection in possession.py. NOTE (documented follow-up):
-                            # the fouler's PF is NOT credited to the box_score here —
-                            # the strategic-foul path never touched box_score before
-                            # the refactor, and preserving that omission is what keeps
-                            # the 90-game fixture fence byte-identical. Real NBA
-                            # credits the PF; naming the fouler for display without
-                            # applying to box is a halfway state we accept for now.
+                            # foul selection in possession.py. The FOUL event flows
+                            # through apply_typed_event below so the fouler's PF is
+                            # credited to the live box — matches real NBA and keeps
+                            # the derived box consistent with the sim-live box.
                             defense_on_court = [
                                 p for p in (away_players if current_is_home else home_players)
                                 if p["id"] in (away_ids if current_is_home else home_ids)
                             ]
                             # Deterministic pick: the defender most willing to foul (matches
                             # the coaching pattern of sending a bench player with fouls to
-                            # spare). Draws no RNG so the 90-game fence stays byte-identical.
+                            # spare). Draws no RNG.
                             fouler = max(defense_on_court,
                                          key=lambda p: (p.get("foul_rate", 0.09), p["id"]))
                             hdr = dict(
@@ -455,6 +452,24 @@ def simulate_game(
                             if name_map is not None:
                                 for tev in strategic_events:
                                     tev["description"] = describe_typed_event(tev, name_map)
+                            # Apply to live box. apply_typed_event short-circuits
+                            # strategic FT (points already added via gs above) but
+                            # credits PF on the FOUL. If the fouler hit 6, patch the
+                            # rotation — same handling as normal foul-outs.
+                            strategic_fouled_out_pid: Optional[int] = None
+                            for tev in strategic_events:
+                                _, ev_fo = apply_typed_event(box, tev)
+                                if ev_fo is not None:
+                                    strategic_fouled_out_pid = ev_fo
+                            if strategic_fouled_out_pid:
+                                current_minute = min(
+                                    GAME_MINUTES - 1,
+                                    q_idx * 12 + int((period_seconds - quarter_clock) / 60),
+                                )
+                                if strategic_fouled_out_pid in home_by_id:
+                                    patch_rotation(home_rotation, strategic_fouled_out_pid, home_by_min, current_minute + 1, box)
+                                else:
+                                    patch_rotation(away_rotation, strategic_fouled_out_pid, away_by_min, current_minute + 1, box)
                             _typed_all.extend(strategic_events)
                             if steps:
                                 current_chunk_events.extend(strategic_events)

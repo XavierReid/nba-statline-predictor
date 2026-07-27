@@ -30,13 +30,12 @@ def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
     the legacy `apply_event` so the caller (simulate_game) can trigger rotation
     patching on a foul-out without other changes.
     """
-    # Strategic (intentional) fouls emit typed events for PBP display but must
-    # not touch the box — the strategic-foul path in simulate_game has never
-    # credited the fouler's PF and doesn't award FT/pts through the box either
-    # (points reach the score via a direct gs increment). Preserving that
-    # omission is what keeps the 90-game fence byte-identical. Real NBA credits
-    # the PF; documented follow-up.
-    if event.get("strategic"):
+    # Strategic (intentional) FT events skip the box: the strategic-foul path in
+    # simulate_game awards points directly via `gs.home_score/away_score`, so
+    # flowing FTs through here would double-count. Strategic FOUL events, in
+    # contrast, DO credit the fouler's PF — real NBA behavior, and it keeps the
+    # live box consistent with derive_box_score over the same event stream.
+    if event.get("strategic") and event.get("type") == "FT":
         return 0, None
 
     etype = event["type"]

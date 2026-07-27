@@ -165,12 +165,14 @@ def test_event_stream_preserves_baseline_box_scores():
                 f"{game_label} typed pts sum {typed_pts_sum} != game total {game_total}"
             )
 
-        # (5b) derive_box_score(typed_events) equals live-accumulated box, EXCLUDING
-        # strategic-foul events (they're in the stream for display but never applied
-        # to box — pre-existing omission, documented follow-up).
-        applied_events = [e for e in typed if not e.get("strategic")]
+        # (5b) derive_box_score(typed_events) equals the live-accumulated box.
+        # Whole point of the event-sourced architecture — both consumers of the
+        # same stream must agree. Strategic FOUL events now flow through
+        # apply_typed_event (crediting PF); strategic FT events short-circuit
+        # (points reach the score via gs directly, so applying them here would
+        # double-count).
         roster_ids = list(r["box_score"].keys())
-        derived = derive_box_score(applied_events, roster_ids)
+        derived = derive_box_score(typed, roster_ids)
         for pid in roster_ids:
             for k in ("pts", "reb", "ast", "stl", "blk", "tov", "pf",
                       "fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "fouled_out"):

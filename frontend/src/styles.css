@@ -120,6 +120,22 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pbp tr.home td.score { color: var(--accent-2); }
 .pbp tr.away td.score { color: var(--accent); }
 
+.pbp-filters { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.pbp-quarters, .pbp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pbp-quarter, .pbp-chip {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 3px 10px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.4px; cursor: pointer;
+}
+.pbp-quarter.on, .pbp-chip.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+.pbp-chip-clear { padding: 3px 8px; }
+.pbp-search {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 7px; padding: 5px 10px; font-size: 12px; width: 100%;
+}
+.pbp-search::placeholder { color: var(--muted); }
+.pbp-empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
+
 .empty { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
 .loading { color: var(--muted); text-align: center; padding: 40px 0; }
 
@@ -167,7 +183,12 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-pbp::-webkit-scrollbar-track { background: transparent; }
 /* minmax(0, 1fr) — a bare 1fr keeps min-width:auto and won't shrink below the longest
    description, forcing horizontal overflow (a stray scrollbar); 0 lets it wrap instead. */
-.pm-pbp li { display: grid; grid-template-columns: 64px auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.pm-pbp li { display: grid; grid-template-columns: 64px auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.pm-running {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+  color: var(--accent-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 .pm-clock { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pm-tags { display: flex; gap: 3px; }
 .pm-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }

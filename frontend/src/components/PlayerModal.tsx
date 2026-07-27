@@ -59,6 +59,39 @@ function involvement(ev: PossessionEvent, id: number): string[] {
 // Order in which filter chips appear.
 const TAG_ORDER = ["SCORE", "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL"];
 
+// Running stat badge shown next to each event in the modal PBP. Returns the
+// category and the player's cumulative total AFTER this event, or null when the
+// event doesn't increment any counting stat (e.g. missed shot / missed FT).
+// State lives in `run`, mutated in place as we walk the player's events in order.
+interface RunState {
+  pts: number; reb: number; ast: number; stl: number; blk: number;
+  tov: number; pf: number;
+}
+function runningBadge(ev: PossessionEvent, run: RunState): { label: string } | null {
+  switch (ev.type) {
+    case "SHOT":
+      if (ev.made) {
+        const three = ev.shot_type === "corner_three" || ev.shot_type === "above_break_three" || ev.shot_type === "three";
+        run.pts += three ? 3 : 2;
+        return { label: `PTS ${run.pts}` };
+      }
+      return null;
+    case "FT":
+      if (ev.made) {
+        run.pts += 1;
+        return { label: `PTS ${run.pts}` };
+      }
+      return null;
+    case "REB": run.reb += 1; return { label: `REB ${run.reb}` };
+    case "AST": run.ast += 1; return { label: `AST ${run.ast}` };
+    case "STL": run.stl += 1; return { label: `STL ${run.stl}` };
+    case "BLK": run.blk += 1; return { label: `BLK ${run.blk}` };
+    case "TOV": run.tov += 1; return { label: `TOV ${run.tov}` };
+    case "FOUL": run.pf += 1; return { label: `PF ${run.pf}` };
+  }
+  return null;
+}
+
 function pct(x: number | null): string {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
 }
@@ -117,6 +150,18 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
       else next.add(t);
       return next;
     });
+  // Precompute running-stat badges across ALL of the player's events in order.
+  // Running totals accumulate on the unfiltered stream so numbers stay stable as
+  // chips toggle; the badge for each event is then rendered only if that event
+  // is in shownEvents below.
+  const badges = new Map<PossessionEvent, string>();
+  {
+    const run: RunState = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 };
+    for (const ev of myEvents) {
+      const b = runningBadge(ev, run);
+      if (b) badges.set(ev, b.label);
+    }
+  }
   const shownEvents = myEvents.filter((ev) =>
     involvement(ev, line.player_id).some((t) => activeTags.has(t))
   );
@@ -178,6 +223,7 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
                 <ul className="pm-pbp">
                   {shownEvents.map((ev, i) => {
                     const period = ev.quarter <= 4 ? `Q${ev.quarter}` : `OT${ev.quarter - 4}`;
+                    const badge = badges.get(ev);
                     return (
                       <li key={i}>
                         <span className="pm-clock">{period} {clock(ev.game_clock_seconds)}</span>
@@ -187,6 +233,7 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
                           ))}
                         </span>
                         <span className="pm-desc">{ev.description}</span>
+                        {badge && <span className="pm-running">{badge}</span>}
                       </li>
                     );
                   })}

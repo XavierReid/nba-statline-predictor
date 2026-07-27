@@ -94,4 +94,32 @@ describe("PlayerModal", () => {
     (container.querySelector(".pm-overlay") as HTMLElement).click();
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("renders inline running per-player stats on scoring/counting events", () => {
+    const evs: PossessionEvent[] = [
+      ev({ type: "SHOT", player_id: 5, made: true, shot_type: "layup", pts: 2, description: "Test Guy makes a layup" }),
+      ev({ type: "SHOT", player_id: 5, made: true, shot_type: "above_break_three", pts: 3, description: "Test Guy hits a three" }),
+      ev({ type: "REB", player_id: 5, is_oreb: false, description: "Test Guy defensive rebound" }),
+      ev({ type: "AST", player_id: 5, description: "Test Guy assist" }),
+      ev({ type: "SHOT", player_id: 5, made: false, shot_type: "mid_range", pts: 0, description: "Test Guy misses a mid-range jumper" }),
+    ];
+    const { container } = render(<PlayerModal line={line()} season="2025-26" events={evs} onClose={() => {}} />);
+    const badges = [...container.querySelectorAll(".pm-running")].map((b) => b.textContent);
+    // Running total accumulates: 2 -> 5 pts, then REB 1, AST 1. Missed shot has no badge.
+    expect(badges).toEqual(["PTS 2", "PTS 5", "REB 1", "AST 1"]);
+  });
+
+  it("running-stat totals are stable when chip filters toggle (accumulate on full stream, not filtered)", () => {
+    const evs: PossessionEvent[] = [
+      ev({ type: "SHOT", player_id: 5, made: true, shot_type: "layup", pts: 2, description: "Test Guy makes a layup" }),
+      ev({ type: "REB", player_id: 5, is_oreb: false, description: "Test Guy defensive rebound" }),
+      ev({ type: "SHOT", player_id: 5, made: true, shot_type: "layup", pts: 2, description: "Test Guy makes a layup again" }),
+    ];
+    const { container } = render(<PlayerModal line={line()} season="2025-26" events={evs} onClose={() => {}} />);
+    // Toggle REB off — the second SHOT's running PTS should still read 4, not 2.
+    const rebChip = screen.getAllByRole("button").find((b) => b.textContent === "REB")!;
+    fireEvent.click(rebChip);
+    const badges = [...container.querySelectorAll(".pm-running")].map((b) => b.textContent);
+    expect(badges).toEqual(["PTS 2", "PTS 4"]);
+  });
 });

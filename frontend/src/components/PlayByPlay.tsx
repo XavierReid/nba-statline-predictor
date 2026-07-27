@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { SimEvent, SimulateGameResponse } from "../types";
+import { useMemo, useState } from "react";
+import type { SimEvent, SimEventType, SimulateGameResponse } from "../types";
 
 function clock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -7,27 +7,37 @@ function clock(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const CHIP_ORDER: SimEventType[] = [
+  "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL",
+];
+
+interface CollatedRow {
+  parent: SimEvent;
+  suffix: string;
+  // Every event type contained in this collated row (parent + any folded children).
+  // Chip filter operates on this so filtering to AST surfaces the parent SHOT row.
+  types: Set<SimEventType>;
+}
+
 // Real NBA PBP collates related attribution events onto a single readable row:
 //   - AST/BLK fold onto the parent SHOT     "P1 hits X (assisted by P2)"
 //   - STL folds onto the parent TOV         "P1 turns it over (P2 steals)"
 //   - Offensive foul: TOV(P) + FOUL(P)      one row reading as "P commits an offensive foul"
-// The typed event stream is still complete underneath (chips filter each event on
-// its own type). This is display collation only. Standalone REB/FT/FOUL rows and
+// The typed event stream is still complete underneath. Standalone REB/FT/FOUL rows and
 // isolated STL/BLK/AST at possession boundaries all still render on their own.
-function collate(events: SimEvent[]): { rows: SimEvent[]; suffix: Record<number, string> } {
-  const rows: SimEvent[] = [];
-  const suffix: Record<number, string> = {};
+function collate(events: SimEvent[]): CollatedRow[] {
+  const rows: CollatedRow[] = [];
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
 
     // AST/BLK → fold onto parent SHOT from the same possession.
     if ((e.type === "AST" || e.type === "BLK") && rows.length > 0) {
       const prev = rows[rows.length - 1];
-      if (prev.type === "SHOT" && prev.possession === e.possession) {
-        const prevIdx = rows.length - 1;
+      if (prev.parent.type === "SHOT" && prev.parent.possession === e.possession) {
         const name = extractName(e.description) ?? (e.type === "AST" ? "teammate" : "defender");
         const bit = e.type === "AST" ? `(assisted by ${name})` : `(blocked by ${name})`;
-        suffix[prevIdx] = (suffix[prevIdx] ? `${suffix[prevIdx]} ` : "") + bit;
+        prev.suffix = prev.suffix ? `${prev.suffix} ${bit}` : bit;
+        prev.types.add(e.type);
         continue;
       }
     }
@@ -35,10 +45,10 @@ function collate(events: SimEvent[]): { rows: SimEvent[]; suffix: Record<number,
     // STL → fold onto parent TOV from the same possession.
     if (e.type === "STL" && rows.length > 0) {
       const prev = rows[rows.length - 1];
-      if (prev.type === "TOV" && prev.possession === e.possession) {
-        const prevIdx = rows.length - 1;
+      if (prev.parent.type === "TOV" && prev.parent.possession === e.possession) {
         const name = extractName(e.description) ?? "opponent";
-        suffix[prevIdx] = (suffix[prevIdx] ? `${suffix[prevIdx]} ` : "") + `(${name} steals)`;
+        prev.suffix = prev.suffix ? `${prev.suffix} (${name} steals)` : `(${name} steals)`;
+        prev.types.add(e.type);
         continue;
       }
     }
@@ -47,38 +57,81 @@ function collate(events: SimEvent[]): { rows: SimEvent[]; suffix: Record<number,
     // keep the FOUL description ("P commits an offensive foul") as the one row.
     if (e.type === "FOUL" && e.foul_kind === "offensive" && rows.length > 0) {
       const prev = rows[rows.length - 1];
-      if (prev.type === "TOV" && prev.possession === e.possession && prev.player_id === e.player_id) {
-        const removedIdx = rows.length - 1;
+      if (
+        prev.parent.type === "TOV" &&
+        prev.parent.possession === e.possession &&
+        prev.parent.player_id === e.player_id
+      ) {
         rows.pop();
-        // Any suffix on the removed TOV (shouldn't happen — STL doesn't co-occur
-        // with an offensive foul) would be lost; drop it explicitly.
-        delete suffix[removedIdx];
-        rows.push(e);
+        rows.push({ parent: e, suffix: "", types: new Set<SimEventType>([e.type, "TOV"]) });
         continue;
       }
     }
 
-    rows.push(e);
+    rows.push({ parent: e, suffix: "", types: new Set<SimEventType>([e.type]) });
   }
-  return { rows, suffix };
+  return rows;
 }
 
-// Descriptions come from describe_typed_event. Pull the leading player name for
-// inline collation. Matches both the legacy shapes ("P assist" / "P blocks the
-// shot" / "P steal") and the enriched forms ("P assists Q's mid-range jumper" /
-// "P blocks Q's layup" / "P steals from Q").
 function extractName(desc: string | null | undefined): string | null {
   if (!desc) return null;
   const m = desc.match(/^(.+?) (assists?|blocks?|steals?)\b/);
   return m ? m[1] : null;
 }
 
+function periodLabel(quarter: number): string {
+  return quarter <= 4 ? `Q${quarter}` : `OT${quarter - 4}`;
+}
+
 export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
   const [open, setOpen] = useState(false);
   const events = game.events ?? [];
+
+  // Every hook that follows must run on every render even when we return null
+  // — collate + filter memos are always live so React sees a stable order.
+  const rows = useMemo(() => collate(events), [events]);
+  const maxQuarter = useMemo(
+    () => rows.reduce((m, r) => Math.max(m, r.parent.quarter), 1),
+    [rows]
+  );
+
+  const [quarterFilter, setQuarterFilter] = useState<number | "all">("all");
+  const [search, setSearch] = useState("");
+  const [activeChips, setActiveChips] = useState<Set<SimEventType>>(new Set());
+
+  const toggleChip = (t: SimEventType) =>
+    setActiveChips((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+
+  const searchLower = search.trim().toLowerCase();
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (!r.parent.description) return false;
+      if (quarterFilter !== "all" && r.parent.quarter !== quarterFilter) return false;
+      if (activeChips.size > 0) {
+        let any = false;
+        for (const t of activeChips) {
+          if (r.types.has(t)) { any = true; break; }
+        }
+        if (!any) return false;
+      }
+      if (searchLower) {
+        const desc = r.parent.description.toLowerCase();
+        const suff = r.suffix.toLowerCase();
+        if (!desc.includes(searchLower) && !suff.includes(searchLower)) return false;
+      }
+      return true;
+    });
+  }, [rows, quarterFilter, activeChips, searchLower]);
+
   if (events.length === 0) return null;
 
-  const { rows, suffix } = collate(events);
+  const quarters: (number | "all")[] = ["all"];
+  for (let q = 1; q <= maxQuarter; q++) quarters.push(q);
 
   return (
     <>
@@ -89,27 +142,70 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
       </div>
       {open && (
         <div className="pbp">
-          <table>
-            <tbody>
-              {rows
-                .filter((e) => e.description)
-                .map((e, i) => {
-                  const period = e.quarter <= 4 ? `Q${e.quarter}` : `OT${e.quarter - 4}`;
+          <div className="pbp-filters">
+            <div className="pbp-quarters" role="group" aria-label="Quarter filter">
+              {quarters.map((q) => (
+                <button
+                  key={q}
+                  className={quarterFilter === q ? "pbp-quarter on" : "pbp-quarter"}
+                  onClick={() => setQuarterFilter(q)}
+                >
+                  {q === "all" ? "All" : periodLabel(q)}
+                </button>
+              ))}
+            </div>
+            <input
+              className="pbp-search"
+              type="search"
+              placeholder="Search descriptions…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search play-by-play"
+            />
+            <div className="pbp-chips" role="group" aria-label="Event type filter">
+              {CHIP_ORDER.map((t) => (
+                <button
+                  key={t}
+                  className={activeChips.has(t) ? "pbp-chip on" : "pbp-chip"}
+                  onClick={() => toggleChip(t)}
+                >
+                  {t}
+                </button>
+              ))}
+              {activeChips.size > 0 && (
+                <button
+                  className="pbp-chip pbp-chip-clear"
+                  onClick={() => setActiveChips(new Set())}
+                  aria-label="Clear event type filters"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+          {filteredRows.length === 0 ? (
+            <p className="pbp-empty">No events match the filter.</p>
+          ) : (
+            <table>
+              <tbody>
+                {filteredRows.map((r, i) => {
+                  const e = r.parent;
                   const h = e.running_home_score ?? "";
                   const a = e.running_away_score ?? "";
-                  const text = suffix[i] ? `${e.description} ${suffix[i]}` : e.description;
+                  const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
                   return (
                     <tr key={i} className={e.is_home ? "home" : "away"}>
                       <td className="clock">
-                        {period} {clock(e.game_clock_seconds)}
+                        {periodLabel(e.quarter)} {clock(e.game_clock_seconds)}
                       </td>
                       <td className="score">{a}-{h}</td>
                       <td>{text}</td>
                     </tr>
                   );
                 })}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </>

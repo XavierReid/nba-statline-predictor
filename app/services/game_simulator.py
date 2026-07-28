@@ -407,20 +407,14 @@ def simulate_game(
                             quarter_clock = max(0.0, quarter_clock - foul_time)
                             gs.game_clock += foul_time
                             diag.record_possession("strategic_foul", foul_time)
-                            pts = ftm
-                            if current_is_home:
-                                gs.home_score += pts
-                                gs.quarter_scores["home"][q_idx] += pts
-                            else:
-                                gs.away_score += pts
-                                gs.quarter_scores["away"][q_idx] += pts
                             gs.possession_number += 1
                             # Pick a defender to display as the fouler. Foul-rate
                             # weighted so the choice mirrors the normal non-shooting
-                            # foul selection in possession.py. The FOUL event flows
-                            # through apply_typed_event below so the fouler's PF is
-                            # credited to the live box — matches real NBA and keeps
-                            # the derived box consistent with the sim-live box.
+                            # foul selection in possession.py. Both FOUL and FT
+                            # events flow through apply_typed_event below —
+                            # `apply_typed_event` is the sole accounting sink, so
+                            # PF, FTA/FTM, and points all reach the box and the
+                            # score via the same event stream (no bypass paths).
                             defense_on_court = [
                                 p for p in (away_players if current_is_home else home_players)
                                 if p["id"] in (away_ids if current_is_home else home_ids)
@@ -452,15 +446,26 @@ def simulate_game(
                             if name_map is not None:
                                 for tev in strategic_events:
                                     tev["description"] = describe_typed_event(tev, name_map)
-                            # Apply to live box. apply_typed_event short-circuits
-                            # strategic FT (points already added via gs above) but
-                            # credits PF on the FOUL. If the fouler hit 6, patch the
-                            # rotation — same handling as normal foul-outs.
+                            # Route strategic events through the sole accounting
+                            # sink. FOUL credits PF; FT events credit FTA/FTM/pts
+                            # on the target and their summed pts drive the score
+                            # update below. sum(ev_pts) == ftm by construction,
+                            # so this is score-invariant vs the previous direct
+                            # `gs.home_score += ftm` path — same numbers, one
+                            # pipeline.
                             strategic_fouled_out_pid: Optional[int] = None
+                            strategic_pts = 0
                             for tev in strategic_events:
-                                _, ev_fo = apply_typed_event(box, tev)
+                                ev_pts, ev_fo = apply_typed_event(box, tev)
+                                strategic_pts += ev_pts
                                 if ev_fo is not None:
                                     strategic_fouled_out_pid = ev_fo
+                            if current_is_home:
+                                gs.home_score += strategic_pts
+                                gs.quarter_scores["home"][q_idx] += strategic_pts
+                            else:
+                                gs.away_score += strategic_pts
+                                gs.quarter_scores["away"][q_idx] += strategic_pts
                             if strategic_fouled_out_pid:
                                 current_minute = min(
                                     GAME_MINUTES - 1,

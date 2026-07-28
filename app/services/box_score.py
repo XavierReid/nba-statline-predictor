@@ -26,18 +26,14 @@ def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
     """Apply one typed event (SHOT / FOUL / FT / REB / TOV / STL / BLK / AST) to
     the box score in place.
 
-    Returns (pts_scored, fouled_out_player_id or None). Same return contract as
-    the legacy `apply_event` so the caller (simulate_game) can trigger rotation
-    patching on a foul-out without other changes.
+    Returns (pts_scored, fouled_out_player_id or None). This is the SOLE
+    accounting sink for the game: box, points, and foul-outs all derive from
+    typed events routed through here. No `strategic` special case — the
+    strategic-foul path emits typed FOUL + FT events like every other outcome,
+    and this function treats them identically. `simulate_game` uses the returned
+    `pts_scored` to update `gs.home_score`/`quarter_scores` (there is no other
+    write path).
     """
-    # Strategic (intentional) FT events skip the box: the strategic-foul path in
-    # simulate_game awards points directly via `gs.home_score/away_score`, so
-    # flowing FTs through here would double-count. Strategic FOUL events, in
-    # contrast, DO credit the fouler's PF — real NBA behavior, and it keeps the
-    # live box consistent with derive_box_score over the same event stream.
-    if event.get("strategic") and event.get("type") == "FT":
-        return 0, None
-
     etype = event["type"]
     pid = event.get("player_id")
     fouled_out_pid: Optional[int] = None

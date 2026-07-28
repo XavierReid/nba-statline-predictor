@@ -196,16 +196,25 @@ def sim_accounting(label: str, games: Iterable[dict]) -> PossessionAccounting:
             tg["fta"] += p["fta"]; tg["ftm"] += p["ftm"]
             tg["tov"] += p["tov"]; tg["pts"] += p["pts"]
         for e in g["events"]:
-            st = e.get("shot_type")
-            if st in _SIM_ZONE:
-                z = _SIM_ZONE[st]
-                zone_fga[z] += 1
-                if e.get("made"):
-                    zone_fgm[z] += 1
-                if st == "corner_three":
-                    corner_fga += 1
-                elif st in ("above_break_three", "three"):
-                    above_fga += 1
+            # Only real shot attempts count as FGA. Post-PR #9 AST and BLK events
+            # also carry a `shot_type` field for display context (so a filtered
+            # modal view can say "P blocks Q's layup"), so we MUST gate on
+            # `type == "SHOT"` before treating shot_type as an attempt marker.
+            # Prior to that filter this loop was triple-counting: each made shot
+            # showed up as SHOT (an actual attempt) plus an AST event that carried
+            # the same shot_type, pushing zone FGA denominators up ~30% and sim
+            # FG% down ~15pp with no real behavior change.
+            if e.get("type") == "SHOT":
+                st = e.get("shot_type")
+                if st in _SIM_ZONE:
+                    z = _SIM_ZONE[st]
+                    zone_fga[z] += 1
+                    if e.get("made"):
+                        zone_fgm[z] += 1
+                    if st == "corner_three":
+                        corner_fga += 1
+                    elif st in ("above_break_three", "three"):
+                        above_fga += 1
             if e.get("is_oreb"):
                 tg["oreb"] += 1
 

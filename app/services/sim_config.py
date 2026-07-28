@@ -33,6 +33,18 @@ class SimConfig:
     roster_depth: int = 10             # players loaded per team (availability draws the active set from these)
     availability_min_active: int = 8   # floor on active players dressed per game
     availability_minutes_cap: float = 40.0  # soft cap: short-handed surplus fills toward this (bench absorbs)
+    # Convert real POST-negation zone FG% (per-player rim/nonrim/three_fg_prob, computed
+    # from ra_fgm/ra_fga etc — real NBA already excludes fouled-miss FGAs per PR #8 accounting)
+    # into a PRE-negation make probability at roster load time. Without this the sim
+    # double-counts the negation lift: it treats real observed FG% as the raw shot-make
+    # rate, then applies its OWN PR #8 negation on top, inflating observed FG% by ~5pp on
+    # interior/mid (~+3.8pp aggregate). Session 2 (2026-07-27) proved causal closure —
+    # predicted inflation matches measured to within 0.2pp cross-era. OFF by default:
+    # engaging this exposes a volume compensator (the observed FG% overshoot has been
+    # silently offsetting a possessions/FTA deficit), so team scoring is expected to
+    # regress ~5-6 pts/team-game when flipped. See Session 3 memory for the compensation
+    # investigation before integrating into a default preset.
+    use_pre_negation_probs: bool = False
     use_lineup_creation: bool = False  # gap 3.4g: shooter make-prob shifts with teammates' creation (EXPERIMENTAL)
     creation_form: str = "usage_pass_space"  # CREATION_FORMS definition (chosen by paired-counterfactual sweep)
     creation_k: float = 0.0            # coefficient on the mean-zero lineup-creation shift

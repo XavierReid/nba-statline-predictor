@@ -36,6 +36,38 @@ _FT_SHRINK_PRIOR_ATTEMPTS = 20.0  # low-volume shooters shrink toward league ave
 _ZONE_SHRINK_PRIOR_ATTEMPTS = 40.0
 _ZONE_PRIOR_CACHE: dict = {}
 
+# Per-zone fraction of missed shots drawing shooting fouls in the sim.
+# Used ONLY when the pre-negation transform is enabled (SimConfig.use_pre_negation_probs);
+# default OFF means the fixture stays byte-identical. Measured 2026-07-27 via
+# scratch/interior_shot_diagnostic.py on DRAMA_M3, 50 games each on 2024-25 and 2016-17,
+# averaged across the two eras:
+#   rim (layup+dunk):     2024-25 0.226, 2016-17 0.252 -> 0.24
+#   nonrim (mid+floater): 2024-25 0.181, 2016-17 0.202 -> 0.19
+#   three (both types):   2024-25 0.038, 2016-17 0.055 -> 0.05
+# These are SIM-measured rates because the transform inverts SIM's own PR#8 negation, not
+# real's. If sim foul-drawing rates drift, these constants would need re-measurement.
+_ZONE_FOUL_MISS_RATE = {
+    "rim": 0.24,
+    "nonrim": 0.19,
+    "three": 0.05,
+}
+
+
+def _pre_negation_prob(obs_post_neg, f_miss: float):
+    """Convert a real POST-negation zone FG% (`ra_fgm/ra_fga` etc — real NBA excludes
+    fouled-miss FGAs per PR #8 accounting) into the corresponding PRE-negation make
+    probability the sim should use as its shot-outcome base. Session 2 causal closure
+    (2026-07-27) proved this to within 0.2pp both eras.
+
+    Identity:  observed = p / (p + (1-p)(1-f))  ->  p = obs*(1-f) / (1 - obs*f)
+
+    Passthrough on None / boundary values so callers can pipe the shrunk output
+    straight through without null-checking.
+    """
+    if obs_post_neg is None or obs_post_neg <= 0.0 or obs_post_neg >= 1.0:
+        return obs_post_neg
+    return round(obs_post_neg * (1.0 - f_miss) / (1.0 - obs_post_neg * f_miss), 4)
+
 # Seasons whose rosters the `players` table reflects (the live-roster snapshot).
 # These use CURRENT mode so every existing calibration baseline stays byte-identical;
 # every other season is treated as historical.
@@ -76,7 +108,8 @@ class RosterProvider(ABC):
     def _team_membership(self, team_id: int):
         """SQLAlchemy filter selecting this team's players for the season."""
 
-    def load(self, db: Session, team_id: int, season: str, depth: int = 10) -> list[dict]:
+    def load(self, db: Session, team_id: int, season: str, depth: int = 10,
+             pre_negation: bool = False) -> list[dict]:
         """Load the top `depth` players by minutes for a team in a given season.
 
         Minutes are games-weighted (see _build_roster) so each player keeps their real
@@ -84,6 +117,10 @@ class RosterProvider(ABC):
         model. The availability model (gap 3.4) loads deeper (e.g. 14) and draws per-game
         availability from games_played; loading deeper WITHOUT availability over-benched
         stars in garbage time (the reverted 15-player experiment). Empty list if no stats.
+
+        `pre_negation=True` applies the pre-negation transform to per-player zone FG%
+        values (see `_pre_negation_prob`) — an experimental toggle for Session 3 of
+        the make-model residual arc. Default False keeps byte-identical behavior.
         """
         rows = db.execute(
             select(Player, PlayerAttributes, PlayerTendencies, PlayerSeasonStats)
@@ -97,7 +134,7 @@ class RosterProvider(ABC):
             .order_by(PlayerSeasonStats.minutes_per_game.desc())
             .limit(depth)
         ).all()
-        roster = _build_roster(rows, _league_zone_prior(db, season))
+        roster = _build_roster(rows, _league_zone_prior(db, season), pre_negation=pre_negation)
         # Calibrate each player's per-game availability to the season's real active count
         # (game logs, when ingested). Harmless when availability is off — an unused field.
         from app.services.availability import season_active_target, calibrate_avail_prob
@@ -123,9 +160,16 @@ def roster_provider_for(season: str) -> RosterProvider:
     return HistoricalRosterProvider()
 
 
-def load_roster(db: Session, team_id: int, season: str, depth: int = 10) -> list[dict]:
-    """Public entry point — delegates to the roster provider for the season."""
-    return roster_provider_for(season).load(db, team_id, season, depth)
+def load_roster(db: Session, team_id: int, season: str, depth: int = 10,
+                pre_negation: bool = False) -> list[dict]:
+    """Public entry point — delegates to the roster provider for the season.
+
+    `pre_negation=True` applies the pre-negation transform to per-player zone FG%s.
+    Default False = current behavior. Callers who own their own load path (e.g.,
+    `simulate_schedule` in decomposition.py, calibration harness scripts) opt in
+    explicitly; `simulate_game`'s internal load passes `cfg.use_pre_negation_probs`.
+    """
+    return roster_provider_for(season).load(db, team_id, season, depth, pre_negation=pre_negation)
 
 
 def _league_zone_prior(db: Session, season: str) -> dict:
@@ -171,7 +215,7 @@ def _shrunk_zone_prob(fgm_pg, fga_pg, gp, prior_fg) -> Optional[float]:
                  / (att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
 
 
-def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
+def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = False) -> list[dict]:
     if not rows:
         return []
     zone_prior = zone_prior or {"rim": None, "paint": None, "mid": None}
@@ -247,6 +291,13 @@ def _build_roster(rows, zone_prior: Optional[dict] = None) -> list[dict]:
         rim = _shrunk_zone_prob(s.ra_fgm, s.ra_fga, gp, zone_prior["rim"])
         nonrim = _shrunk_zone_prob(nonrim_fgm, nonrim_fga, gp, zone_prior["nonrim"])
         three = _shrunk_zone_prob(s.fg3m, s.fg3a, gp, zone_prior["three"])
+        if pre_negation:
+            # Invert sim's PR#8 negation once at load time so the sim treats these
+            # values as raw make probs (not double-counted post-neg data). See
+            # `_pre_negation_prob` doc + Session 2 causal proof.
+            rim = _pre_negation_prob(rim, _ZONE_FOUL_MISS_RATE["rim"])
+            nonrim = _pre_negation_prob(nonrim, _ZONE_FOUL_MISS_RATE["nonrim"])
+            three = _pre_negation_prob(three, _ZONE_FOUL_MISS_RATE["three"])
         if rim is not None:
             players[-1]["rim_fg_prob"] = rim
         if nonrim is not None:

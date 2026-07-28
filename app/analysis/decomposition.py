@@ -38,9 +38,14 @@ def simulate_schedule(db, season: str, config, sims_per_game: int) -> List[dict]
             Game.home_score.isnot(None),
         )
     ).scalars().all()
+    # The pre-negation transform (Session 3) is applied at load time when the
+    # config toggle is on. simulate_game only re-loads if it receives an
+    # under-depth roster, so any caller that loads rosters itself MUST propagate
+    # `pre_negation` — otherwise the flag is silently ignored end-to-end.
+    pre_negation = getattr(config, "use_pre_negation_probs", False)
     rosters = {}
     for t in db.execute(select(Team)).scalars().all():
-        r = load_roster(db, t.id, season)
+        r = load_roster(db, t.id, season, pre_negation=pre_negation)
         if r:
             rosters[t.id] = r
 

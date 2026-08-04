@@ -215,12 +215,14 @@ class SimConfig:
     # blocks/team/game ≈ real 4.9 (sim was ~1.0 from the forced-miss path alone). 0 =
     # off (pre-3.5 behavior).
     block_attribution_scale: float = 0.60
-    # Steal rate (gap 3.5): live-ball steal prob = best on-ball defender's steal attr /
-    # 100 × this. Raised from the old 0.034 so steals ≈ real 8.1/team (was ~3.0); total
-    # TOV is held at real ~13.4 by lowering tov_scale in tandem (a steal and an unforced
-    # turnover are both a turnover charged to the ball handler — composition shift, not
-    # more turnovers). Real steals are ~60% of TOV; the sim was ~20%.
-    steal_rate: float = 0.093
+    # Steal rate (gap 3.5, Session 6a re-anchor): live-ball steal prob = best on-ball
+    # defender's steal attr / 100 × this. Originally raised from 0.034 so steals hit real
+    # ~8.1/team (was ~3.0); tuned again 2026-07-30 from 0.093 → 0.086 to close the +0.6-0.7
+    # cross-era STL excess measured after Session 5's tov_scale change. Sweep at {0.05,
+    # 0.093, 0.15} confirmed clean isolation (unforced TOV, FG%, possessions unchanged);
+    # 2024-25 sweet spot ≈ 0.087, 2016-17 ≈ 0.086 — single-constant cross-era invariance
+    # to within 0.001. Real steals are ~60% of TOV; the sim was ~20% pre-3.5.
+    steal_rate: float = 0.086
     # Only a FRACTION of steals lead to a transition possession — decouples the (now
     # realistic) steal COUNT from fast-break frequency so the measured possession/pace
     # budget (fastbreak_poss_frac) still holds. Set so fast breaks stay ~constant vs the

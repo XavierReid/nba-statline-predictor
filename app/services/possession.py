@@ -707,8 +707,10 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
             result["fta"] = 3
             result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(3, ft_prob, rng)
         _credit_ft_rebound(ctx, result, last_missed)
-    # 2PT shooting foul — base 0.13 under foul drawing (multiplier averages ~1.16), else 0.15
-    elif coarse_type != "three" and rng.random() < (0.13 if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
+    # 2PT shooting foul — base under foul drawing lives on cfg (default 0.13, multiplier
+    # averages ~1.16), else fixed 0.15. Exposing this narrow lever separately from
+    # shooting_foul_scale lets calibration touch 2PT-only without also moving the 3PT path.
+    elif coarse_type != "three" and rng.random() < (cfg.shooting_foul_2pt_base if cfg.use_foul_drawing else 0.15) * shoot_foul_mult * and1 * foul_conv * shooter_draw:
         result["fouled_by"] = defender["id"]
         if result["made"]:
             result["fta"] = 1

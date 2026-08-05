@@ -144,6 +144,12 @@ class SimConfig:
     # fouls under-produced FTA; with the bonus system gating non-shooting FTs, real FTA
     # (~21.8, mostly shooting fouls) needs this >1. Swept in Stage 1.
     shooting_foul_scale: float = 1.0
+    # Base probability of a shooting foul on a 2PT attempt, under use_foul_drawing.
+    # 0.13 is the modern-calibrated default that pairs with _FOUL_DRAW_MULT (which averages
+    # ~1.16 over sub-types). Exposed as a config field so cross-era calibration can move
+    # this narrow lever without touching shooting_foul_scale (which also drives 3PT fouls).
+    # Only consumed when cfg.use_foul_drawing=True; the non-foul-drawing path uses a fixed 0.15.
+    shooting_foul_2pt_base: float = 0.13
     # Multiplier on the shooting-foul rate when the shot was MADE (and-1). <1 thins
     # and-1s toward the real ~25% share (vs the sim's ~50% from make-independent rolls),
     # so FTA can be raised via 2-shot fouls on misses without inflating scoring. 1.0 = off.

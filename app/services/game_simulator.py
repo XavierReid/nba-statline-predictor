@@ -117,6 +117,16 @@ def simulate_game(
         home_players = select_active_roster(home_pool, rng, cfg)
         away_players = select_active_roster(away_pool, rng, cfg)
 
+    # Era-anchored league normalization for the foul model. Built from the FULL
+    # pool (pre-availability) so the anchor reflects the season's rostered pool,
+    # not tonight's active subset. Only computed when the toggle is on; when off,
+    # ctx.season_ctx stays None and possession.py falls back to module constants
+    # (byte-identical to previous behavior).
+    season_ctx = None
+    if cfg.use_season_context and season:
+        from app.services.season_context import build_season_context
+        season_ctx = build_season_context(season, [home_pool, away_pool])
+
     home_by_id = {p["id"]: p for p in home_players}
     away_by_id = {p["id"]: p for p in away_players}
     name_map = (
@@ -265,6 +275,7 @@ def simulate_game(
             defense_in_bonus=defense_in_bonus,
             foul_counts={p["id"]: box[p["id"]]["pf"] for p in defense if p["id"] in box} if cfg.use_foul_caution else None,
             resumed_after_foul=resumed_after_foul,
+            season_ctx=season_ctx,
         )
         event = resolve_possession(ctx)
 

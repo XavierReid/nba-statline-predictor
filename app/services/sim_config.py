@@ -45,6 +45,15 @@ class SimConfig:
     # regress ~5-6 pts/team-game when flipped. See Session 3 memory for the compensation
     # investigation before integrating into a default preset.
     use_pre_negation_probs: bool = False
+    # Era-anchored league normalization for foul model (2026-08-05). The three anchors
+    # `_SHOOTER_DRAW_ANCHOR`, `LEAGUE_FOUL_RATE`, `_LEAGUE_AVG_FOUL_DRAW_RATE` in
+    # possession.py are hard-coded modern (2024-25) means. Applied to older-era rosters
+    # they multiplicatively over-produce FTA — measured cross-era: sim 2000-01 vs 2024-25
+    # excess = +11.6 FTA/tg (real ~+3.4), monotonically growing with era distance,
+    # 100% carried by shooting_2pt_miss (76%) + bonus_nonshooting (26%) channels.
+    # When ON, a SeasonContext computed from the season's own player pool replaces the
+    # constants. OFF by default until byte-invariance + cross-era validation ship.
+    use_season_context: bool = False
     use_lineup_creation: bool = False  # gap 3.4g: shooter make-prob shifts with teammates' creation (EXPERIMENTAL)
     creation_form: str = "usage_pass_space"  # CREATION_FORMS definition (chosen by paired-counterfactual sweep)
     creation_k: float = 0.0            # coefficient on the mean-zero lineup-creation shift

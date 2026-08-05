@@ -159,12 +159,18 @@ _FOUL_CAUTION: Dict[int, float] = {3: 0.77, 4: 0.60, 5: 0.60}
 LEAGUE_FOUL_RATE: float = 0.085
 
 
-def _lineup_foul_level(defense) -> float:
+def _lineup_foul_level(defense, ctx=None) -> float:
     """Mean measured foul_rate of the on-court defenders relative to the league anchor. >1 for a
     foul-prone (old-era) lineup, <1 for a clean (modern) lineup — this is what makes the team
-    foul LEVEL track the era instead of being flat. Applied to the non-shooting hazard only."""
+    foul LEVEL track the era instead of being flat. Applied to the non-shooting hazard only.
+
+    Anchor is the module-level `LEAGUE_FOUL_RATE` (modern-calibrated) unless
+    `ctx.season_ctx` is set (SimConfig.use_season_context=True), in which case
+    the season's own minutes-weighted foul_rate mean is used — old-era rosters
+    then self-normalize instead of amplifying against a modern constant."""
     m = sum(d.get("foul_rate", 0.09) for d in defense) / len(defense)
-    return m / LEAGUE_FOUL_RATE
+    anchor = ctx.season_ctx.league_foul_rate if ctx is not None and ctx.season_ctx else LEAGUE_FOUL_RATE
+    return m / anchor
 
 
 def _foul_caution(ctx, defender_id) -> float:
@@ -364,9 +370,10 @@ def _nonshooting_foul_prob(ctx, ball_handler: dict) -> float:
     if not cfg.use_foul_drawing:
         prob = 0.055
     else:
-        raw_rate = ball_handler.get("foul_drawing_rate") or _LEAGUE_AVG_FOUL_DRAW_RATE
+        floor = ctx.season_ctx.league_avg_foul_draw_rate if ctx.season_ctx else _LEAGUE_AVG_FOUL_DRAW_RATE
+        raw_rate = ball_handler.get("foul_drawing_rate") or floor
         raw_rate = min(raw_rate, _FOUL_DRAW_RATE_CAP)
-        prob = max(raw_rate * cfg.foul_draw_scale, _LEAGUE_AVG_FOUL_DRAW_RATE * cfg.foul_draw_scale)
+        prob = max(raw_rate * cfg.foul_draw_scale, floor * cfg.foul_draw_scale)
 
     if cfg.use_behavior_profile:
         # Phase profile owns competitive-late fouling (replaces the M3e clock zones).
@@ -416,7 +423,7 @@ def _select_action(ctx, result: dict) -> Action:
     # otherwise re-enters the pipeline normally (shot selection, steals, turnovers, shooting fouls).
     ns_prob = 0.0 if ctx.resumed_after_foul else _nonshooting_foul_prob(ctx, ball_handler)
     if cfg.use_foul_rate_level and ns_prob:
-        ns_prob *= _lineup_foul_level(defense)   # era-level: fewer non-shooting fouls for a clean lineup
+        ns_prob *= _lineup_foul_level(defense, ctx)   # era-level: fewer non-shooting fouls for a clean lineup
     if rng.random() < ns_prob:
         # A non-shooting foul isn't tied to a specific shot contest, so the fouler is
         # drawn WEIGHTED by each defender's measured per-minute foul propensity rather
@@ -685,8 +692,9 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     # defender side (foul_conv) is already lineup-mean normalized. Stars draw shooting fouls at
     # their real elevated rate; flat before this (FTA/FGA ~0.24 for all vs real 0.35 star / 0.22 bench).
     if cfg.use_foul_drawing:
-        shooter_draw = min(ball_handler.get("foul_drawing_rate") or _SHOOTER_DRAW_ANCHOR,
-                           _FOUL_DRAW_RATE_CAP) / _SHOOTER_DRAW_ANCHOR
+        anchor = ctx.season_ctx.shooter_draw_anchor if ctx.season_ctx else _SHOOTER_DRAW_ANCHOR
+        shooter_draw = min(ball_handler.get("foul_drawing_rate") or anchor,
+                           _FOUL_DRAW_RATE_CAP) / anchor
     else:
         shooter_draw = 1.0
     # 3PT shooting foul (~2% x sub-type multiplier)

@@ -39,12 +39,10 @@ class SimConfig:
     # double-counts the negation lift: it treats real observed FG% as the raw shot-make
     # rate, then applies its OWN PR #8 negation on top, inflating observed FG% by ~5pp on
     # interior/mid (~+3.8pp aggregate). Session 2 (2026-07-27) proved causal closure —
-    # predicted inflation matches measured to within 0.2pp cross-era. OFF by default:
-    # engaging this exposes a volume compensator (the observed FG% overshoot has been
-    # silently offsetting a possessions/FTA deficit), so team scoring is expected to
-    # regress ~5-6 pts/team-game when flipped. See Session 3 memory for the compensation
-    # investigation before integrating into a default preset.
-    use_pre_negation_probs: bool = False
+    # predicted inflation matches measured to within 0.2pp cross-era. Shipped ON as part
+    # of the season_context merge (2026-08-05); paired with use_season_context, produces
+    # roughly uniform ~-2 pts cross-era under-scoring instead of era-scaled overshoot.
+    use_pre_negation_probs: bool = True
     # Era-anchored league normalization for foul model (2026-08-05). The three anchors
     # `_SHOOTER_DRAW_ANCHOR`, `LEAGUE_FOUL_RATE`, `_LEAGUE_AVG_FOUL_DRAW_RATE` in
     # possession.py are hard-coded modern (2024-25) means. Applied to older-era rosters
@@ -52,8 +50,11 @@ class SimConfig:
     # excess = +11.6 FTA/tg (real ~+3.4), monotonically growing with era distance,
     # 100% carried by shooting_2pt_miss (76%) + bonus_nonshooting (26%) channels.
     # When ON, a SeasonContext computed from the season's own player pool replaces the
-    # constants. OFF by default until byte-invariance + cross-era validation ship.
-    use_season_context: bool = False
+    # constants. Shipped ON (2026-08-05) — flattens cross-era scoring error from ~7 pts
+    # span to ~2 pts, at the cost of a ~3 pt modern regression (deliberate — the old
+    # hard-coded anchors were doing hidden level calibration; recovering the modern
+    # number by adding compensating anchors would recreate the hidden-calibration bug).
+    use_season_context: bool = True
     use_lineup_creation: bool = False  # gap 3.4g: shooter make-prob shifts with teammates' creation (EXPERIMENTAL)
     creation_form: str = "usage_pass_space"  # CREATION_FORMS definition (chosen by paired-counterfactual sweep)
     creation_k: float = 0.0            # coefficient on the mean-zero lineup-creation shift

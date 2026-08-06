@@ -1,0 +1,22 @@
+{
+  "captured": "2026-08-05",
+  "config": "DRAMA_M3 defaults (use_season_context=True, use_pre_negation_probs=True)",
+  "note": "Reference numbers from the season-context merge. Real anchors are rigorous (from PlayerSeasonStats). Sim anchors are full-schedule simulate_schedule runs. Compare pre-merge for any foul-model change via scratch/cross_era_regression_report.py.",
+  "seasons": {
+    "2024-25": {
+      "real": {"pf": 18.67, "fta": 21.77, "ftm": 16.99, "tov": 13.56, "fga": 89.61, "pts": 114.28},
+      "sim":  {"pf": 21.46, "fta": 24.33, "ftm": 18.87, "tov": 13.49, "fga": 83.30, "pts": 111.03},
+      "err":  {"pf": 2.79, "fta": 2.56, "pts": -3.25, "fga": -6.31, "fta_pf_ratio_sim": 1.134, "fta_pf_ratio_real": 1.166}
+    },
+    "2016-17": {
+      "real": {"pf": 19.91, "fta": 23.12, "ftm": 17.84, "tov": 13.37, "fga": 85.41, "pts": 105.59},
+      "sim":  {"pf": 23.22, "fta": 27.27, "ftm": 20.96, "tov": 13.15, "fga": 78.79, "pts": 103.48},
+      "err":  {"pf": 3.30, "fta": 4.15, "pts": -2.11, "fga": -6.62, "fta_pf_ratio_sim": 1.175, "fta_pf_ratio_real": 1.161}
+    },
+    "2000-01": {
+      "real": {"pf": 22.36, "fta": 24.89, "ftm": 18.60, "tov": 14.40, "fga": 80.61, "pts": 94.84},
+      "sim":  {"pf": 24.47, "fta": 29.31, "ftm": 21.75, "tov": 12.94, "fga": 73.84, "pts": 93.55},
+      "err":  {"pf": 2.11, "fta": 4.41, "pts": -1.29, "fga": -6.76, "fta_pf_ratio_sim": 1.198, "fta_pf_ratio_real": 1.114}
+    }
+  }
+}

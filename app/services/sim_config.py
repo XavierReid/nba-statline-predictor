@@ -39,12 +39,22 @@ class SimConfig:
     # double-counts the negation lift: it treats real observed FG% as the raw shot-make
     # rate, then applies its OWN PR #8 negation on top, inflating observed FG% by ~5pp on
     # interior/mid (~+3.8pp aggregate). Session 2 (2026-07-27) proved causal closure —
-    # predicted inflation matches measured to within 0.2pp cross-era. OFF by default:
-    # engaging this exposes a volume compensator (the observed FG% overshoot has been
-    # silently offsetting a possessions/FTA deficit), so team scoring is expected to
-    # regress ~5-6 pts/team-game when flipped. See Session 3 memory for the compensation
-    # investigation before integrating into a default preset.
-    use_pre_negation_probs: bool = False
+    # predicted inflation matches measured to within 0.2pp cross-era. Shipped ON as part
+    # of the season_context merge (2026-08-05); paired with use_season_context, produces
+    # roughly uniform ~-2 pts cross-era under-scoring instead of era-scaled overshoot.
+    use_pre_negation_probs: bool = True
+    # Era-anchored league normalization for foul model (2026-08-05). The three anchors
+    # `_SHOOTER_DRAW_ANCHOR`, `LEAGUE_FOUL_RATE`, `_LEAGUE_AVG_FOUL_DRAW_RATE` in
+    # possession.py are hard-coded modern (2024-25) means. Applied to older-era rosters
+    # they multiplicatively over-produce FTA — measured cross-era: sim 2000-01 vs 2024-25
+    # excess = +11.6 FTA/tg (real ~+3.4), monotonically growing with era distance,
+    # 100% carried by shooting_2pt_miss (76%) + bonus_nonshooting (26%) channels.
+    # When ON, a SeasonContext computed from the season's own player pool replaces the
+    # constants. Shipped ON (2026-08-05) — flattens cross-era scoring error from ~7 pts
+    # span to ~2 pts, at the cost of a ~3 pt modern regression (deliberate — the old
+    # hard-coded anchors were doing hidden level calibration; recovering the modern
+    # number by adding compensating anchors would recreate the hidden-calibration bug).
+    use_season_context: bool = True
     use_lineup_creation: bool = False  # gap 3.4g: shooter make-prob shifts with teammates' creation (EXPERIMENTAL)
     creation_form: str = "usage_pass_space"  # CREATION_FORMS definition (chosen by paired-counterfactual sweep)
     creation_k: float = 0.0            # coefficient on the mean-zero lineup-creation shift
@@ -135,6 +145,12 @@ class SimConfig:
     # fouls under-produced FTA; with the bonus system gating non-shooting FTs, real FTA
     # (~21.8, mostly shooting fouls) needs this >1. Swept in Stage 1.
     shooting_foul_scale: float = 1.0
+    # Base probability of a shooting foul on a 2PT attempt, under use_foul_drawing.
+    # 0.13 is the modern-calibrated default that pairs with _FOUL_DRAW_MULT (which averages
+    # ~1.16 over sub-types). Exposed as a config field so cross-era calibration can move
+    # this narrow lever without touching shooting_foul_scale (which also drives 3PT fouls).
+    # Only consumed when cfg.use_foul_drawing=True; the non-foul-drawing path uses a fixed 0.15.
+    shooting_foul_2pt_base: float = 0.13
     # Multiplier on the shooting-foul rate when the shot was MADE (and-1). <1 thins
     # and-1s toward the real ~25% share (vs the sim's ~50% from make-independent rolls),
     # so FTA can be raised via 2-shot fouls on misses without inflating scoring. 1.0 = off.

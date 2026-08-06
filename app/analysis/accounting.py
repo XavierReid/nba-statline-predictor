@@ -134,6 +134,10 @@ def real_accounting(db: Session, season: str) -> PossessionAccounting:
     S = lambda f: sum((getattr(r, f) or 0.0) * (r.games_played or 0) for r in rows)
     fga, fg3a, fg3m = S("fga"), S("fg3a"), S("fg3m")
     fta, ftm, tov, pts = S("fta"), S("ftm"), S("turnovers"), S("points")
+    # Real defensive personal fouls per team-game (rigorous, direct from ingested
+    # per-player PF/game). No split by cause: real NBA aggregate stats don't
+    # distinguish shooting vs non-shooting vs offensive without play-by-play data.
+    pf = S("pf_per_game")
     fg2m = (pts - ftm - 3 * fg3m) / 2.0
     fgm = fg2m + fg3m
 
@@ -154,7 +158,7 @@ def real_accounting(db: Session, season: str) -> PossessionAccounting:
     per = lambda v: v / team_games
     tg = {k: per(v) for k, v in dict(
         fga=fga, fgm=fgm, fg3a=fg3a, fg3m=fg3m, fta=fta, ftm=ftm,
-        tov=tov, pts=pts, oreb=oreb).items()}
+        tov=tov, pts=pts, oreb=oreb, pf=pf).items()}
 
     zone_fga = {"interior": per(ra_fga), "mid": per(mid_fga), "three": per(fg3a)}
     zone_fgm = {"interior": per(ra_fgm), "mid": per(mid_fgm), "three": per(fg3m)}
@@ -182,7 +186,7 @@ def sim_accounting(label: str, games: Iterable[dict]) -> PossessionAccounting:
     """Build accounting from simulate_game outputs. Box scores give team totals;
     events give the shot-zone split and offensive-rebound (extension) count."""
     tg = dict(fga=0.0, fgm=0.0, fg3a=0.0, fg3m=0.0, fta=0.0, ftm=0.0,
-              tov=0.0, pts=0.0, oreb=0.0)
+              tov=0.0, pts=0.0, oreb=0.0, pf=0.0)
     zone_fga = {z: 0.0 for z in ZONES}
     zone_fgm = {z: 0.0 for z in ZONES}
     corner_fga = above_fga = 0.0
@@ -195,6 +199,7 @@ def sim_accounting(label: str, games: Iterable[dict]) -> PossessionAccounting:
             tg["fg3a"] += p["fg3a"]; tg["fg3m"] += p["fg3m"]
             tg["fta"] += p["fta"]; tg["ftm"] += p["ftm"]
             tg["tov"] += p["tov"]; tg["pts"] += p["pts"]
+            tg["pf"] += p.get("pf", 0)
         for e in g["events"]:
             # Only real shot attempts count as FGA. Post-PR #9 AST and BLK events
             # also carry a `shot_type` field for display context (so a filtered

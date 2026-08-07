@@ -505,12 +505,6 @@ def simulate_game(
             if next_is_fastbreak:
                 poss_category = "fastbreak"
                 poss_time = max(3.0, min(12.0, rng.gauss(cfg.fastbreak_time_mean, cfg.fastbreak_time_std)))
-            elif next_is_foul_reset:
-                # shot resumed after a pre-bonus non-shooting foul: 14s reset clock, so a short
-                # possession (mirrors the OREB second_chance category; the reset TIME lives here
-                # now instead of being added inline to the foul's own event).
-                poss_category = "foul_reset"
-                poss_time = max(3.0, min(14.0, rng.gauss(cfg.foul_reset_time_mean, cfg.foul_reset_time_std)))
             elif oreb_depth > 0:
                 poss_category = "second_chance"
                 poss_time = max(3.0, min(14.0, rng.gauss(cfg.second_chance_time_mean, cfg.second_chance_time_std)))
@@ -684,34 +678,42 @@ def simulate_game(
                     patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1, box)
 
             next_is_fastbreak = False
-            next_is_foul_reset = False
-            # Pre-bonus non-shooting foul: a discrete dead-ball event. The offense KEEPS the ball
-            # (don't flip) and its objective; the next possession is the resumed shot. Mirrors the
-            # OREB two-event lifecycle, capped like oreb_chain_cap so a foul chain can't run away.
-            if (event.get("shot_clock_reset") and event.get("shot_type") is None
-                    and foul_reset_depth < cfg.foul_reset_chain_cap):
-                foul_reset_depth += 1
-                next_is_foul_reset = True
+            next_is_foul_reset = False  # deprecated under in-line pre-bonus representation
+            # Pre-bonus non-shooting foul is now an in-possession event (see
+            # possession._select_action + _restart_offensive_phase). The
+            # statistical possession does NOT terminate on the foul; the offense
+            # keeps the ball and play resumes within the same resolve_possession
+            # call. What the game_simulator still owns is the CLOCK time that
+            # the foul + inbound consumes — deducted inline here so the total
+            # clock accounting per pre-bonus stat_poss matches the pre-refactor
+            # (halfcourt time + foul_reset_time).
+            if event.get("nonshooting_foul_by") is not None:
+                extra = max(3.0, min(14.0, rng.gauss(cfg.foul_reset_time_mean, cfg.foul_reset_time_std)))
+                extra = min(extra, quarter_clock)
+                quarter_clock -= extra
+                # Attribute the extra time to the foul_reset diagnostic bucket but
+                # do NOT increment the possession COUNT — this is time consumed
+                # WITHIN the same statistical possession (not a new possession).
+                diag.time["foul_reset"] += extra
                 diag.pre_bonus_fouls += 1
+            foul_reset_depth = 0  # cap obsolete under in-line representation
+            rebounded_by = event.get("rebounded_by")
+            offense_ids = home_ids if current_is_home else away_ids
+            is_oreb = (
+                cfg.use_second_chance
+                and rebounded_by is not None
+                and rebounded_by in offense_ids
+                and event.get("shot_type") is not None
+                and not event.get("made")
+            )
+            if is_oreb and oreb_depth < cfg.oreb_chain_cap:
+                oreb_depth += 1
             else:
-                foul_reset_depth = 0
-                rebounded_by = event.get("rebounded_by")
-                offense_ids = home_ids if current_is_home else away_ids
-                is_oreb = (
-                    cfg.use_second_chance
-                    and rebounded_by is not None
-                    and rebounded_by in offense_ids
-                    and event.get("shot_type") is not None
-                    and not event.get("made")
-                )
-                if is_oreb and oreb_depth < cfg.oreb_chain_cap:
-                    oreb_depth += 1
-                else:
-                    oreb_depth = 0
-                    current_is_home = not current_is_home
-                    if (cfg.use_fast_break and event.get("steal_by") is not None
-                            and rng.random() < cfg.steal_fastbreak_prob):
-                        next_is_fastbreak = True
+                oreb_depth = 0
+                current_is_home = not current_is_home
+                if (cfg.use_fast_break and event.get("steal_by") is not None
+                        and rng.random() < cfg.steal_fastbreak_prob):
+                    next_is_fastbreak = True
 
     for reg_q in range(4):
         _run_clock_period(

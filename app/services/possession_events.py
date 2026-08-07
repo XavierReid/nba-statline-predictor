@@ -64,9 +64,22 @@ def possession_to_events(
         "is_home": is_home,
     }
 
-    # Turnover paths first — a possession terminated by TOV never emits a SHOT.
+    events: List[dict] = []
+
+    # Pre-bonus non-shooting foul: possession CONTINUES (statistical possession
+    # is unchanged; play restarts with an inbound). Emit the FOUL FIRST, then
+    # accumulate whatever terminal outcome follows (TOV / bonus / shot). Under
+    # the old representation this was a terminal on its own; under the new one
+    # it's an inline event followed by the resumed outcome.
+    if result.get("nonshooting_foul_by"):
+        events.append(_event(
+            "FOUL", result["nonshooting_foul_by"], header,
+            foul_kind="non_shooting", fouled_on=result.get("nonshooting_foul_on"),
+        ))
+
+    # Turnover paths — a possession terminated by TOV never emits a SHOT.
     if result.get("turnover_by"):
-        events: List[dict] = [_event("TOV", result["turnover_by"], header)]
+        events.append(_event("TOV", result["turnover_by"], header))
         if result.get("steal_by"):
             # `stolen_from` mirrors AST/BLK's `shot_by`: gives the STL event enough
             # context to stand alone in the stealer's modal PBP as "X steals from Y".
@@ -82,20 +95,13 @@ def possession_to_events(
             ))
         return events
 
-    # Non-shooting foul (pre-bonus): terminal, no FTs. Distinct field on result.
-    if result.get("nonshooting_foul_by"):
-        return [_event(
-            "FOUL", result["nonshooting_foul_by"], header,
-            foul_kind="non_shooting", fouled_on=result.get("nonshooting_foul_on"),
-        )]
-
     # Bonus foul: non-shooting foul that awards FTs. No shot_type; scorer is the
     # fouled-ON player (that's how the possession result carries the FT scorer).
     if result.get("scorer") and not result.get("shot_type") and result.get("fta", 0) > 0:
-        events = [_event(
+        events.append(_event(
             "FOUL", result.get("fouled_by"), header,
             foul_kind="non_shooting", fouled_on=result["scorer"],
-        )]
+        ))
         events.extend(_ft_events(result, header))
         _append_ft_rebound(events, result, header)
         return events
@@ -108,10 +114,10 @@ def possession_to_events(
 
         # Foul-drawn miss (post PR #8, no FGA): FOUL + FTs, NO SHOT event.
         if not made and fta > 0:
-            events = [_event(
+            events.append(_event(
                 "FOUL", result.get("fouled_by"), header,
                 foul_kind="shooting", fouled_on=shooter,
-            )]
+            ))
             events.extend(_ft_events(result, header))
             _append_ft_rebound(events, result, header)
             return events
@@ -119,13 +125,13 @@ def possession_to_events(
         # Made shot or clean miss — emit SHOT.
         is_three = result["shot_type"] in THREE_SHOT_TYPES
         shot_pts = (3 if is_three else 2) if made else 0
-        events = [_event(
+        events.append(_event(
             "SHOT", shooter, header,
             shot_type=result["shot_type"],
             sub_type=result.get("sub_type"),
             made=made,
             pts=shot_pts,
-        )]
+        ))
 
         if made:
             if result.get("assisted_by"):
@@ -161,9 +167,10 @@ def possession_to_events(
 
         return events
 
-    # Defensive: no known outcome. Should not happen in practice — resolve_possession
-    # always returns one of the shapes above — but returning [] keeps this pure.
-    return []
+    # No terminal outcome — should not happen except in the isolated pre-bonus
+    # foul test (result with only nonshooting_foul_by set). Return whatever
+    # pre-bonus events we accumulated.
+    return events
 
 
 def _append_ft_rebound(events: List[dict], result: dict, header: dict) -> None:

@@ -43,6 +43,8 @@ describe("LineScore", () => {
   it("marks the winning row", () => {
     const { container } = render(<LineScore game={game()} />);
     const winnerRow = container.querySelector("tr.winner");
-    expect(winnerRow?.textContent).toContain("BOS");
+    // Row now displays the era-appropriate franchise name via franchise lookup;
+    // "BOS" abbreviation maps to "Boston Celtics".
+    expect(winnerRow?.textContent).toContain("Celtics");
   });
 });

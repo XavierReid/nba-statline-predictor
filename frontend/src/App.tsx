@@ -96,8 +96,8 @@ export default function App() {
         <>
           <LineScore game={game} />
           <div className="boxes">
-            <BoxScore title={`${game.away_team} (Away)`} players={game.away_box} onSelectPlayer={setSelected} />
-            <BoxScore title={`${game.home_team} (Home)`} players={game.home_box} onSelectPlayer={setSelected} />
+            <BoxScore title={game.away_team} abbr={game.away_team} season={game.season} sideLabel="Away" players={game.away_box} onSelectPlayer={setSelected} />
+            <BoxScore title={game.home_team} abbr={game.home_team} season={game.season} sideLabel="Home" players={game.home_box} onSelectPlayer={setSelected} />
           </div>
           <PlayByPlay game={game} />
         </>

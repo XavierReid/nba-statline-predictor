@@ -28,8 +28,8 @@ htmlcov/
 # Docker
 docker-compose.override.yml
 
-# Local data dumps
-data/
+# Local data dumps (root only — frontend/src/data/ is source, not dumps)
+/data/
 *.sqlite3
 CONTEXT_PRIMER.md
 CLAUDE.md

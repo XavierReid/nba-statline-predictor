@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { PlayerLine } from "../types";
+import TeamLogo from "./TeamLogo";
+import PlayerHeadshot from "./PlayerHeadshot";
+import { franchiseFor } from "../data/franchises";
 
 type SortKey = keyof Pick<
   PlayerLine,
@@ -26,18 +29,26 @@ interface Props {
   title: string;
   players: PlayerLine[];
   onSelectPlayer: (p: PlayerLine) => void;
+  abbr?: string;
+  season?: string;
+  sideLabel?: string;  // "Home" / "Away"
 }
 
-export default function BoxScore({ title, players, onSelectPlayer }: Props) {
+export default function BoxScore({ title, players, onSelectPlayer, abbr, season, sideLabel }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("points");
 
   const played = players.filter((p) => p.minutes >= 0.5);
   const dnp = players.filter((p) => p.minutes < 0.5);
   const sorted = [...played].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
+  const fr = abbr ? franchiseFor(abbr, season) : null;
 
   return (
-    <div className="box">
-      <h3>{title}</h3>
+    <div className="box" style={fr ? { borderTop: `3px solid ${fr.primaryColor}` } : undefined}>
+      <h3 className="box-title">
+        {abbr && <TeamLogo abbr={abbr} season={season} size="sm" />}
+        <span>{fr ? `${fr.city} ${fr.nickname}` : title}</span>
+        {sideLabel && <span className="side-label">({sideLabel})</span>}
+      </h3>
       <table>
         <thead>
           <tr>
@@ -56,8 +67,11 @@ export default function BoxScore({ title, players, onSelectPlayer }: Props) {
           {sorted.map((p) => (
             <tr key={p.player_id} className="clickable" onClick={() => onSelectPlayer(p)}>
               <td className="name">
-                {p.name}
-                {p.fouled_out && <span className="fo">FO</span>}
+                <span className="player-cell">
+                  <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
+                  <span className="player-name">{p.name}</span>
+                  {p.fouled_out && <span className="fo">FO</span>}
+                </span>
               </td>
               <td>{p.minutes.toFixed(1)}</td>
               <td>{p.points}</td>
@@ -75,7 +89,12 @@ export default function BoxScore({ title, players, onSelectPlayer }: Props) {
           ))}
           {dnp.map((p) => (
             <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
-              <td className="name">{p.name}</td>
+              <td className="name">
+                <span className="player-cell">
+                  <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
+                  <span className="player-name">{p.name}</span>
+                </span>
+              </td>
               <td>DNP</td>
               <td colSpan={11}></td>
             </tr>

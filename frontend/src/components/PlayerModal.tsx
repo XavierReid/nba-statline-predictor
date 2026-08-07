@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { getPlayerProfile } from "../api";
 import type { PlayerLine, PlayerProfile, PossessionEvent } from "../types";
+import PlayerHeadshot from "./PlayerHeadshot";
 
 // A titled block. Sections are composed in App-visible order so adding future ones
 // (recent games, shot chart, career, matchup history) is a one-line insertion — not a
@@ -176,10 +177,13 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
 
         <Section title="">
           <div className="pm-header">
-            <span className="pm-name">{line.name}</span>
-            <span className="pm-sub">
-              {profile ? `${profile.position ?? "—"} · ${profile.team ?? "—"} · ${season}` : season}
-            </span>
+            <PlayerHeadshot playerId={line.player_id} name={line.name} size="large" className="pm-headshot" />
+            <div className="pm-header-text">
+              <span className="pm-name">{line.name}</span>
+              <span className="pm-sub">
+                {profile ? `${profile.position ?? "—"} · ${profile.team ?? "—"} · ${season}` : season}
+              </span>
+            </div>
           </div>
         </Section>
 

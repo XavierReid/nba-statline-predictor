@@ -328,6 +328,25 @@ def _empty_result() -> dict:
     }
 
 
+def _restart_offensive_phase(ctx, ball_handler, result):
+    """Abstraction boundary for "play restarts after the whistle."
+
+    Called when a pre-bonus non-shooting foul fires mid-possession. Real
+    basketball: possession stays with the offense (same statistical possession)
+    but play restarts with an inbound — potentially different ball-handler,
+    setup/spacing, restart-specific modifiers. This function OWNS that entire
+    restart model, not just the ball-handler.
+
+    This currently returns the existing ball handler intentionally. The goal
+    of the enclosing change is to isolate the representation change alone
+    (one statistical possession instead of two `resolve_possession` calls).
+    Future work may model inbound behavior here — ball-handler re-selection,
+    spacing/setup adjustments, restart modifiers — without changing the
+    surrounding possession architecture.
+    """
+    return ball_handler
+
+
 def _finish(ctx, result: dict) -> dict:
     # Descriptions are attached later per typed event (describe_typed_event) — the
     # legacy monolithic describe_event ran here but its output was never read under
@@ -446,10 +465,17 @@ def _select_action(ctx, result: dict) -> Action:
             result["ftm"], last_missed, result["ft_makes"] = _shoot_free_throws(2, ft_prob, rng)
             _credit_ft_rebound(ctx, result, last_missed)
             return Action(ball_handler, terminal=True)
+        # Pre-bonus non-shooting foul: no FTs, but possession CONTINUES within the
+        # same statistical possession. Real basketball: whistle, inbound, play
+        # restarts — the offense keeps the ball. Represented here by recording
+        # the foul on `result` and falling through to steal/TOV/shot resolution
+        # rather than returning terminal. game_simulator consumes the extra
+        # foul-reset clock time inline when it sees `nonshooting_foul_by` set on
+        # a non-terminal event.
         result["nonshooting_foul_by"] = fouler
         result["nonshooting_foul_on"] = ball_handler["id"]
-        result["shot_clock_reset"] = True
-        return Action(ball_handler, terminal=True)
+        ball_handler = _restart_offensive_phase(ctx, ball_handler, result)
+        # fall through — steal / TOV / offensive foul / shot resolution continue
 
     # steal: best on-ball defender. Rate from cfg (gap 3.5 raised it to hit real steal
     # volume; total TOV held via tov_scale). Still charges the ball handler a turnover.

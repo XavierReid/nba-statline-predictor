@@ -9,20 +9,39 @@ type SortKey = keyof Pick<
   "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers" | "personal_fouls" | "plus_minus"
 >;
 
-const COLS: { key: SortKey; label: string }[] = [
+/**
+ * Column order follows the modern ESPN NBA boxscore convention:
+ *   Player | MIN | FG | 3PT | FT | REB | AST | STL | BLK | TO | PF | +/- | PTS
+ * PTS goes LAST (headline number closes the row); shooting splits up front
+ * next to MIN. Sortable columns carry a `key`; shooting splits are display-only.
+ */
+type Col =
+  | { key: SortKey; label: string }
+  | { label: string; render: (p: PlayerLine) => string };
+
+const COLS: Col[] = [
   { key: "minutes", label: "MIN" },
-  { key: "points", label: "PTS" },
+  { label: "FG",   render: (p) => `${p.fgm}/${p.fga}` },
+  { label: "3PT",  render: (p) => `${p.fg3m}/${p.fg3a}` },
+  { label: "FT",   render: (p) => `${p.ftm}/${p.fta}` },
   { key: "rebounds", label: "REB" },
   { key: "assists", label: "AST" },
   { key: "steals", label: "STL" },
   { key: "blocks", label: "BLK" },
-  { key: "turnovers", label: "TOV" },
+  { key: "turnovers", label: "TO" },
   { key: "personal_fouls", label: "PF" },
   { key: "plus_minus", label: "+/-" },
+  { key: "points", label: "PTS" },
 ];
 
-function pm(v: number): string {
-  return v > 0 ? `+${v}` : `${v}`;
+const NUM_COLS = COLS.length;
+
+function cellValue(p: PlayerLine, c: Col): string {
+  if ("render" in c) return c.render(p);
+  const v = p[c.key];
+  if (c.key === "minutes") return (v as number).toFixed(1);
+  if (c.key === "plus_minus") return (v as number) > 0 ? `+${v}` : `${v}`;
+  return String(v);
 }
 
 interface Props {
@@ -49,58 +68,56 @@ export default function BoxScore({ title, players, onSelectPlayer, abbr, season,
         <span>{fr ? `${fr.city} ${fr.nickname}` : title}</span>
         {sideLabel && <span className="side-label">({sideLabel})</span>}
       </h3>
-      <table>
-        <thead>
-          <tr>
-            <th className="name">Player</th>
-            {COLS.map((c) => (
-              <th key={c.key} onClick={() => setSortKey(c.key)} title="Sort">
-                {c.label}
-              </th>
+      <div className="box-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th className="name">Player</th>
+              {COLS.map((c) => {
+                const sortable = "key" in c;
+                return (
+                  <th
+                    key={c.label}
+                    onClick={sortable ? () => setSortKey((c as { key: SortKey }).key) : undefined}
+                    className={sortable ? "sortable" : undefined}
+                    title={sortable ? "Sort" : undefined}
+                  >
+                    {c.label}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((p) => (
+              <tr key={p.player_id} className="clickable" onClick={() => onSelectPlayer(p)}>
+                <td className="name">
+                  <span className="player-cell">
+                    <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
+                    <span className="player-name">{p.name}</span>
+                    {p.fouled_out && <span className="fo">FO</span>}
+                  </span>
+                </td>
+                {COLS.map((c) => (
+                  <td key={c.label}>{cellValue(p, c)}</td>
+                ))}
+              </tr>
             ))}
-            <th>FG</th>
-            <th>3PT</th>
-            <th>FT</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((p) => (
-            <tr key={p.player_id} className="clickable" onClick={() => onSelectPlayer(p)}>
-              <td className="name">
-                <span className="player-cell">
-                  <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
-                  <span className="player-name">{p.name}</span>
-                  {p.fouled_out && <span className="fo">FO</span>}
-                </span>
-              </td>
-              <td>{p.minutes.toFixed(1)}</td>
-              <td>{p.points}</td>
-              <td>{p.rebounds}</td>
-              <td>{p.assists}</td>
-              <td>{p.steals}</td>
-              <td>{p.blocks}</td>
-              <td>{p.turnovers}</td>
-              <td>{p.personal_fouls}</td>
-              <td>{pm(p.plus_minus)}</td>
-              <td>{p.fgm}/{p.fga}</td>
-              <td>{p.fg3m}/{p.fg3a}</td>
-              <td>{p.ftm}/{p.fta}</td>
-            </tr>
-          ))}
-          {dnp.map((p) => (
-            <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
-              <td className="name">
-                <span className="player-cell">
-                  <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
-                  <span className="player-name">{p.name}</span>
-                </span>
-              </td>
-              <td>DNP</td>
-              <td colSpan={11}></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            {dnp.map((p) => (
+              <tr key={p.player_id} className="dnp clickable" onClick={() => onSelectPlayer(p)}>
+                <td className="name">
+                  <span className="player-cell">
+                    <PlayerHeadshot playerId={p.player_id} name={p.name} size="small" />
+                    <span className="player-name">{p.name}</span>
+                  </span>
+                </td>
+                <td>DNP</td>
+                <td colSpan={NUM_COLS - 1}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

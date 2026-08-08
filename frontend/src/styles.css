@@ -97,18 +97,35 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .linescore tr.winner td.total { color: var(--win); }
 .ot-note { color: var(--muted); font-size: 12px; margin: 0 0 24px; }
 
-.boxes { display: grid; grid-template-columns: 1fr; gap: 24px; }
-@media (min-width: 900px) { .boxes { grid-template-columns: 1fr 1fr; } }
+/* Stack boxes vertically until the viewport is wide enough for BOTH tables
+   to fit their full column set side-by-side (~1400px). Below that, one full-
+   width table per team reads better than two squeezed halves. Individual
+   tables still get horizontal scroll as a safety net. */
+.boxes { display: grid; grid-template-columns: 1fr; gap: 32px; }
+.box-scroll { overflow-x: auto; }
+.box-scroll table { min-width: 720px; }
+@media (min-width: 1400px) { .boxes { grid-template-columns: 1fr 1fr; } }
 
-.box h3 { font-size: 15px; margin: 0 0 8px; }
-.box table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.box th, .box td { padding: 6px 6px; text-align: right; font-variant-numeric: tabular-nums; }
-.box th { color: var(--muted); font-size: 10px; text-transform: uppercase; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+.box h3 { font-size: 17px; margin: 0 0 12px; }
+.box table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.box th, .box td { padding: 10px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.box th {
+  color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  background: var(--panel);
+  font-weight: 600;
+}
+.box th.sortable { cursor: pointer; }
+.box th.sortable:hover { color: var(--text); }
 .box td.name, .box th.name { text-align: left; }
-.box tbody tr:nth-child(even) { background: var(--panel); }
-.box td.name { font-weight: 500; }
+.box th.name { padding-left: 12px; }
+.box td.name { padding-left: 12px; font-weight: 500; }
+.box tbody tr { border-bottom: 1px solid var(--line); }
+.box tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+.box tbody tr.clickable:hover { background: var(--panel-2); }
 .box tr.dnp td { color: var(--muted); font-style: italic; }
-.box .fo { color: var(--accent); font-weight: 700; font-size: 10px; margin-left: 4px; }
+.box .fo { color: var(--accent); font-weight: 700; font-size: 10px; margin-left: 6px; }
 
 .pbp-toggle { margin: 28px 0 10px; }
 .pbp-toggle button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
@@ -252,3 +269,98 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-header { display: flex; align-items: center; gap: 14px; }
 .pm-header-text { display: flex; flex-direction: column; }
 .pm-headshot { border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
+
+/* --- PlayerModal hero (2026-08-07 layout redesign) --- */
+.pm-hero {
+  position: relative;
+  margin: 0 -20px 20px;              /* bleed edge-to-edge in the modal */
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.pm-hero-band {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, var(--team-primary, transparent) 0%, transparent 55%);
+  opacity: 0.18;
+  pointer-events: none;
+}
+.pm-hero-inner {
+  position: relative;                 /* over the band */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: center;
+}
+.pm-hero .pm-headshot,
+.pm-hero .player-headshot--large {
+  width: 112px; height: 112px;
+  border-radius: 10px;
+  border: 1px solid var(--line);          /* muted; team color lives in the band */
+  background: var(--panel-2);
+  object-fit: cover;
+}
+.pm-hero-identity {
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 0;                            /* let flex/grid shrink this column */
+}
+.pm-name-first {
+  font-size: clamp(14px, 1.6vw, 20px);
+  font-weight: 500; letter-spacing: 0.5px;
+  color: var(--muted); text-transform: uppercase;
+}
+.pm-name-last {
+  /* Fluid sizing keeps long names (ANTETOKOUNMPO) on one line at typical
+     viewports. `overflow-wrap: break-word` only splits mid-word when the
+     word is longer than the available column — better than `anywhere`
+     which broke at aesthetically-arbitrary spots. */
+  font-size: clamp(18px, 2.4vw, 34px);
+  font-weight: 800; line-height: 1.05;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+.pm-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 8px;
+  color: var(--muted); font-size: 13px;
+}
+
+.pm-hero-stats {
+  display: grid; grid-template-columns: repeat(5, minmax(48px, 1fr));
+  gap: 8px;
+  justify-self: end;
+}
+.pm-hero-stat {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 48px;
+  padding: 8px 4px;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.pm-hero-stat-k {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--muted); font-weight: 600;
+}
+.pm-hero-stat-v {
+  font-size: 22px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+@media (max-width: 780px) {
+  .pm-hero-inner { grid-template-columns: auto 1fr; }
+  .pm-hero-stats { grid-column: 1 / -1; grid-template-columns: repeat(5, 1fr); justify-self: stretch; }
+}
+
+/* Compact single-row breakdown for the "full line" section (STL/BLK/TOV etc.) —
+   replaces a grid that had awkward whitespace with only 7 stats. */
+.pm-inline-stats {
+  display: flex; flex-wrap: wrap; gap: 6px 20px;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.pm-inline-stats span { white-space: nowrap; }
+.pm-inline-stats b {
+  color: var(--muted); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-right: 4px; font-weight: 700;
+}

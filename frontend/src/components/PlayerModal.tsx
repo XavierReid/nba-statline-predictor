@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { getPlayerProfile } from "../api";
 import type { PlayerLine, PlayerProfile, PossessionEvent } from "../types";
 import PlayerHeadshot from "./PlayerHeadshot";
+import TeamLogo from "./TeamLogo";
+import { franchiseFor } from "../data/franchises";
 
 // A titled block. Sections are composed in App-visible order so adding future ones
 // (recent games, shot chart, career, matchup history) is a one-line insertion — not a
@@ -175,31 +177,63 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           ✕
         </button>
 
-        <Section title="">
-          <div className="pm-header">
-            <PlayerHeadshot playerId={line.player_id} name={line.name} size="large" className="pm-headshot" />
-            <div className="pm-header-text">
-              <span className="pm-name">{line.name}</span>
-              <span className="pm-sub">
-                {profile ? `${profile.position ?? "—"} · ${profile.team ?? "—"} · ${season}` : season}
-              </span>
+        {(() => {
+          // Split the player's name into first + last for the stacked header
+          // (matches ESPN's two-line convention). "Kobe Bryant" → ["Kobe", "Bryant"].
+          const nameParts = line.name.trim().split(/\s+/);
+          const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : "";
+          const lastName = nameParts[nameParts.length - 1] ?? line.name;
+          const teamAbbr = profile?.team ?? undefined;
+          const fr = teamAbbr ? franchiseFor(teamAbbr, season) : null;
+          // Subtle team-color band behind the hero — primary color at low
+          // opacity via CSS variable so the theme's dark background stays
+          // dominant while identity signals through.
+          const bandStyle = fr
+            ? ({ ["--team-primary" as string]: fr.primaryColor } as React.CSSProperties)
+            : undefined;
+          return (
+            <div className="pm-hero" style={bandStyle}>
+              <div className="pm-hero-band" />
+              <div className="pm-hero-inner">
+                <PlayerHeadshot
+                  playerId={line.player_id}
+                  name={line.name}
+                  size="large"
+                  className="pm-headshot"
+                />
+                <div className="pm-hero-identity">
+                  {firstName && <div className="pm-name-first">{firstName}</div>}
+                  <div className="pm-name-last">{lastName}</div>
+                  <div className="pm-meta">
+                    {teamAbbr && <TeamLogo abbr={teamAbbr} season={season} size="sm" />}
+                    <span>
+                      {fr ? `${fr.city} ${fr.nickname}` : (teamAbbr ?? "")}
+                      {profile?.position ? ` · ${profile.position}` : ""}
+                      {` · ${season}`}
+                    </span>
+                  </div>
+                </div>
+                <div className="pm-hero-stats">
+                  <HeroStat k="MIN" v={line.minutes.toFixed(1)} />
+                  <HeroStat k="PTS" v={line.points} />
+                  <HeroStat k="REB" v={line.rebounds} />
+                  <HeroStat k="AST" v={line.assists} />
+                  <HeroStat k="FG" v={`${line.fgm}/${line.fga}`} />
+                </div>
+              </div>
             </div>
-          </div>
-        </Section>
+          );
+        })()}
 
-        <Section title="This game">
-          <div className="pm-statgrid">
-            <Stat k="MIN" v={line.minutes.toFixed(1)} />
-            <Stat k="PTS" v={line.points} />
-            <Stat k="REB" v={line.rebounds} />
-            <Stat k="AST" v={line.assists} />
-            <Stat k="STL" v={line.steals} />
-            <Stat k="BLK" v={line.blocks} />
-            <Stat k="TOV" v={line.turnovers} />
-            <Stat k="PF" v={line.personal_fouls} />
-            <Stat k="FG" v={`${line.fgm}/${line.fga}`} />
-            <Stat k="3PT" v={`${line.fg3m}/${line.fg3a}`} />
-            <Stat k="FT" v={`${line.ftm}/${line.fta}`} />
+        <Section title="This game — full line">
+          <div className="pm-inline-stats">
+            <span><b>STL</b> {line.steals}</span>
+            <span><b>BLK</b> {line.blocks}</span>
+            <span><b>TO</b> {line.turnovers}</span>
+            <span><b>PF</b> {line.personal_fouls}</span>
+            <span><b>3PT</b> {line.fg3m}/{line.fg3a}</span>
+            <span><b>FT</b> {line.ftm}/{line.fta}</span>
+            <span><b>+/-</b> {line.plus_minus > 0 ? `+${line.plus_minus}` : line.plus_minus}</span>
           </div>
         </Section>
 
@@ -292,6 +326,16 @@ function Stat({ k, v }: { k: string; v: ReactNode }) {
     <div className="pm-stat">
       <span className="pm-stat-k">{k}</span>
       <span className="pm-stat-v">{v}</span>
+    </div>
+  );
+}
+
+/** Hero variant — bigger number, small caps label. Used in the header band. */
+function HeroStat({ k, v }: { k: string; v: ReactNode }) {
+  return (
+    <div className="pm-hero-stat">
+      <span className="pm-hero-stat-k">{k}</span>
+      <span className="pm-hero-stat-v">{v}</span>
     </div>
   );
 }

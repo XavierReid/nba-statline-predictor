@@ -213,27 +213,42 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
                     </span>
                   </div>
                 </div>
-                <div className="pm-hero-stats">
-                  <HeroStat k="MIN" v={line.minutes.toFixed(1)} />
-                  <HeroStat k="PTS" v={line.points} />
-                  <HeroStat k="REB" v={line.rebounds} />
-                  <HeroStat k="AST" v={line.assists} />
-                  <HeroStat k="FG" v={`${line.fgm}/${line.fga}`} />
-                </div>
+                {profile?.season_averages && (
+                  <div className="pm-hero-stats" title="Season averages">
+                    <HeroStat k="PPG" v={profile.season_averages.pts.toFixed(1)} />
+                    <HeroStat k="RPG" v={profile.season_averages.reb.toFixed(1)} />
+                    <HeroStat k="APG" v={profile.season_averages.ast.toFixed(1)} />
+                    <HeroStat
+                      k="FG%"
+                      v={
+                        profile.season_averages.fg_pct != null
+                          ? `${(profile.season_averages.fg_pct * 100).toFixed(1)}`
+                          : "—"
+                      }
+                    />
+                  </div>
+                )}
               </div>
             </div>
           );
         })()}
 
-        <Section title="This game — full line">
+        <Section title="This game">
           <div className="pm-inline-stats">
+            <span><b>MIN</b> {line.minutes.toFixed(1)}</span>
+            <span><b>FG</b> {line.fgm}/{line.fga}</span>
+            <span><b>3PT</b> {line.fg3m}/{line.fg3a}</span>
+            <span><b>FT</b> {line.ftm}/{line.fta}</span>
+            <span><b>REB</b> {line.rebounds}</span>
+            <span><b>AST</b> {line.assists}</span>
             <span><b>STL</b> {line.steals}</span>
             <span><b>BLK</b> {line.blocks}</span>
             <span><b>TO</b> {line.turnovers}</span>
             <span><b>PF</b> {line.personal_fouls}</span>
-            <span><b>3PT</b> {line.fg3m}/{line.fg3a}</span>
-            <span><b>FT</b> {line.ftm}/{line.fta}</span>
-            <span><b>+/-</b> {line.plus_minus > 0 ? `+${line.plus_minus}` : line.plus_minus}</span>
+            <span className={line.plus_minus > 0 ? "pm-plus" : line.plus_minus < 0 ? "pm-minus" : ""}>
+              <b>+/-</b> {line.plus_minus > 0 ? `+${line.plus_minus}` : line.plus_minus}
+            </span>
+            <span className="pm-pts-highlight"><b>PTS</b> {line.points}</span>
           </div>
         </Section>
 

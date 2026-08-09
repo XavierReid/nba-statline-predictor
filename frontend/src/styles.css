@@ -104,7 +104,8 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .boxes { display: grid; grid-template-columns: 1fr; gap: 32px; }
 .box-scroll { overflow-x: auto; }
 .box-scroll table { min-width: 720px; }
-@media (min-width: 1400px) { .boxes { grid-template-columns: 1fr 1fr; } }
+/* Boxes always stack vertically (ESPN convention). Full-width tables read
+   better than two squeezed halves at any viewport. */
 
 .box h3 { font-size: 17px; margin: 0 0 12px; }
 .box table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -280,7 +281,10 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .pm-hero-band {
   position: absolute; inset: 0;
-  background: linear-gradient(90deg, var(--team-primary, transparent) 0%, transparent 55%);
+  /* Team color on the RIGHT (behind stats / season averages), fading to
+     transparent on the LEFT so the headshot sits on neutral background
+     instead of standing out against the color. */
+  background: linear-gradient(270deg, var(--team-primary, transparent) 0%, transparent 55%);
   opacity: 0.18;
   pointer-events: none;
 }
@@ -364,3 +368,10 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   text-transform: uppercase; letter-spacing: 0.6px;
   margin-right: 4px; font-weight: 700;
 }
+.pm-inline-stats .pm-plus  { color: #4ade80; }
+.pm-inline-stats .pm-minus { color: #f87171; }
+.pm-inline-stats .pm-pts-highlight { font-weight: 700; }
+
+/* Box score +/- color coding — green positive, red negative. */
+.box td.pm-plus  { color: #4ade80; }
+.box td.pm-minus { color: #f87171; }

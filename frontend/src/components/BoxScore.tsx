@@ -44,6 +44,15 @@ function cellValue(p: PlayerLine, c: Col): string {
   return String(v);
 }
 
+/** CSS class for a cell — used to color-code +/- (green +, red -). */
+function cellClass(p: PlayerLine, c: Col): string | undefined {
+  if ("key" in c && c.key === "plus_minus") {
+    if (p.plus_minus > 0) return "pm-plus";
+    if (p.plus_minus < 0) return "pm-minus";
+  }
+  return undefined;
+}
+
 interface Props {
   title: string;
   players: PlayerLine[];
@@ -99,7 +108,7 @@ export default function BoxScore({ title, players, onSelectPlayer, abbr, season,
                   </span>
                 </td>
                 {COLS.map((c) => (
-                  <td key={c.label}>{cellValue(p, c)}</td>
+                  <td key={c.label} className={cellClass(p, c)}>{cellValue(p, c)}</td>
                 ))}
               </tr>
             ))}

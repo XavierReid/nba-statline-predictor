@@ -9,6 +9,9 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
 
   const row = (side: "home" | "away", abbr: string, total: number, isWinner: boolean) => {
     const fr = franchiseFor(abbr, game.season);
+    // Winner's total renders in that team's primary color — connects the
+    // brand identity to the win rather than the generic --win accent.
+    const totalStyle = isWinner && fr ? { color: fr.primaryColor } : undefined;
     return (
       <tr className={isWinner ? "winner" : ""}>
         <td className="team">
@@ -20,7 +23,7 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
         {labels.map((_, i) => (
           <td key={i}>{game.quarter_scores[side][i] ?? ""}</td>
         ))}
-        <td className="total">{total}</td>
+        <td className="total" style={totalStyle}>{total}</td>
       </tr>
     );
   };

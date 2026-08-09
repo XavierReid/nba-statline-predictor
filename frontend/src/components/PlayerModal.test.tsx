@@ -83,8 +83,11 @@ describe("PlayerModal", () => {
 
   it("renders season averages and ratings once the profile loads", async () => {
     render(<PlayerModal line={line()} season="2025-26" events={events} onClose={() => {}} />);
-    expect(await screen.findByText("24.5")).toBeInTheDocument(); // season PTS
-    // Ratings section heading is unique (season averages section has its own header).
+    // Season PPG (24.5) appears twice: once as the hero PPG tile, once in
+    // the "Season averages" section. Either match confirms the profile
+    // rendered.
+    const matches = await screen.findAllByText("24.5");
+    expect(matches.length).toBeGreaterThan(0);
     expect(screen.getByText("Ratings")).toBeInTheDocument();
   });
 

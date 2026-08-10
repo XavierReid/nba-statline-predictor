@@ -85,8 +85,12 @@ h1 {
   border-radius: 7px;
   padding: 8px 10px;
   font-size: 14px;
-  min-width: 150px;
+  /* Fixed width prevents reflow when the season changes and the team/preset
+     option set changes length. Native <select> otherwise sizes to its widest
+     option (e.g. "New Orleans/Oklahoma City Hornets" grew it by ~70px). */
+  width: 220px;
 }
+.field.seed input { width: 110px; }      /* seed is a short number, don't over-reserve */
 .field.seed input { min-width: 90px; }
 
 button.sim {

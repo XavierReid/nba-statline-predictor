@@ -456,7 +456,7 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-hero-stats-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
   color: var(--muted); font-weight: 600;
-  text-align: right;
+  text-align: center;
 }
 .pm-hero-stats {
   display: grid; grid-template-columns: repeat(5, minmax(48px, 1fr));

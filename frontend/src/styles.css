@@ -446,21 +446,32 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--muted); font-size: 13px;
 }
 
-/* Wrap the stat tiles with a small season-label header ("2025-26 Regular
-   Season Stats") so the numbers are anchored in context — otherwise "24.5 PPG"
-   is floating without a season. */
+/* ESPN-style stat card in the hero: a solid header bar spans the top with
+   the season label in uppercase, tiles sit in a bordered card below. */
 .pm-hero-stats-wrap {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column;
   justify-self: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
 }
 .pm-hero-stats-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
-  color: var(--muted); font-weight: 600;
+  background: #1f2a44;                   /* deep navy header bar */
+  color: #ffffff;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  font-weight: 700;
   text-align: center;
+  padding: 6px 12px;
 }
 .pm-hero-stats {
-  display: grid; grid-template-columns: repeat(5, minmax(48px, 1fr));
-  gap: 8px;
+  display: grid; grid-template-columns: repeat(4, minmax(56px, 1fr));
+  gap: 0;
+  padding: 8px 4px;
+}
+.pm-hero-stats .pm-hero-stat {
+  background: transparent;               /* no per-tile background — card owns it */
+  border-radius: 0;
 }
 .pm-hero-stat {
   display: flex; flex-direction: column; align-items: center;

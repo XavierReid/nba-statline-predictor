@@ -49,20 +49,28 @@ h1 {
 }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
-/* Season timeline — horizontal year pills replacing the season <select>. */
-.season-timeline-field { min-width: 0; flex: 1 1 auto; }
+/* Season timeline — horizontal year pills replacing the season <select>.
+   Takes its own row (full-width) so growing to 30+ seasons doesn't reflow
+   the other fields, and the strip scrolls horizontally rather than wrapping. */
+.season-timeline-field { flex: 1 0 100%; min-width: 0; }
 .season-timeline {
-  display: flex; gap: 4px; flex-wrap: wrap;
+  display: flex; gap: 4px; flex-wrap: nowrap;
+  overflow-x: auto;
   padding: 4px; background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 8px;
-  max-width: 100%;
+  scrollbar-width: thin;
 }
+.season-timeline::-webkit-scrollbar { height: 6px; }
+.season-timeline::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 .season-pill {
+  flex: 0 0 auto;
+  min-width: 40px;                       /* consistent pill width */
   background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
   padding: 5px 9px; border-radius: 6px;
   font-size: 12px; font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-align: center;
   transition: background 0.12s, color 0.12s;
 }
 .season-pill:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
@@ -438,10 +446,21 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--muted); font-size: 13px;
 }
 
+/* Wrap the stat tiles with a small season-label header ("2025-26 Regular
+   Season Stats") so the numbers are anchored in context — otherwise "24.5 PPG"
+   is floating without a season. */
+.pm-hero-stats-wrap {
+  display: flex; flex-direction: column; gap: 6px;
+  justify-self: end;
+}
+.pm-hero-stats-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--muted); font-weight: 600;
+  text-align: right;
+}
 .pm-hero-stats {
   display: grid; grid-template-columns: repeat(5, minmax(48px, 1fr));
   gap: 8px;
-  justify-self: end;
 }
 .pm-hero-stat {
   display: flex; flex-direction: column; align-items: center;

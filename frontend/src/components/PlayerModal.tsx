@@ -214,18 +214,23 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
                   </div>
                 </div>
                 {profile?.season_averages && (
-                  <div className="pm-hero-stats" title="Season averages">
-                    <HeroStat k="PPG" v={profile.season_averages.pts.toFixed(1)} />
-                    <HeroStat k="RPG" v={profile.season_averages.reb.toFixed(1)} />
-                    <HeroStat k="APG" v={profile.season_averages.ast.toFixed(1)} />
-                    <HeroStat
-                      k="FG%"
-                      v={
-                        profile.season_averages.fg_pct != null
-                          ? `${(profile.season_averages.fg_pct * 100).toFixed(1)}`
-                          : "—"
-                      }
-                    />
+                  <div className="pm-hero-stats-wrap">
+                    <div className="pm-hero-stats-label">
+                      {season} Regular Season Stats
+                    </div>
+                    <div className="pm-hero-stats" title="Season averages">
+                      <HeroStat k="PPG" v={profile.season_averages.pts.toFixed(1)} />
+                      <HeroStat k="RPG" v={profile.season_averages.reb.toFixed(1)} />
+                      <HeroStat k="APG" v={profile.season_averages.ast.toFixed(1)} />
+                      <HeroStat
+                        k="FG%"
+                        v={
+                          profile.season_averages.fg_pct != null
+                            ? `${(profile.season_averages.fg_pct * 100).toFixed(1)}`
+                            : "—"
+                        }
+                      />
+                    </div>
                   </div>
                 )}
               </div>

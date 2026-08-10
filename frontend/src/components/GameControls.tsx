@@ -48,7 +48,10 @@ export default function GameControls(p: Props) {
               role="radio"
               aria-checked={p.season === s.season}
               className={`season-pill ${p.season === s.season ? "on" : ""}`}
-              onClick={() => p.onSeason(s.season)}
+              onClick={(e) => {
+                p.onSeason(s.season);
+                (e.currentTarget as HTMLElement).scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+              }}
               title={s.season}
             >
               {shortYear(s.season)}

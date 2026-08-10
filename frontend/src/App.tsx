@@ -6,6 +6,8 @@ import LineScore from "./components/LineScore";
 import BoxScore from "./components/BoxScore";
 import PlayByPlay from "./components/PlayByPlay";
 import PlayerModal from "./components/PlayerModal";
+import TeamLogo from "./components/TeamLogo";
+import { franchiseFor } from "./data/franchises";
 
 export default function App() {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
@@ -89,7 +91,38 @@ export default function App() {
       {loading && <div className="loading">Running the simulation…</div>}
 
       {!game && !loading && !error && (
-        <div className="empty">Pick two teams and hit Simulate.</div>
+        <div className="empty-preview">
+          {away && home ? (
+            <>
+              <div className="empty-matchup">
+                <div className="empty-team">
+                  <TeamLogo abbr={away} season={season} size="lg" />
+                  <div className="empty-team-name">
+                    {(() => {
+                      const fr = franchiseFor(away, season);
+                      return fr ? `${fr.city} ${fr.nickname}` : away;
+                    })()}
+                  </div>
+                  <div className="empty-team-label">Away</div>
+                </div>
+                <div className="empty-vs">@</div>
+                <div className="empty-team">
+                  <TeamLogo abbr={home} season={season} size="lg" />
+                  <div className="empty-team-name">
+                    {(() => {
+                      const fr = franchiseFor(home, season);
+                      return fr ? `${fr.city} ${fr.nickname}` : home;
+                    })()}
+                  </div>
+                  <div className="empty-team-label">Home</div>
+                </div>
+              </div>
+              <p className="empty-hint">Hit Simulate to run a possession-by-possession game.</p>
+            </>
+          ) : (
+            <p className="empty-hint">Loading seasons…</p>
+          )}
+        </div>
       )}
 
       {game && !loading && (

@@ -150,7 +150,7 @@ export default function BoxScore({ title, players, onSelectPlayer, abbr, season,
                 <>
                   <tr className="team-totals">
                     <td className="name">TOTALS</td>
-                    <td>{tot.minutes.toFixed(0)}</td>
+                    <td></td>
                     <td>{tot.fgm}/{tot.fga}</td>
                     <td>{tot.fg3m}/{tot.fg3a}</td>
                     <td>{tot.ftm}/{tot.fta}</td>

@@ -184,6 +184,44 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pbp-empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
 
 .empty { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
+
+/* Empty-state matchup preview — shows the selected teams as a "who's about to
+   play" card before the user hits Simulate. Reuses TeamLogo + franchise data. */
+.empty-preview {
+  margin: 32px 0;
+  padding: 40px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  text-align: center;
+}
+.empty-matchup {
+  display: flex; align-items: center; justify-content: center;
+  gap: 48px;
+  margin-bottom: 20px;
+}
+.empty-team {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  min-width: 140px;
+}
+.empty-team .team-logo--lg { width: 88px; height: 88px; }
+.empty-team-name {
+  font-size: 15px; font-weight: 600; color: var(--text);
+}
+.empty-team-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted);
+}
+.empty-vs {
+  font-size: 28px; font-weight: 700; color: var(--muted);
+  letter-spacing: 2px;
+}
+.empty-hint { color: var(--muted); font-size: 13px; margin: 0; }
+@media (max-width: 560px) {
+  .empty-matchup { gap: 20px; }
+  .empty-team { min-width: 100px; }
+  .empty-team .team-logo--lg { width: 64px; height: 64px; }
+}
 .loading { color: var(--muted); text-align: center; padding: 40px 0; }
 
 /* box rows drill into the player modal */

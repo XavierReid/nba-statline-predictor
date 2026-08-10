@@ -72,18 +72,17 @@ const MODERN: Record<string, Franchise> = {
 
 /**
  * Historical era variants — abbr → override franchise identity.
- * `logoUrl` is empty on purpose: showing the modern successor's logo (OKC for
- * SEA-era games, MEM for VAN-era, etc.) is misleading, so TeamLogo's abbr-in-
- * team-color fallback renders instead. Bundling era-correct SVGs locally is a
- * banked follow-up.
+ * Era-correct logos live under `frontend/public/logos/historical/` and are
+ * served by Vite from `/logos/historical/*`. Mix of SVG and PNG per source.
+ * NOH/NOK share the New Orleans Hornets logo.
  */
 const HISTORICAL: Record<string, Franchise> = {
-  SEA: { franchiseId: 1610612760, city: "Seattle", nickname: "SuperSonics", fullName: "Seattle SuperSonics", primaryColor: "#006B3F", secondaryColor: "#FFC72C", logoUrl: "" },
-  VAN: { franchiseId: 1610612763, city: "Vancouver", nickname: "Grizzlies", fullName: "Vancouver Grizzlies", primaryColor: "#00707B", secondaryColor: "#8B2942", logoUrl: "" },
-  NJN: { franchiseId: 1610612751, city: "New Jersey", nickname: "Nets", fullName: "New Jersey Nets", primaryColor: "#002F6C", secondaryColor: "#C8102E", logoUrl: "" },
-  CHH: { franchiseId: 1610612740, city: "Charlotte", nickname: "Hornets", fullName: "Charlotte Hornets (original)", primaryColor: "#1D1160", secondaryColor: "#00788C", logoUrl: "" },
-  NOH: { franchiseId: 1610612740, city: "New Orleans", nickname: "Hornets", fullName: "New Orleans Hornets", primaryColor: "#00778B", secondaryColor: "#F8A81C", logoUrl: "" },
-  NOK: { franchiseId: 1610612740, city: "New Orleans/Oklahoma City", nickname: "Hornets", fullName: "New Orleans/Oklahoma City Hornets", primaryColor: "#00778B", secondaryColor: "#F8A81C", logoUrl: "" },
+  SEA: { franchiseId: 1610612760, city: "Seattle", nickname: "SuperSonics", fullName: "Seattle SuperSonics", primaryColor: "#006B3F", secondaryColor: "#FFC72C", logoUrl: "/logos/historical/sea.svg" },
+  VAN: { franchiseId: 1610612763, city: "Vancouver", nickname: "Grizzlies", fullName: "Vancouver Grizzlies", primaryColor: "#00707B", secondaryColor: "#8B2942", logoUrl: "/logos/historical/van.svg" },
+  NJN: { franchiseId: 1610612751, city: "New Jersey", nickname: "Nets", fullName: "New Jersey Nets", primaryColor: "#002F6C", secondaryColor: "#C8102E", logoUrl: "/logos/historical/njn.svg" },
+  CHH: { franchiseId: 1610612740, city: "Charlotte", nickname: "Hornets", fullName: "Charlotte Hornets (original)", primaryColor: "#1D1160", secondaryColor: "#00788C", logoUrl: "/logos/historical/chh.png" },
+  NOH: { franchiseId: 1610612740, city: "New Orleans", nickname: "Hornets", fullName: "New Orleans Hornets", primaryColor: "#00778B", secondaryColor: "#F8A81C", logoUrl: "/logos/historical/noh.png" },
+  NOK: { franchiseId: 1610612740, city: "New Orleans/Oklahoma City", nickname: "Hornets", fullName: "New Orleans/Oklahoma City Hornets", primaryColor: "#00778B", secondaryColor: "#F8A81C", logoUrl: "/logos/historical/noh.png" },
   // CHA is used both by Bobcats (2004-2014) and Hornets revival (2014+).
   // The abbreviation is the same but the modern entry above serves post-2014
   // Hornets. Historical Bobcats era is displayed via a season-aware helper.
@@ -105,7 +104,7 @@ export function franchiseFor(abbr: string, season?: string): Franchise | null {
         fullName: "Charlotte Bobcats",
         primaryColor: "#00788C",
         secondaryColor: "#F26522",
-        logoUrl: "",  // avoid showing modern Hornets logo for Bobcats era
+        logoUrl: "/logos/historical/cha-bobcats.png",
       };
     }
   }

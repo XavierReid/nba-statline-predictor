@@ -124,6 +124,56 @@ export default function BoxScore({ title, players, onSelectPlayer, abbr, season,
                 <td colSpan={NUM_COLS - 1}></td>
               </tr>
             ))}
+            {(() => {
+              // ESPN-style team totals row at the bottom, summed across ALL players
+              // (played + DNP so MIN totals to 240 in regulation, higher for OT).
+              // Shooting splits render as sum-of-makes / sum-of-attempts; +/- is
+              // meaningless as a sum so it stays blank.
+              const tot = {
+                minutes: 0, points: 0, rebounds: 0, assists: 0,
+                steals: 0, blocks: 0, turnovers: 0, personal_fouls: 0,
+                fgm: 0, fga: 0, fg3m: 0, fg3a: 0, ftm: 0, fta: 0,
+              };
+              for (const p of players) {
+                tot.minutes += p.minutes; tot.points += p.points;
+                tot.rebounds += p.rebounds; tot.assists += p.assists;
+                tot.steals += p.steals; tot.blocks += p.blocks;
+                tot.turnovers += p.turnovers; tot.personal_fouls += p.personal_fouls;
+                tot.fgm += p.fgm; tot.fga += p.fga;
+                tot.fg3m += p.fg3m; tot.fg3a += p.fg3a;
+                tot.ftm += p.ftm; tot.fta += p.fta;
+              }
+              const fgPct = tot.fga > 0 ? ((tot.fgm / tot.fga) * 100).toFixed(1) : "—";
+              const fg3Pct = tot.fg3a > 0 ? ((tot.fg3m / tot.fg3a) * 100).toFixed(1) : "—";
+              const ftPct = tot.fta > 0 ? ((tot.ftm / tot.fta) * 100).toFixed(1) : "—";
+              return (
+                <>
+                  <tr className="team-totals">
+                    <td className="name">TOTALS</td>
+                    <td>{tot.minutes.toFixed(0)}</td>
+                    <td>{tot.fgm}/{tot.fga}</td>
+                    <td>{tot.fg3m}/{tot.fg3a}</td>
+                    <td>{tot.ftm}/{tot.fta}</td>
+                    <td>{tot.rebounds}</td>
+                    <td>{tot.assists}</td>
+                    <td>{tot.steals}</td>
+                    <td>{tot.blocks}</td>
+                    <td>{tot.turnovers}</td>
+                    <td>{tot.personal_fouls}</td>
+                    <td></td>
+                    <td>{tot.points}</td>
+                  </tr>
+                  <tr className="team-pcts">
+                    <td className="name"></td>
+                    <td></td>
+                    <td>{fgPct}%</td>
+                    <td>{fg3Pct}%</td>
+                    <td>{ftPct}%</td>
+                    <td colSpan={NUM_COLS - 4}></td>
+                  </tr>
+                </>
+              );
+            })()}
           </tbody>
         </table>
       </div>

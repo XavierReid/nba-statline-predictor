@@ -84,14 +84,16 @@ export default function BoxScore({ title, players, onSelectPlayer, abbr, season,
               <th className="name">Player</th>
               {COLS.map((c) => {
                 const sortable = "key" in c;
+                const active = sortable && (c as { key: SortKey }).key === sortKey;
                 return (
                   <th
                     key={c.label}
                     onClick={sortable ? () => setSortKey((c as { key: SortKey }).key) : undefined}
-                    className={sortable ? "sortable" : undefined}
+                    className={`${sortable ? "sortable" : ""} ${active ? "sort-active" : ""}`.trim() || undefined}
                     title={sortable ? "Sort" : undefined}
                   >
                     {c.label}
+                    {active && <span className="sort-arrow" aria-hidden="true"> ▼</span>}
                   </th>
                 );
               })}

@@ -88,10 +88,12 @@ export default function App() {
       />
 
       {error && <div className="error">{error}</div>}
-      {loading && <div className="loading">Running the simulation…</div>}
 
-      {!game && !loading && !error && (
-        <div className="empty-preview">
+      {/* Empty state + loading share the matchup-preview card — during a run
+          the card gets a spinner overlay so the transition feels continuous
+          rather than swapping to a stark text block. */}
+      {!game && !error && (
+        <div className={`empty-preview ${loading ? "is-loading" : ""}`}>
           {away && home ? (
             <>
               <div className="empty-matchup">
@@ -117,7 +119,12 @@ export default function App() {
                   <div className="empty-team-label">Home</div>
                 </div>
               </div>
-              <p className="empty-hint">Hit Simulate to run a possession-by-possession game.</p>
+              <p className="empty-hint">
+                {loading
+                  ? "Running the simulation…"
+                  : "Hit Simulate to run a possession-by-possession game."}
+              </p>
+              {loading && <div className="loading-spinner" aria-hidden="true" />}
             </>
           ) : (
             <p className="empty-hint">Loading seasons…</p>

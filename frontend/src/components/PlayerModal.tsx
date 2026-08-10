@@ -316,32 +316,21 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           {error && <p className="pm-empty">{error}</p>}
           {!error && !profile && <p className="pm-empty">Loading…</p>}
           {a && (
-            <div className="pm-statgrid">
-              <Stat k="GP" v={a.gp} />
-              <Stat k="MPG" v={a.min.toFixed(1)} />
-              <Stat k="PTS" v={a.pts.toFixed(1)} />
-              <Stat k="REB" v={a.reb.toFixed(1)} />
-              <Stat k="AST" v={a.ast.toFixed(1)} />
-              <Stat k="STL" v={a.stl.toFixed(1)} />
-              <Stat k="BLK" v={a.blk.toFixed(1)} />
-              <Stat k="TOV" v={a.tov.toFixed(1)} />
-              <Stat k="FG%" v={pct(a.fg_pct)} />
-              <Stat k="3P%" v={pct(a.fg3_pct)} />
-              <Stat k="FT%" v={pct(a.ft_pct)} />
+            // Supplementary stats only — PTS/REB/AST/FG% already appear as
+            // headline tiles in the hero, so this section shows the rest.
+            <div className="pm-inline-stats">
+              <span><b>GP</b> {a.gp}</span>
+              <span><b>MPG</b> {a.min.toFixed(1)}</span>
+              <span><b>STL</b> {a.stl.toFixed(1)}</span>
+              <span><b>BLK</b> {a.blk.toFixed(1)}</span>
+              <span><b>TOV</b> {a.tov.toFixed(1)}</span>
+              <span><b>3P%</b> {pct(a.fg3_pct)}</span>
+              <span><b>FT%</b> {pct(a.ft_pct)}</span>
             </div>
           )}
         </Section>
 
       </div>
-    </div>
-  );
-}
-
-function Stat({ k, v }: { k: string; v: ReactNode }) {
-  return (
-    <div className="pm-stat">
-      <span className="pm-stat-k">{k}</span>
-      <span className="pm-stat-v">{v}</span>
     </div>
   );
 }

@@ -29,17 +29,32 @@ export default function GameControls(p: Props) {
     </option>
   ));
 
+  // Compact year label — "2007-08" → "'08". Keeps the timeline readable at
+  // narrow widths without hiding the full label on hover.
+  const shortYear = (s: string) => {
+    const [, yy] = s.split("-");
+    return yy ? `'${yy}` : s;
+  };
+
   return (
     <div className="controls">
-      <div className="field">
+      <div className="field season-timeline-field">
         <label>Season</label>
-        <select value={p.season} onChange={(e) => p.onSeason(e.target.value)}>
+        <div className="season-timeline" role="radiogroup" aria-label="Season">
           {p.seasons.map((s) => (
-            <option key={s.season} value={s.season}>
-              {s.season}
-            </option>
+            <button
+              key={s.season}
+              type="button"
+              role="radio"
+              aria-checked={p.season === s.season}
+              className={`season-pill ${p.season === s.season ? "on" : ""}`}
+              onClick={() => p.onSeason(s.season)}
+              title={s.season}
+            >
+              {shortYear(s.season)}
+            </button>
           ))}
-        </select>
+        </div>
       </div>
 
       <div className="field">

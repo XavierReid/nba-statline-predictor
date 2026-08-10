@@ -23,16 +23,30 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
             <span className="team-name">{fr ? `${fr.city} ${fr.nickname}` : abbr}</span>
           </span>
         </td>
-        {labels.map((_, i) => (
-          <td key={i}>{game.quarter_scores[side][i] ?? ""}</td>
-        ))}
+        {labels.map((_, i) => {
+          const my = game.quarter_scores[side][i] ?? 0;
+          const opp = game.quarter_scores[side === "home" ? "away" : "home"][i] ?? 0;
+          // Bold the higher score per quarter — small ESPN-style visual
+          // narrative of who won each period.
+          const wonQuarter = my > opp;
+          return (
+            <td key={i} className={wonQuarter ? "q-win" : undefined}>
+              {game.quarter_scores[side][i] ?? ""}
+            </td>
+          );
+        })}
         <td className="total" style={totalStyle}>{total}</td>
       </tr>
     );
   };
 
+  // Winning franchise's primary color drives the card's top-border stripe,
+  // matching BoxScore's treatment.
+  const winnerFr = franchiseFor(homeWin ? game.home_team : game.away_team, game.season);
+  const stripeStyle = winnerFr ? { borderTop: `3px solid ${winnerFr.primaryColor}` } : undefined;
+
   return (
-    <>
+    <div className="linescore-wrap" style={stripeStyle}>
       <table className="linescore">
         <thead>
           <tr>
@@ -51,6 +65,6 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
       {periods > 4 && (
         <p className="ot-note">Went to {periods - 4 === 1 ? "overtime" : `${periods - 4} overtimes`}.</p>
       )}
-    </>
+    </div>
   );
 }

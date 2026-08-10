@@ -8,7 +8,10 @@
   --accent: #f7a23b;
   --accent-2: #4b9fff;
   --win: #3ecf8e;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";  /* opt-in polish where the OS font supports it */
+  text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
@@ -46,6 +49,27 @@ h1 {
 }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+/* Season timeline — horizontal year pills replacing the season <select>. */
+.season-timeline-field { min-width: 0; flex: 1 1 auto; }
+.season-timeline {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  padding: 4px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px;
+  max-width: 100%;
+}
+.season-pill {
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); cursor: pointer;
+  padding: 5px 9px; border-radius: 6px;
+  font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s, color 0.12s;
+}
+.season-pill:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.season-pill.on {
+  background: var(--accent); color: #1a1205;
+  border-color: var(--accent);
+}
 .field select, .field input {
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -81,20 +105,26 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 13px;
 }
 
-.linescore {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 8px;
+/* Wrap owns the card chrome so the winning team's color-stripe top border
+   (applied via inline style in LineScore) sits above a coherent card. */
+.linescore-wrap {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
+  margin-bottom: 8px;
+}
+.linescore {
+  width: 100%;
+  border-collapse: collapse;
 }
 .linescore th, .linescore td { padding: 10px 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .linescore th { background: var(--panel-2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
 .linescore td.team { text-align: left; font-weight: 600; }
 .linescore td.total { font-weight: 800; font-size: 16px; }
 .linescore tr.winner td.total { color: var(--win); }
+/* Bold the higher score per quarter — small ESPN-style narrative marker. */
+.linescore td.q-win { font-weight: 800; color: var(--text); }
 .ot-note { color: var(--muted); font-size: 12px; margin: 0 0 24px; }
 
 /* Stack boxes vertically until the viewport is wide enough for BOTH tables
@@ -119,6 +149,8 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .box th.sortable { cursor: pointer; }
 .box th.sortable:hover { color: var(--text); }
+.box th.sort-active { color: var(--text); }
+.box th .sort-arrow { color: var(--accent); font-size: 9px; margin-left: 2px; }
 .box td.name, .box th.name { text-align: left; }
 .box th.name { padding-left: 12px; }
 .box td.name { padding-left: 12px; font-weight: 500; }
@@ -223,7 +255,20 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   .empty-team { min-width: 100px; }
   .empty-team .team-logo--lg { width: 64px; height: 64px; }
 }
-.loading { color: var(--muted); text-align: center; padding: 40px 0; }
+/* Loading overlay — the empty-state matchup preview stays visible with a
+   spinner + subtle dim while the simulation runs, so the transition to the
+   result reads as a state change on the same card rather than a stark swap. */
+.empty-preview.is-loading .empty-matchup,
+.empty-preview.is-loading .empty-hint { opacity: 0.55; transition: opacity 0.15s; }
+.loading-spinner {
+  width: 32px; height: 32px;
+  margin: 12px auto 0;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* box rows drill into the player modal */
 .box tr.clickable { cursor: pointer; }
@@ -252,14 +297,6 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pm-header { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; }
 .pm-name { font-size: 20px; font-weight: 700; }
 .pm-sub { color: var(--muted); font-size: 13px; }
-
-/* flex (not 1fr grid) so stats pack together at a fixed rhythm instead of stretching to
-   fill the wide modal; wraps only when the viewport is genuinely narrow. */
-.pm-statgrid { display: flex; flex-wrap: wrap; gap: 10px 16px; }
-.pm-stat { min-width: 40px; }
-.pm-stat { display: flex; flex-direction: column; gap: 2px; }
-.pm-stat-k { font-size: 10px; text-transform: uppercase; color: var(--muted); }
-.pm-stat-v { font-size: 15px; font-variant-numeric: tabular-nums; }
 
 .pm-pbp { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; overflow-x: hidden; }
 /* the scroll region is not an interactive control — drop the UA focus ring (a light bar on

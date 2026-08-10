@@ -1481,3 +1481,103 @@ Every event shares a header:
 - **Real-NBA PBP export/compare** — granular typed events make a comparator against ingested NBA PBP feeds tractable.
 - **Advanced stats derived from events** — usage on true FGA, foul-drawn rate on real shots, TS% on honest denominator, etc. Lands cleanly on top of the event stream; the honest-denominator finding from PR #8 becomes actionable here.
 - **Per-player timeline UI** — event ribbon in `PlayerModal`.
+
+---
+
+# Season Sim Validation Pass — Session A (spec)
+
+**Owner:** validation session, 2026-08-10.
+**Type:** measurement + reporting; no engine changes; no new production code.
+**Pipeline:** step 1 (spec) + step 6 (UAT-style verification with Xavier reviewing the report).
+
+## Motivation
+
+Every calibration mechanism shipped so far (`season_context`, `pre_negation_probs`, pre-bonus representation, `tov_scale=0.36`, `steal_rate=0.086`, foul-caution two-phase, PF-weighted foul draw, pace formula w/ foul-reset compensation) has been validated at the single-game or 60–100-game batch level. None have been exercised through the existing team-scoped season-sim scaffold (`app/services/season_simulator.py`) end-to-end against a real 82-game schedule. Before we build a season-sim UI (session B) or expand to full-league (session C), we need to know the current stack behaves coherently at season scale.
+
+## Scope
+
+- **One representative team, 2025-26 season, one seed, 82 games.** Use the existing `run_season_simulation` background task and `SimulationRun` persistence. Default `SimConfig` (which already carries all shipped defaults).
+- **Read-only end-to-end.** No engine changes. No calibration tuning. If an aggregate metric is off, record it; only intervene if there's a structural bug preventing the run from completing coherently.
+- **Compare where possible** against the single-game calibration numbers already banked in memory (avg team score, home win rate, FTA/tg, PF/tg).
+
+## Team choice
+
+**Boston Celtics (BOS)** — recurring reference team in prior calibration sessions; well-known 2025-26 roster (Tatum, Brown, Holiday, White, Porzingis); real W-L, home/away splits, and per-game scoring are ingested for direct comparison.
+
+## Metrics (structured report)
+
+Output as JSON + human-readable summary. Categories:
+
+### Team season aggregates
+- W, L, W%
+- Home W/L, Away W/L, home-court boost
+- Avg PTS scored (per game, home split, away split)
+- Avg PTS allowed
+- Avg total score (both teams combined)
+- Blowout rate (|margin| ≥ 20)
+- Close rate (|margin| ≤ 5)
+- OT rate
+- Margin distribution: mean, std, percentiles [10/25/50/75/90]
+
+### Team per-game rates
+- Avg FGA, FTA, PF, TOV, OREB, DREB, STL, BLK, AST
+- Avg possessions (from box-derived accounting)
+- Team FG%, 3P%, FT%
+
+### Star player workloads (top 3 by minutes)
+- MPG
+- PPG, RPG, APG, SPG, BPG, TOPG
+- FG%, 3P%, FT%
+- Games played (out of 82)
+
+### Structural health
+- Games completed / attempted / failed
+- Duplicated game IDs (should be 0)
+- Persistence errors (log-only, no interrupt)
+- Wall-clock time (total + p50/p95 per game)
+- Memory footprint at start vs. end (rough proxy for state leak)
+- Any `roster_cache` misses beyond the 2 teams
+
+### Structural red-flags (flag but don't tune)
+- Impossible standings (W+L != games_played, or games_played > 82)
+- Player MIN > 48.5 per-game (regulation ceiling + OT allowance)
+- Team score < 60 or > 180 (pathological single game)
+- Star player DNP rate > 30% without an availability model
+- Missing box lines for players who played
+- State drift: any per-team metric that trends monotonically over the 82-game run when it should be stationary
+
+## Comparison anchors (from existing calibration)
+
+Single-game 2024-25 batch (per-team, DRAMA-M3 preset, current shipped defaults):
+
+| Metric | Anchor | Season-scale expectation |
+|---|---|---|
+| Team score / game | 113.0 | ≈ 113 ± 2 |
+| Home win rate | ~55% | ≈ 55% ± 6 |
+| FTA / team-game | ~20.5 | ≈ 20.5 ± 1 |
+| PF / team-game | 22.7 | ≈ 22.7 ± 1 |
+| Blowout rate | ~26% | ≈ 26% ± 5 |
+
+Real 2025-26 BOS anchors (post-ingestion): pulled from `TeamSeasonStats` + `PlayerSeasonStats`.
+
+## Definition of done
+
+- [ ] Script runs to completion (all 82 games persisted, no failures)
+- [ ] Structured JSON report saved under `scratch/season_validation_bos_202526.json`
+- [ ] Human summary printed to stdout with real-vs-sim table
+- [ ] Xavier reads the summary and decides: proceed to B (frontend) / fix a structural bug / re-run with a different team
+- [ ] Any structural red-flag is a blocker; statistical drift is a "note and move on"
+
+## Non-goals
+
+- No new engine constants
+- No new SimConfig toggles
+- No frontend work
+- No calibration tuning even if a metric is off
+- No full-league (1230-game) run
+
+## Related memories
+
+- [[project-myleague-vision]] — long-term direction shapes B/C design (not this session)
+- [[feedback-simulation-engineering-loop]] — define → implement → instrument → validate; this session is the "validate" step for the shipped stack as a whole
+- [[feedback-investigation-convergence]] — falsification is a session outcome; a clean pass tells us the stack is coherent, a red-flag tells us to fix an integration bug first

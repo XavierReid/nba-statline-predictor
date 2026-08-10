@@ -188,21 +188,34 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
           ) : (
             <table>
               <tbody>
-                {filteredRows.map((r, i) => {
-                  const e = r.parent;
-                  const h = e.running_home_score ?? "";
-                  const a = e.running_away_score ?? "";
-                  const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
-                  return (
-                    <tr key={i} className={e.is_home ? "home" : "away"}>
-                      <td className="clock">
-                        {periodLabel(e.quarter)} {clock(e.game_clock_seconds)}
-                      </td>
-                      <td className="score">{a}-{h}</td>
-                      <td>{text}</td>
-                    </tr>
-                  );
-                })}
+                {(() => {
+                  const out: React.ReactNode[] = [];
+                  let lastQuarter: number | null = null;
+                  filteredRows.forEach((r, i) => {
+                    const e = r.parent;
+                    if (e.quarter !== lastQuarter) {
+                      out.push(
+                        <tr key={`sep-${e.quarter}-${i}`} className="pbp-period-sep">
+                          <td colSpan={3}>{periodLabel(e.quarter)}</td>
+                        </tr>
+                      );
+                      lastQuarter = e.quarter;
+                    }
+                    const h = e.running_home_score ?? "";
+                    const a = e.running_away_score ?? "";
+                    const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
+                    out.push(
+                      <tr key={i} className={e.is_home ? "home" : "away"}>
+                        <td className="clock">
+                          {periodLabel(e.quarter)} {clock(e.game_clock_seconds)}
+                        </td>
+                        <td className="score">{a}-{h}</td>
+                        <td>{text}</td>
+                      </tr>
+                    );
+                  });
+                  return out;
+                })()}
               </tbody>
             </table>
           )}

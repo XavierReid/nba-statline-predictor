@@ -229,6 +229,22 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
                   </div>
                 )}
               </div>
+              {profile && Object.keys(profile.ratings).length > 0 && (
+                <div className="pm-hero-ratings" title="Player ratings">
+                  {RATING_ORDER.filter((k) => k in profile.ratings).map((k) => (
+                    <div className="pm-hero-rating" key={k}>
+                      <span className="pm-hero-rating-label">{RATING_LABEL[k] ?? k}</span>
+                      <span className="pm-hero-rating-bar">
+                        <span
+                          className="pm-hero-rating-fill"
+                          style={{ width: `${profile.ratings[k]}%` }}
+                        />
+                      </span>
+                      <span className="pm-hero-rating-val">{profile.ratings[k]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -316,21 +332,6 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           )}
         </Section>
 
-        {profile && Object.keys(profile.ratings).length > 0 && (
-          <Section title="Ratings">
-            <div className="pm-ratings">
-              {RATING_ORDER.filter((k) => k in profile.ratings).map((k) => (
-                <div className="pm-rating" key={k}>
-                  <span className="pm-rating-label">{RATING_LABEL[k] ?? k}</span>
-                  <span className="pm-bar">
-                    <span className="pm-bar-fill" style={{ width: `${profile.ratings[k]}%` }} />
-                  </span>
-                  <span className="pm-rating-val">{profile.ratings[k]}</span>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
       </div>
     </div>
   );

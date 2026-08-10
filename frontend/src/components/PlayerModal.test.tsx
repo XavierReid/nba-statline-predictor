@@ -9,7 +9,7 @@ vi.mock("../api", () => ({ getPlayerProfile: vi.fn() }));
 const profile: PlayerProfile = {
   id: 5, full_name: "Test Guy", position: "G", team: "BOS", season: "2025-26",
   season_averages: { gp: 70, min: 32, pts: 24.5, reb: 4, ast: 6, stl: 1, blk: 0.2, tov: 2, fg_pct: 0.45, fg3_pct: 0.4, ft_pct: 0.9 },
-  ratings: { overall: 90, three_point: 95, clutch: 88 },
+  ratings: { overall: 90, three_point: 95, clutch: 88, perimeter_defense: 80 },
 };
 
 function line(over: Partial<PlayerLine> = {}): PlayerLine {
@@ -88,7 +88,8 @@ describe("PlayerModal", () => {
     // rendered.
     const matches = await screen.findAllByText("24.5");
     expect(matches.length).toBeGreaterThan(0);
-    expect(screen.getByText("Ratings")).toBeInTheDocument();
+    // Ratings now live as a compact strip inside the hero. "Perim D" is unique to that strip.
+    expect(await screen.findByText("Perim D")).toBeInTheDocument();
   });
 
   it("closes on overlay click", () => {

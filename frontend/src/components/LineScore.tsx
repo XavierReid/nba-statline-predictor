@@ -1,6 +1,7 @@
 import type { SimulateGameResponse } from "../types";
 import TeamLogo from "./TeamLogo";
 import { franchiseFor } from "../data/franchises";
+import { readableOnDark } from "../data/color";
 
 export default function LineScore({ game }: { game: SimulateGameResponse }) {
   const periods = Math.max(game.quarter_scores.home.length, game.quarter_scores.away.length);
@@ -11,7 +12,9 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
     const fr = franchiseFor(abbr, game.season);
     // Winner's total renders in that team's primary color — connects the
     // brand identity to the win rather than the generic --win accent.
-    const totalStyle = isWinner && fr ? { color: fr.primaryColor } : undefined;
+    // Low-luminance colors (e.g. Denver navy #0E2240) are lightened for
+    // readability on the dark background.
+    const totalStyle = isWinner && fr ? { color: readableOnDark(fr.primaryColor) } : undefined;
     return (
       <tr className={isWinner ? "winner" : ""}>
         <td className="team">

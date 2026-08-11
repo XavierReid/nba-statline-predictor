@@ -230,6 +230,7 @@ def list_simulations(db: Session = Depends(get_db)):
             id=sim.id,
             team=team.abbreviation,
             season=sim.season,
+            seed=sim.seed,
             status=sim.status,
             games_completed=sim.games_completed,
             total_games=total_games,

@@ -160,6 +160,7 @@ export interface SimulationSummary {
   id: number;
   team: string;
   season: string;
+  seed: number;
   status: SimulationStatus["status"];
   games_completed: number;
   total_games: number;

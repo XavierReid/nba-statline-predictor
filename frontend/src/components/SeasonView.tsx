@@ -669,7 +669,9 @@ export default function SeasonView() {
   }, [refreshRuns, sim]);
 
   const rerunRun = useCallback((r: SimulationSummary) => {
-    setFormPrefill({ team: r.team, season: r.season, preset: "drama-m3" });
+    // Carry seed so re-run defaults to exact reproduction; user can clear or
+    // change the seed in the form before submitting to get variation.
+    setFormPrefill({ team: r.team, season: r.season, seed: r.seed, preset: "drama-m3" });
     setMode("form");
     setError(null);
   }, []);

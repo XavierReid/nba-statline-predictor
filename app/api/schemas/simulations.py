@@ -254,6 +254,7 @@ class SimulationSummary(BaseModel):
     id: int
     team: str
     season: str
+    seed: int                          # exposed so the UI can re-run with the same seed
     status: str
     games_completed: int
     total_games: int

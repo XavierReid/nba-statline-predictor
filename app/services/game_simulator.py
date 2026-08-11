@@ -340,6 +340,14 @@ def simulate_game(
     home_ids = set(home_by_id.keys())
     away_ids = set(away_by_id.keys())
 
+    # Game-scope foul-out set. INVARIANT: once a player is added to this set
+    # during a game they cannot return in any subsequent period (Q1→OTn).
+    # Every on-court consumer (regular possession lineup, strategic-foul
+    # picker) filters against this so a fouled-out player is removed the
+    # instant their 6th PF is credited, not delayed to the next-minute
+    # rotation patch. Fixes the 7-fouls bug (see project-bug-7-fouls-jokic).
+    fouled_out: set[int] = set()
+
     home_player_gs = {
         p["id"]: PlayerGameState(player_id=p["id"], clutch_rating=p.get("clutch_rating", 50))
         for p in home_players
@@ -410,6 +418,7 @@ def simulate_game(
                             offense_on_court = [
                                 p for p in (home_players if current_is_home else away_players)
                                 if p["id"] in (home_ids if current_is_home else away_ids)
+                                and p["id"] not in fouled_out
                             ]
                             from app.services.possession import _free_throw_prob
                             target = min(offense_on_court, key=_free_throw_prob)
@@ -431,6 +440,7 @@ def simulate_game(
                             defense_on_court = [
                                 p for p in (away_players if current_is_home else home_players)
                                 if p["id"] in (away_ids if current_is_home else home_ids)
+                                and p["id"] not in fouled_out
                             ]
                             # Deterministic pick: the defender most willing to foul (matches
                             # the coaching pattern of sending a bench player with fouls to
@@ -480,6 +490,7 @@ def simulate_game(
                                 gs.away_score += strategic_pts
                                 gs.quarter_scores["away"][q_idx] += strategic_pts
                             if strategic_fouled_out_pid:
+                                fouled_out.add(strategic_fouled_out_pid)   # immediate — next lookups filter them out
                                 current_minute = min(
                                     GAME_MINUTES - 1,
                                     q_idx * 12 + int((period_seconds - quarter_clock) / 60),
@@ -552,6 +563,14 @@ def simulate_game(
                 away_rotation, current_minute, away_by_min, box,
                 MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED,
                 foul_trouble_subs=cfg.use_foul_trouble_subs)
+            # Enforce the foul-out invariant: rotation lookups schedule the
+            # replacement for `current_minute + 1`, so the same-minute lookup
+            # (or OT's clamped-back-to-47 lookup) can still return a player
+            # who fouled out this minute. Filter here so downstream sees
+            # the physically-legal 5-on-court set. See project-bug-7-fouls-jokic.
+            if fouled_out:
+                home_active_ids = [pid for pid in home_active_ids if pid not in fouled_out]
+                away_active_ids = [pid for pid in away_active_ids if pid not in fouled_out]
             in_mismatch = gs.home_conceded != gs.away_conceded
             pre_poss_margin = abs(gs.home_score - gs.away_score)
 
@@ -672,6 +691,7 @@ def simulate_game(
                         gs.home_last2_fouls += def_committed
 
             if fouled_out_pid:
+                fouled_out.add(fouled_out_pid)   # immediate — next lookups filter them out
                 if fouled_out_pid in home_by_id:
                     patch_rotation(home_rotation, fouled_out_pid, home_by_min, current_minute + 1, box)
                 else:

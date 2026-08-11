@@ -2036,3 +2036,77 @@ Note: **known persistence-filter quirk** ([[project-season-validation-a]]) — s
 - [[project-sim-vs-real-averages]] — Xavier's original ask
 - [[project-season-validation-a]] — the compute path already validated
 - [[project-session-b3-shipped]] — the surface we're extending
+
+---
+
+# 7-Fouls Fix — Fouled-out Player Filter (spec)
+
+**Owner:** sim-engine fix session, 2026-08-11.
+**Type:** engine behavior change; box_score fixture recapture required.
+**Blocked-by:** [[project-bug-7-fouls-jokic]] investigation (root cause identified).
+
+## Bug summary
+
+Fouled-out players remain on the court set until `patch_rotation`'s next-minute effect kicks in. Any on-court consumer that fires in the same minute (or in OT after a Q4 foul-out where `patch_rotation` targets minute 48 but OT clamps back to 47) can re-select the fouled-out player. Two reproduced manifestations:
+
+- **Bug A (OT):** Spencer Jones fouls out at Q4 4s → still on floor in OT → 7th foul at Q5 74s. Run #30 `0022500974`.
+- **Bug B (same-minute strategic-foul spam):** Isaiah Stewart fouls out at Q4 52s → strategic-foul picker re-selects him at Q4 29s. Run #36 `0022501210`.
+
+Underlying: `home_active_ids`/`away_active_ids` and `defense_on_court` are computed from rotation lookup, but rotation doesn't reflect the just-fouled-out state.
+
+## Fix (minimal, targeted)
+
+Track a `fouled_out: set[int]` at `_run_clock_period` scope, updated the instant `apply_typed_event` returns `ev_fo`. Every on-court consumer filters against it.
+
+Three consumers:
+1. **Regular possession on-court sets** (near `_apply_possession` call in `_run_clock_period`) — `home_active_ids = [pid for pid in rotation_lookup if pid not in fouled_out]`.
+2. **Strategic-foul defender picker** (`game_simulator.py:431-439`) — `defense_on_court = [p for p in ... if p["id"] not in fouled_out]`.
+3. **Any similar lookup I find during implementation** — grep `home_active_ids`, `away_active_ids`, `on_court`.
+
+Fouled_out is cleared at end of `_run_clock_period` (per period? no — a player who fouled out in Q1 stays out for the rest of the game). Cleared at game start (implicit via new game state).
+
+## Non-goals
+
+- **Not touching `patch_rotation`** — its rotation-schedule semantics are fine; we're layering a fouled-out filter on top so it works between minute boundaries.
+- **Not touching foul-out threshold logic** — still 6 PF via `apply_typed_event`.
+- **Not adding new tests for existing rotation behavior.**
+
+## Impact hypothesis
+
+Directional predictions to validate:
+- **PF/team-game:** slight decrease (a few illegal fouls no longer emitted per season).
+- **Foul-out rate:** essentially unchanged (players still fouled out at 6; the illegal 7th event was a re-attribution not an additional foul-out).
+- **OT rate:** possibly higher — when trailing team's best fouler is out, strategic-foul path picks a different (weaker) fouler → fewer effective intentional fouls → less clock-management late → possibly more OTs? Or unchanged if effect is small.
+- **Late-Q4 close-game texture:** minor scoring shifts. Games where fouled-out player was the strategic-foul target will look different.
+
+**All above deltas should be small.** If aggregates move ≥1 per team-game on any metric, that's evidence the fix has a compensating effect worth thinking about.
+
+## Test plan
+
+1. **New unit tests:**
+   - `tests/test_foul_out_filter.py` — direct assertion: given a `_run_clock_period` scenario where a strategic foul fouls out player X, subsequent same-minute strategic fouls do NOT re-select X.
+   - Same test for OT: player X fouls out at Q4 last minute → not on court in Q5.
+2. **Fixture recapture:**
+   - `tests/fixtures/box_score_baseline.json` WILL drift on the affected games. Re-capture via `scratch/capture_box_baseline.py`.
+   - Diff the old vs new fixture; document which games / players changed and by how much.
+3. **Aggregate impact measurement:**
+   - Re-run `scratch/season_validation_bos_202526.py` (Session A instrument) with the fix. Compare PF/tg, foul-out rate, OT rate, avg score to Session A's baseline.
+   - If BOS 82-game aggregates move by <0.5 per-game on any metric, ship. Otherwise, investigate the delta before shipping.
+
+## Definition of done
+
+- [ ] Fouled-out set + filter added at all identified consumer sites
+- [ ] New unit tests green
+- [ ] `tests/test_box_score_derivation_fixture.py` still passes (or is updated with re-captured fixture + explicit note on which cells moved and why)
+- [ ] Full backend suite green
+- [ ] Re-run of BOS 82-game validation against pre-fix baseline; deltas classified and reported
+- [ ] Bug A + Bug B specifically re-verified fixed on runs #30 (LAL@DEN OT) + #36 (ATL@DET)
+- [ ] Memory update: [[project-bug-7-fouls-jokic]] → closed with before/after numbers
+- [ ] Commit + push
+
+## Related
+
+- [[project-bug-7-fouls-jokic]] — investigation memo (root cause + reproducibility)
+- [[feedback-refactor-behavior-invariance]] — refactor discipline; this is a *behavior* change though, so different discipline applies
+- [[feedback-accounting-as-validation]] — measure before / after residuals before calling it done
+- [[feedback-simulation-engineering-loop]] — define → implement → instrument → validate

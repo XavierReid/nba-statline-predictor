@@ -11,6 +11,7 @@ vi.mock("../api", () => ({
   createSimulation: vi.fn(),
   startSimulation: vi.fn(),
   cancelSimulation: vi.fn(),
+  deleteSimulation: vi.fn(),
   getSeasons: vi.fn(async () => []),
   getTeams: vi.fn(async () => []),
 }));
@@ -139,6 +140,47 @@ describe("SeasonView state machine", () => {
     expect(await screen.findByText("2025-10-22")).toBeInTheDocument();
     // W column
     expect(screen.getAllByText("W").length).toBeGreaterThan(0);
+  });
+
+  it("renders the run picker with all persisted runs (B3)", async () => {
+    const games = [summary({ game_id: "g1", home_team: TEAM, home_score: 111, away_score: 105, win: true })];
+    const status = runStatus(games);
+    const rows: SimulationSummary[] = [
+      { id: 1, team: TEAM, season: SEASON, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: "2026-08-10T00:00:07Z" },
+      { id: 2, team: "OKC", season: SEASON, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: "2026-08-09T00:00:07Z" },
+    ];
+    vi.mocked(api.listSimulations).mockResolvedValue(rows);
+    vi.mocked(api.getSimulation).mockResolvedValue(status);
+
+    render(<SeasonView />);
+    // Toggle picker
+    const toggle = await screen.findByText(/Runs \(2\)/i);
+    fireEvent.click(toggle);
+    // Both team labels should appear inside the menu
+    expect(screen.getAllByText(TEAM).length).toBeGreaterThan(0);
+    expect(screen.getByText("OKC")).toBeInTheDocument();
+  });
+
+  it("delete calls the API and refreshes the picker (B3)", async () => {
+    const games = [summary({ game_id: "g1", home_team: TEAM, home_score: 111, away_score: 105, win: true })];
+    const status = runStatus(games);
+    const rows: SimulationSummary[] = [
+      { id: 1, team: TEAM, season: SEASON, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: null },
+      { id: 2, team: "OKC", season: SEASON, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: null },
+    ];
+    vi.mocked(api.listSimulations).mockResolvedValueOnce(rows).mockResolvedValueOnce([rows[0]]);
+    vi.mocked(api.getSimulation).mockResolvedValue(status);
+    vi.mocked(api.deleteSimulation).mockResolvedValue({ id: 2, deleted: true });
+
+    render(<SeasonView />);
+    fireEvent.click(await screen.findByText(/Runs \(2\)/i));
+    // Delete row for OKC — the second row's Delete button
+    const deleteBtns = screen.getAllByText("Delete");
+    fireEvent.click(deleteBtns[1]);
+    // Confirmation prompt
+    fireEvent.click(screen.getByText("Yes"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.deleteSimulation).toHaveBeenCalledWith(2);
   });
 
   it("opens the back button when a game row is clicked and fetches game detail", async () => {

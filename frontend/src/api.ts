@@ -80,6 +80,16 @@ export async function cancelSimulation(id: number): Promise<{ id: number; status
   return post<{ id: number; status: string }>(`/simulations/${id}/cancel`, {});
 }
 
+export async function deleteSimulation(id: number): Promise<{ id: number; deleted: boolean }> {
+  const r = await fetch(`/simulations/${id}`, { method: "DELETE" });
+  if (!r.ok) {
+    const err = new Error(`${r.status} ${await r.text()}`) as Error & { status?: number };
+    err.status = r.status;
+    throw err;
+  }
+  return r.json();
+}
+
 export async function simulateGame(args: SimulateArgs): Promise<SimulateGameResponse> {
   const body = {
     home_team: args.home_team,

@@ -1850,3 +1850,76 @@ Existing backend errors to surface cleanly:
 - [[project-session-b1-shipped]] — the surface being extended
 - [[project-myleague-vision]] — B2 should keep doors open (avoid batch-only assumptions)
 - [[feedback-session-definition]] — B2 is on the edge; polling + state machine adds real complexity. If it slips, split into B2a (create + start) + B2b (poll + cancel).
+
+---
+
+# Season Sim UI — Session B3 (spec)
+
+**Owner:** frontend session, 2026-08-11.
+**Type:** frontend feature; existing backend endpoints only.
+**Blocked-by:** B2 shipped (d177057).
+
+## Motivation
+
+B2 gave us create/start/poll/cancel. Users can now kick off runs and browse the most recent completed one — but past runs are inaccessible from the UI (they exist in the DB, `GET /simulations/` returns them, but nothing consumes the list). B3 closes that gap: a compact run picker so users can jump between historical runs, plus destructive controls (delete + re-run) that round out CRUD.
+
+## User flow
+
+- **Season header** gains a "Runs (N)" dropdown or button that opens a compact list of all persisted simulations (most recent first). Each row shows: team abbr / logo · season · status badge · record (if complete) · timestamp.
+- Clicking a row loads that run into browse view.
+- **Row-level controls** appear on hover: `Delete` (blocked while running per backend), `Re-run` (pre-populates the form with team + season + preset + seed).
+- **`Re-run`** transitions to the form (mode=form) with fields populated. User can tweak seed/preset before submitting.
+- **`Delete`** confirmation prompt inline; on confirm, removes the row and refreshes; if the deleted run was the currently-loaded one, either load the next most recent or drop to form.
+
+## Components
+
+- **`RunPicker`** — dropdown/menu inside `SeasonHeader`. Reuses existing header space to the right of the identity block.
+- **`NewSeasonForm`** — extended to accept optional `prefill` props (team, season, seed, preset).
+- **`SeasonView`** — new state actions: `switchRun(id)`, `deleteRun(id)`, `rerunFromRun(id)`.
+
+## API surface
+
+All existing:
+- `listSimulations()` — already fetched at init, refetched after delete.
+- `getSimulation(id)` — already used.
+- New tiny helper: `deleteSimulation(id)` — DELETE `/simulations/{id}`.
+
+## Visual conventions
+
+- Dropdown styled like `.season-timeline` (dark panel, rounded, muted). Compact rows.
+- Status badges: `.status-complete` (green dot), `.status-cancelled` (yellow), `.status-failed` (red), `.status-running` (blue with pulse).
+- Delete confirmation: inline "Sure? [Yes] [Cancel]" swap, no modal.
+- Re-run button = accent color like the form's Simulate button.
+
+## Tests (Vitest)
+
+- `deleteSimulation` — API call fires correct URL.
+- `SeasonView` — clicking a picker row calls `getSimulation` with the right id and enters browse mode.
+- `SeasonView` — delete of the currently-viewed run drops to next most recent (or form when none left).
+
+## UAT scenarios
+
+1. Multiple completed runs → picker shows all with correct labels + timestamps.
+2. Switch between runs — browse view updates to the selected run.
+3. Delete a run — disappears from picker, currently-viewed logic handles gracefully.
+4. Re-run — form pre-populated; can tweak seed and submit.
+5. Console clean.
+
+## Definition of done
+
+- [ ] RunPicker component + delete + re-run flows built
+- [ ] Vitest tests green (target 39+ total)
+- [ ] `npm run build` clean
+- [ ] All 5 UAT scenarios pass
+- [ ] No changes to existing browse / running / form components beyond additive props
+
+## Non-goals
+
+- **Sim-vs-real averages** — B4.
+- **Full-league expansion** — session C.
+- **Advanced filters** (by team / season / preset) — future if list grows.
+
+## Related
+
+- [[project-session-b2-shipped]] — foundation
+- [[project-next-session-focus]] — B3 is the "close out season-sim UI CRUD" step

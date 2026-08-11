@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   cancelSimulation,
   createSimulation,
+  deleteSimulation,
   getSeasonGame,
   getSeasons,
   getSimulation,
@@ -15,6 +16,7 @@ import type {
   SimulateGameResponse,
   SimulatedGameSummary,
   SimulationStatus,
+  SimulationSummary,
   Team,
 } from "../types";
 import { franchiseFor } from "../data/franchises";
@@ -79,28 +81,39 @@ function computeStandings(rows: RowExt[]) {
 
 // --- New-sim form ---------------------------------------------------------
 
+interface FormPrefill {
+  team?: string;
+  season?: string;
+  seed?: number | null;
+  preset?: string;
+}
+
 interface NewSeasonFormProps {
   onCreated: (id: number) => void;
   onError: (msg: string) => void;
   onDetectedActive: (id: number) => void;    // 409 recovery: jump into the active run
+  prefill?: FormPrefill;
 }
 
-function NewSeasonForm({ onCreated, onError, onDetectedActive }: NewSeasonFormProps) {
+function NewSeasonForm({ onCreated, onError, onDetectedActive, prefill }: NewSeasonFormProps) {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [season, setSeason] = useState("");
-  const [team, setTeam] = useState("");
-  const [seed, setSeed] = useState("");
-  const [preset, setPreset] = useState("drama-m3");
+  const [season, setSeason] = useState(prefill?.season ?? "");
+  const [team, setTeam] = useState(prefill?.team ?? "");
+  const [seed, setSeed] = useState(prefill?.seed != null ? String(prefill.seed) : "");
+  const [preset, setPreset] = useState(prefill?.preset ?? "drama-m3");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     getSeasons()
       .then((s) => {
         setSeasons(s);
-        if (s.length) setSeason(s[0].season);
+        // Only default to the newest season if the user hasn't pre-selected one
+        // (prefill from a re-run action).
+        if (s.length && !season) setSeason(s[0].season);
       })
       .catch((e) => onError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onError]);
 
   useEffect(() => {
@@ -349,17 +362,106 @@ function SeasonGameList({ rows, season, onSelect }: GameListProps) {
   );
 }
 
-function SeasonHeader({
-  sim,
-  standings,
-  cancelledAt,
-  onNewSim,
-}: {
+// Compact status dot for the run picker rows.
+function StatusDot({ status }: { status: SimulationSummary["status"] }) {
+  return <span className={`status-dot status-${status}`} title={status} />;
+}
+
+interface RunPickerProps {
+  runs: SimulationSummary[];
+  currentId: number;
+  onSwitch: (id: number) => void;
+  onDelete: (id: number) => void;
+  onRerun: (r: SimulationSummary) => void;
+}
+function RunPicker({ runs, currentId, onSwitch, onDelete, onRerun }: RunPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
+
+  if (runs.length === 0) return null;
+
+  const label = `Runs (${runs.length})`;
+
+  return (
+    <div className="run-picker">
+      <button className="run-picker-toggle" onClick={() => setOpen((o) => !o)}>
+        {label} {open ? "▲" : "▼"}
+      </button>
+      {open && (
+        <div className="run-picker-menu" role="menu">
+          {runs.map((r) => {
+            const isCurrent = r.id === currentId;
+            const rec = r.wins != null && r.losses != null ? `${r.wins}-${r.losses}` : null;
+            const confirming = confirmingDelete === r.id;
+            return (
+              <div key={r.id} className={`run-picker-row ${isCurrent ? "on" : ""}`}>
+                <button
+                  className="run-picker-label"
+                  onClick={() => { onSwitch(r.id); setOpen(false); }}
+                >
+                  <StatusDot status={r.status} />
+                  <span className="rp-team">{r.team}</span>
+                  <span className="rp-season">{r.season}</span>
+                  {rec && <span className="rp-record">{rec}</span>}
+                  <span className="rp-ts">#{r.id}</span>
+                </button>
+                <div className="run-picker-actions">
+                  {confirming ? (
+                    <>
+                      <button
+                        className="rp-confirm"
+                        onClick={() => { onDelete(r.id); setConfirmingDelete(null); }}
+                      >
+                        Yes
+                      </button>
+                      <button className="rp-cancel" onClick={() => setConfirmingDelete(null)}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="rp-btn"
+                        title="Re-run with same team + season"
+                        onClick={() => { onRerun(r); setOpen(false); }}
+                      >
+                        Re-run
+                      </button>
+                      <button
+                        className="rp-btn rp-danger"
+                        title={r.status === "running" ? "Cancel before deleting" : "Delete"}
+                        disabled={r.status === "running"}
+                        onClick={() => setConfirmingDelete(r.id)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SeasonHeaderProps {
   sim: SimulationStatus;
   standings: ReturnType<typeof computeStandings>;
   cancelledAt: number | null;
   onNewSim: () => void;
-}) {
+  runs: SimulationSummary[];
+  onSwitchRun: (id: number) => void;
+  onDeleteRun: (id: number) => void;
+  onRerunRun: (r: SimulationSummary) => void;
+}
+
+function SeasonHeader({
+  sim, standings, cancelledAt, onNewSim,
+  runs, onSwitchRun, onDeleteRun, onRerunRun,
+}: SeasonHeaderProps) {
   const fr = franchiseFor(sim.team, sim.season);
   const style = fr ? { borderTop: `3px solid ${fr.primaryColor}` } : undefined;
   return (
@@ -375,6 +477,13 @@ function SeasonHeader({
         </div>
       </div>
       <div className="sh-right">
+        <RunPicker
+          runs={runs}
+          currentId={sim.id}
+          onSwitch={onSwitchRun}
+          onDelete={onDeleteRun}
+          onRerun={onRerunRun}
+        />
         <div className="sh-record">
           <div className="sh-record-big">{standings.w}-{standings.l}</div>
           <div className="sh-record-sub">{(standings.wPct * 100).toFixed(1)}%</div>
@@ -392,6 +501,7 @@ type Mode = "loading" | "form" | "active" | "browse";
 export default function SeasonView() {
   const [mode, setMode] = useState<Mode>("loading");
   const [sim, setSim] = useState<SimulationStatus | null>(null);
+  const [runs, setRuns] = useState<SimulationSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedGame, setSelectedGame] = useState<RowExt | null>(null);
   const [gameDetail, setGameDetail] = useState<SimulateGameResponse | null>(null);
@@ -402,10 +512,18 @@ export default function SeasonView() {
   const [runStartedAt, setRunStartedAt] = useState<number>(0);
   // Bumped once per poll tick to trigger a re-render with fresh elapsed time.
   const [tick, setTick] = useState(0);
+  const [formPrefill, setFormPrefill] = useState<FormPrefill | undefined>(undefined);
+
+  // Refetch the run list — called at init and after any create/delete/complete.
+  const refreshRuns = useCallback(async () => {
+    const rs = await listSimulations();
+    setRuns(rs);
+    return rs;
+  }, []);
 
   // Initial load: pick the most recent active OR completed run.
   useEffect(() => {
-    listSimulations()
+    refreshRuns()
       .then((rs) => {
         const active = rs.find((r) => r.status === "running" || r.status === "pending");
         if (active) {
@@ -419,7 +537,7 @@ export default function SeasonView() {
         setMode("form");
       })
       .catch((e) => setError(String(e)));
-  }, []);
+  }, [refreshRuns]);
 
   // Poll while in active mode + tab is visible + season tab is mounted (mount-scoped).
   const pollActive = mode === "active";
@@ -436,9 +554,11 @@ export default function SeasonView() {
         setTick((t) => t + 1);
         if (s.status === "complete" || s.status === "cancelled") {
           setMode("browse");
+          refreshRuns().catch(() => {});
         } else if (s.status === "failed") {
           setError("Simulation failed. Try again.");
           setMode("form");
+          refreshRuns().catch(() => {});
         }
       } catch (e) {
         if (!cancelled) setError(String(e));
@@ -455,7 +575,7 @@ export default function SeasonView() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [pollActive, sim?.id]);
+  }, [pollActive, sim?.id, refreshRuns]);
 
   const cancelledAt: number | null = useMemo(() => {
     if (!sim || sim.status !== "cancelled") return null;
@@ -478,14 +598,17 @@ export default function SeasonView() {
   const onCreated = useCallback(async (id: number) => {
     setError(null);
     setRunStartedAt(Date.now());
+    setFormPrefill(undefined);
     try {
       const s = await getSimulation(id);
       setSim(s);
       setMode("active");
+      // Best-effort refresh so the picker knows about the new run.
+      refreshRuns().catch(() => {});
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [refreshRuns]);
 
   const onDetectedActive = useCallback(async (id: number) => {
     setError(null);
@@ -501,6 +624,52 @@ export default function SeasonView() {
   }, []);
 
   const openForm = useCallback(() => {
+    setMode("form");
+    setError(null);
+    setFormPrefill(undefined);   // "New Sim" starts blank; re-run pre-populates below
+  }, []);
+
+  const switchToRun = useCallback(async (id: number) => {
+    setError(null);
+    try {
+      const s = await getSimulation(id);
+      setSim(s);
+      setSelectedGame(null);
+      setGameDetail(null);
+      if (s.status === "running" || s.status === "pending") {
+        setRunStartedAt(Date.parse(s.created_at) || Date.now());
+        setMode("active");
+      } else {
+        setMode("browse");
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  const deleteRun = useCallback(async (id: number) => {
+    try {
+      await deleteSimulation(id);
+      const rs = await refreshRuns();
+      if (sim && sim.id === id) {
+        // Currently-viewed run was deleted — jump to the next most recent complete/cancelled.
+        const next = rs.find((r) => r.status === "complete" || r.status === "cancelled");
+        if (next) {
+          const s = await getSimulation(next.id);
+          setSim(s);
+          setMode("browse");
+        } else {
+          setSim(null);
+          setMode("form");
+        }
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [refreshRuns, sim]);
+
+  const rerunRun = useCallback((r: SimulationSummary) => {
+    setFormPrefill({ team: r.team, season: r.season, preset: "drama-m3" });
     setMode("form");
     setError(null);
   }, []);
@@ -529,11 +698,14 @@ export default function SeasonView() {
   if (mode === "form") {
     return (
       <div className="season-form-wrap">
-        <h3 className="season-form-title">Start a new season simulation</h3>
+        <h3 className="season-form-title">
+          {formPrefill ? `Re-run ${formPrefill.team} · ${formPrefill.season}` : "Start a new season simulation"}
+        </h3>
         <NewSeasonForm
           onCreated={onCreated}
           onError={(m) => setError(m)}
           onDetectedActive={onDetectedActive}
+          prefill={formPrefill}
         />
       </div>
     );
@@ -604,7 +776,16 @@ export default function SeasonView() {
 
   return (
     <>
-      <SeasonHeader sim={sim} standings={standings} cancelledAt={cancelledAt} onNewSim={openForm} />
+      <SeasonHeader
+        sim={sim}
+        standings={standings}
+        cancelledAt={cancelledAt}
+        onNewSim={openForm}
+        runs={runs}
+        onSwitchRun={switchToRun}
+        onDeleteRun={deleteRun}
+        onRerunRun={rerunRun}
+      />
       <SeasonStandings standings={standings} />
       <SeasonGameList rows={rows} season={sim.season} onSelect={setSelectedGame} />
     </>

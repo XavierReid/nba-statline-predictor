@@ -122,6 +122,23 @@ export interface SimulatedGameSummary {
   win: boolean;   // true iff the run's team won
 }
 
+// POST /simulations/ request body
+export interface CreateSimulationBody {
+  team: string;         // abbr
+  season: string;
+  seed?: number | null;
+  config?: { preset?: string } | null;
+}
+
+// POST /simulations/ response (also start response)
+export interface SimulationCreated {
+  id: number;
+  team: string;
+  season: string;
+  seed: number;
+  status: "pending" | "running" | "complete" | "cancelled" | "failed";
+}
+
 // GET /simulations/{id} response
 export interface SimulationStatus {
   id: number;

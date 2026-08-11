@@ -8,6 +8,11 @@ vi.mock("../api", () => ({
   listSimulations: vi.fn(),
   getSimulation: vi.fn(),
   getSeasonGame: vi.fn(),
+  createSimulation: vi.fn(),
+  startSimulation: vi.fn(),
+  cancelSimulation: vi.fn(),
+  getSeasons: vi.fn(async () => []),
+  getTeams: vi.fn(async () => []),
 }));
 
 const TEAM = "BOS";
@@ -93,10 +98,27 @@ describe("extendRow", () => {
 });
 
 describe("SeasonView state machine", () => {
-  it("shows empty state when no completed runs exist", async () => {
+  it("shows the new-sim form when no runs exist (B2)", async () => {
     vi.mocked(api.listSimulations).mockResolvedValue([]);
     render(<SeasonView />);
-    expect(await screen.findByText(/No completed season simulations yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Start a new season simulation/i)).toBeInTheDocument();
+  });
+
+  it("drops into active-run view when a running sim exists (B2)", async () => {
+    const activeSummary: SimulationSummary = {
+      id: 7, team: TEAM, season: SEASON, status: "running",
+      games_completed: 10, total_games: 82, wins: null, losses: null,
+      created_at: "2026-08-11T12:00:00Z", completed_at: null,
+    };
+    const activeStatus: SimulationStatus = {
+      ...activeSummary, seed: 42, games: null,
+    };
+    vi.mocked(api.listSimulations).mockResolvedValue([activeSummary]);
+    vi.mocked(api.getSimulation).mockResolvedValue(activeStatus);
+    render(<SeasonView />);
+    // Progress copy — "<games_completed> / <total_games> games"
+    expect(await screen.findByText(/10/)).toBeInTheDocument();
+    expect(await screen.findByText(/Cancel/i)).toBeInTheDocument();
   });
 
   it("renders standings + game list once a completed run loads", async () => {

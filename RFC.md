@@ -1709,3 +1709,144 @@ Xavier runs these against the deployed frontend after commit:
 - [[project-myleague-vision]] — long-term direction; B1 doesn't close doors
 - [[feedback-session-definition]] — B1 sized to one PR-sized concept
 - [[feedback-verify-against-reference]] — game-detail reuses single-game components verbatim
+
+---
+
+# Season Sim UI — Session B2 (spec)
+
+**Owner:** frontend session, 2026-08-10.
+**Type:** frontend feature; no backend additions expected (backend endpoints already exist).
+**Pipeline:** all 8 steps.
+**Blocked-by:** B1 shipped (e00a91e).
+
+## Motivation
+
+B1 gave us a read-only browse of completed runs. B2 closes the loop: users can create and start a new season sim from the UI, watch it progress, and cancel if needed. The season simulator is otherwise inaccessible without curl or the scratch script.
+
+## User flow (B2)
+
+**Season tab, empty state (no completed OR active runs):**
+1. Existing empty message replaced with a "Start a new season" call-to-action.
+2. User picks team + season + seed (optional) + preset (optional).
+3. Clicks "Simulate Season" → POST /simulations/, then POST /simulations/{id}/start.
+4. View switches to **running state**: progress bar, X of 82 games, cancel button, live team logo, running record if computable.
+5. Poll every ~1s.
+6. On complete → auto-transition into the B1 browse view for this run.
+7. On failed → error banner, "Try Again" button returns to the form.
+8. Cancel button → POST /simulations/{id}/cancel → transitions to cancelled state → "Discard" or "Browse partial" (if any games completed).
+
+**Season tab, existing run:**
+- Auto-load most recent run (same as B1).
+- Header gets a **"New Season Sim"** button that surfaces the form (inline expand, not a modal) so the user can kick off another without losing the current view.
+- If a run is already active (status = pending or running), the button opens directly into the running-state view instead of the form.
+
+## Components (new)
+
+- **`NewSeasonForm`** — team select + season pill row (reuse pattern from GameControls) + seed input + preset select + submit button. Disables submit while a run is active (server enforces this too).
+- **`SeasonRunningState`** — big progress bar, X/82 counter, cancel button, elapsed time, ETA (linear from elapsed).
+- **`SeasonView`** (extend) — gains state machine for form / running / browse / error transitions.
+
+## State machine (B2)
+
+```
+[loading list]
+    ├─ any pending/running    → [active-run: fetch + poll]
+    ├─ any complete           → [browse: B1 flow] + "New Sim" button available
+    └─ nothing                → [form]
+
+[form]
+    submit → POST /simulations/ → POST /start → [active-run]
+    server 409 (already running) → refetch list → transition to the active run
+
+[active-run]
+    poll every 1s → status updates
+        complete    → [browse for this run]
+        failed      → [error, back-to-form option]
+        cancelled   → [browse partial if any games; else form]
+    cancel button → POST /cancel → poll continues until status changes
+    tab switch away → polling paused, resumes on return
+
+[browse]
+    (B1 behavior)
+    "New Sim" click → [form] (browse state preserved for cancel/back)
+```
+
+## API surface
+
+- `listSimulations()` — existing (B1).
+- `getSimulation(id)` — existing (B1).
+- `getSeasonGame(id, gameId)` — existing (B1).
+- `createSimulation(body)` — new: POST `/simulations/` with `{team, season, seed?, config?}`.
+- `startSimulation(id)` — new: POST `/simulations/{id}/start`.
+- `cancelSimulation(id)` — new: POST `/simulations/{id}/cancel`.
+
+Existing backend errors to surface cleanly:
+- 409 Conflict on create when another sim is already running → refetch and jump into the active run.
+- 422 on start if the sim is not pending (race condition) → same recovery.
+- 422 on cancel if already complete/cancelled → just refresh.
+
+## Polling
+
+- Interval: **1000ms** (games take ~80ms each, so 12–13 games between polls — enough resolution for a smooth progress bar without overwhelming the server).
+- Uses `setInterval` scoped to the active-run state; cleared on state change or unmount.
+- Backoff / stop: if the poll returns the same `games_completed` for 30 consecutive seconds AND status != running, assume something's wrong and surface an error.
+- Tab-switch: polling pauses when the Season tab is inactive (via `document.visibilityState`).
+
+## Empty / loading / error states
+
+- **Form loading:** disabled submit + spinner while POST + start-POST are in flight.
+- **Form validation:** submit disabled until team + season are set (seed optional; preset defaults to `drama-m3`).
+- **Progress bar:** styled band matching team-color stripe pattern; % + count both shown.
+- **Cancel-in-progress:** cancel button becomes "Cancelling…" until backend reflects the state.
+- **Error banner:** reuse `.error` class + include an inline "Try Again" (go back to form) or "View Partial Results" (if some games completed).
+
+## Reuse conventions
+
+- Season pill row from GameControls → same component pattern, single-team variant.
+- Team select — same fixed-width native select as single-game view.
+- Preset select — same fixed-width native select.
+- Progress bar: single new `.progress-bar` primitive; team-color fill.
+- No new backend endpoints.
+
+## Tests
+
+- **Frontend Vitest:**
+  - `NewSeasonForm` — submit disabled until team + season set; POST called with right body; 409 recovery flow (mock listSimulations → running).
+  - `SeasonView` state machine — form → active → browse transitions; cancel button flow.
+  - Poll interval mocked with `vi.useFakeTimers()` — verifies polling stops on status change.
+- **No new backend tests** — existing 362 covers the endpoints being consumed.
+
+## UAT scenarios
+
+1. **Fresh state** (delete all runs via API): Season tab shows the form. Fill BOS + 2025-26 + seed 26 + drama-m3 → Simulate Season → progress bar advances through 82 games → auto-transitions to B1 browse showing 29-53 record.
+2. **Cancel mid-run:** start a run, click Cancel around game 20 → status flips to cancelled → view shows partial-results option OR back-to-form.
+3. **Concurrent create:** with a run active, refresh the page. Should land directly in the active-run view (not the form).
+4. **Preset switch:** kick off a run with `baseline` preset → verify seed derivation still deterministic (same seed → same result across preset changes ISN'T expected; document it).
+5. **Team change from active-run view:** run BOS to completion → click "New Sim" → form re-appears with prior selections but user can change team. Start OKC. Runs cleanly.
+6. **Failed run recovery:** simulate a failure (delete the roster mid-run via a scratch call) → error banner + Try Again.
+7. **Tab-switch pause:** switch to Single Game while a run is active → verify polling stops (Network tab quiet) → switch back → polling resumes and catches up.
+8. **Console clean** through all above.
+
+## Definition of done
+
+- [ ] `NewSeasonForm`, `SeasonRunningState`, `SeasonView` state machine built + tested
+- [ ] Poll interval + visibility-based pause working
+- [ ] All error paths (409/422/failed) recoverable without page refresh
+- [ ] Both create and cancel flows byte-clean through the backend endpoints (already tested backend-side)
+- [ ] All 8 UAT scenarios pass
+- [ ] Xavier sign-off
+
+## Non-goals
+
+- **Run picker** (choose which past completed run to browse) → B3
+- **Delete run** → B3
+- **Config overrides beyond preset** → B3
+- **Notification when a background run finishes on another tab** → not this session
+- **Multi-team runs / full-league** → session C
+- **MyLeague between-games flow** → long-term
+
+## Related memories
+
+- [[project-session-b1-shipped]] — the surface being extended
+- [[project-myleague-vision]] — B2 should keep doors open (avoid batch-only assumptions)
+- [[feedback-session-definition]] — B2 is on the edge; polling + state machine adds real complexity. If it slips, split into B2a (create + start) + B2b (poll + cancel).

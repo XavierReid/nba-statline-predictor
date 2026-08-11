@@ -1,11 +1,28 @@
 import type {
+  CreateSimulationBody,
   PlayerProfile,
   SeasonCoverage,
   SimulateGameResponse,
+  SimulationCreated,
   SimulationStatus,
   SimulationSummary,
   Team,
 } from "./types";
+
+async function post<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const detail = await r.text();
+    const err = new Error(`${r.status} ${detail}`) as Error & { status?: number };
+    err.status = r.status;
+    throw err;
+  }
+  return r.json();
+}
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -49,6 +66,18 @@ export async function getSeasonGame(
   gameId: string
 ): Promise<SimulateGameResponse> {
   return get<SimulateGameResponse>(`/simulations/${simId}/games/${encodeURIComponent(gameId)}`);
+}
+
+export async function createSimulation(body: CreateSimulationBody): Promise<SimulationCreated> {
+  return post<SimulationCreated>("/simulations/", body);
+}
+
+export async function startSimulation(id: number): Promise<SimulationCreated> {
+  return post<SimulationCreated>(`/simulations/${id}/start`, {});
+}
+
+export async function cancelSimulation(id: number): Promise<{ id: number; status: string }> {
+  return post<{ id: number; status: string }>(`/simulations/${id}/cancel`, {});
 }
 
 export async function simulateGame(args: SimulateArgs): Promise<SimulateGameResponse> {

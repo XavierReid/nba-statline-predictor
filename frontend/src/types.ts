@@ -170,6 +170,44 @@ export interface SimulationSummary {
   completed_at: string | null;
 }
 
+// Sim season averages per player, side-by-side with the ingested real anchors.
+export interface PlayerAveragesSim {
+  gp: number;
+  mpg: number;
+  ppg: number;
+  rpg: number;
+  apg: number;
+  spg: number;
+  bpg: number;
+  topg: number;
+  pf_per_game: number;
+  fg_pct: number | null;
+  fg3_pct: number | null;
+  ft_pct: number | null;
+}
+export type PlayerAveragesReal = PlayerAveragesSim;   // same key set (real values from PlayerSeasonStats)
+
+export interface PlayerAveragesRow {
+  player_id: number;
+  name: string;
+  sim: PlayerAveragesSim;
+  real: PlayerAveragesReal | null;
+}
+
+// Team-level averages — sim carries a full per-game aggregate; real from
+// TeamSeasonStats only exposes advanced-rating fields (pace, off_rating,
+// def_rating, oreb_pct). Deliberately no derived values — [Xavier 2026-08-11].
+export interface SeasonAverages {
+  sim_id: number;
+  team: string;
+  season: string;
+  team_totals: {
+    sim: Record<string, number>;
+    real: Record<string, number>;
+  };
+  players: PlayerAveragesRow[];
+}
+
 export interface SimulateGameResponse {
   season: string;
   seed: number;

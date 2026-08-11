@@ -250,6 +250,32 @@ class SimulationStatusResponse(BaseModel):
     games: Optional[list[SimulatedGameSummary]] = None
 
 
+class PlayerAveragesRow(BaseModel):
+    """One row in the season-averages view: sim aggregates + optional real anchors.
+
+    Real is None for players who played in the sim but have no PlayerSeasonStats
+    row for the season (rookies, off-season signings, mid-year debuts before the
+    ingestion cutoff, etc.).
+    """
+    player_id: int
+    name: str
+    sim: dict                              # gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg_pct, fg3_pct, ft_pct
+    real: Optional[dict] = None            # same keys where the real anchor exposes them
+
+
+class TeamAveragesResponse(BaseModel):
+    sim: dict                              # gp, ppg, opp_ppg, fga, fta, pf, tov, stl, blk, ast, reb (from persisted lines)
+    real: dict                             # whatever TeamSeasonStats exposes: pace, off_rating, def_rating, oreb_pct
+
+
+class SeasonAveragesResponse(BaseModel):
+    sim_id: int
+    team: str
+    season: str
+    team_totals: TeamAveragesResponse
+    players: list[PlayerAveragesRow]
+
+
 class SimulationSummary(BaseModel):
     id: int
     team: str

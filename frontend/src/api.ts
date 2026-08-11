@@ -1,6 +1,7 @@
 import type {
   CreateSimulationBody,
   PlayerProfile,
+  SeasonAverages,
   SeasonCoverage,
   SimulateGameResponse,
   SimulationCreated,
@@ -66,6 +67,10 @@ export async function getSeasonGame(
   gameId: string
 ): Promise<SimulateGameResponse> {
   return get<SimulateGameResponse>(`/simulations/${simId}/games/${encodeURIComponent(gameId)}`);
+}
+
+export async function getSeasonAverages(simId: number): Promise<SeasonAverages> {
+  return get<SeasonAverages>(`/simulations/${simId}/averages`);
 }
 
 export async function createSimulation(body: CreateSimulationBody): Promise<SimulationCreated> {

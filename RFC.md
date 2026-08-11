@@ -1923,3 +1923,116 @@ All existing:
 
 - [[project-session-b2-shipped]] — foundation
 - [[project-next-session-focus]] — B3 is the "close out season-sim UI CRUD" step
+
+---
+
+# Season Sim UI — Session B4 (spec)
+
+**Owner:** frontend session + one backend addition, 2026-08-11.
+**Blocked-by:** B3 shipped (`2dcf90d`).
+
+## Motivation
+
+A completed season sim persists every player's per-game line. Users can see individual game boxscores but there's no season-level view of a player's simulated averages, nor a comparison to their real NBA numbers. Xavier's ask (2026-08-10): "sim averages to correspond with the real life NBA averages for the players/teams" — banked in [[project-sim-vs-real-averages]] and now scheduled as B4.
+
+## User flow
+
+- In the Season browse view, add a compact **"Averages"** view that lists every player who played in the season, with sim season averages (MPG/PPG/RPG/APG/etc.) and real-NBA anchors from ingested `PlayerSeasonStats` side-by-side.
+- Sortable by any column (MPG default descending).
+- Also expose team-level aggregates (per-game FGA/FTA/TOV/PF/etc.) sim vs real from `TeamSeasonStats` in a smaller strip.
+- Toggle in the season header: "Games / Averages" — two views on the same run, no separate page.
+
+## Backend gap (one endpoint)
+
+`GET /simulations/{sim_id}/averages` → structured payload:
+
+```
+{
+  "sim_id": 30,
+  "team": "LAL",
+  "season": "2025-26",
+  "team_totals": {
+    "sim": { "gp": 82, "ppg": 113.5, "opp_ppg": 119.6, "fga": 83.7, "fta": 20.8, "pf": 22.4, ... },
+    "real": { "pace": ..., "off_rating": ..., "def_rating": ... }  // whatever TeamSeasonStats carries
+  },
+  "players": [
+    {
+      "player_id": 2544, "name": "LeBron James",
+      "sim":  { "gp": 82, "mpg": 34.7, "ppg": 22.3, "rpg": 7.8, "apg": 8.1, "spg": ..., "bpg": ..., "topg": ..., "fg_pct": ..., "fg3_pct": ..., "ft_pct": ... },
+      "real": { "gp": 66, "mpg": 34.2, "ppg": 24.1, "rpg": 7.5, "apg": 8.3, ... } | null
+    },
+    ...
+  ]
+}
+```
+
+- Sim aggregates computed from persisted `SimulatedPlayerLine` rows for this simulation_id (game-count divisor uses played rows only, i.e. minutes >= 0.5 — matches existing DNP filter).
+- Real anchors from `PlayerSeasonStats` on `(player_id, season)`; `null` if the player has no real season stats (rookie prospects, mid-season debuts, etc.).
+- Team totals: sim aggregates from persisted lines; real from `TeamSeasonStats`.
+
+Note: **known persistence-filter quirk** ([[project-season-validation-a]]) — sub-0.5-min lines aren't persisted, so team MIN sum will be ~11 low. Endpoint returns whatever the DB has; the UI can label the sim MIN column with a footnote.
+
+## Components (new)
+
+- **`SeasonAverages`** — top-level container inside SeasonView; toggled via header.
+- **`SeasonAveragesTable`** — sortable player table.
+- **`SeasonTeamAverages`** — team-level side-by-side strip.
+
+## Frontend layout
+
+- **Header toggle:** two-button pill row like the app-level tabs, but inside the season header: `Games | Averages`.
+- **Team strip** at top: MIN, PTS, OPP PTS, FGA, FTA, PF, TOV, +/- side-by-side sim vs real. Simple two-row table.
+- **Player table columns:** Player · GP (sim/real) · MPG · PPG · RPG · APG · STL · BLK · TOV · FG% · 3P% · FT% — each column shows both sim + real inline as `X.X / Y.Y` (or just sim if no real).
+- Sort by any column; default MPG desc.
+
+## Visual conventions
+
+- Reuse `.box` table styling for the player table.
+- Reuse `readableOnDark` for the header team-color stripe.
+- No new colors; muted-vs-text pattern for real-vs-sim distinction.
+
+## Tests
+
+**Backend (`tests/test_season_averages.py`):**
+- 200 for a completed run — payload shape check.
+- 404 for unknown sim.
+- Sim averages match sum-of-lines / GP.
+- Real anchors present when `PlayerSeasonStats` exists; `null` when absent.
+
+**Frontend (Vitest):**
+- Aggregation helper (given a mock payload) produces the expected rendered rows.
+- Sortable columns behave (click column → sort desc).
+- Toggle switches views without refetching the run.
+
+## UAT scenarios
+
+1. Load a completed run → header shows "Games / Averages" toggle. Games view default.
+2. Click Averages → team strip + player table appear.
+3. Team strip shows sim PPG/opp PPG matching what the standings row showed.
+4. Player rows show sim + real for known players (e.g. LeBron real MPG close to sim MPG within 1-2).
+5. Rookies / missing-real players render sim only with "—" in real columns.
+6. Sort by PPG desc → top scorer floats to top; click again → asc.
+7. Switch back to Games → run picker + game list restored.
+8. Console clean.
+
+## Definition of done
+
+- [ ] Backend endpoint + tests green
+- [ ] Frontend components + Vitest green
+- [ ] `npm run build` clean
+- [ ] 8 UAT scenarios pass
+- [ ] Xavier sign-off
+
+## Non-goals
+
+- No advanced-stats derivations (TS%, eFG%, PER, etc.) — future.
+- No cross-season / career comparisons — future.
+- No visual charts / bar plots — text table only.
+- No editing (adjusting predictions) — MyLeague territory.
+- No historical-run averages comparison across sims — future.
+
+## Related memories
+
+- [[project-sim-vs-real-averages]] — Xavier's original ask
+- [[project-season-validation-a]] — the compute path already validated
+- [[project-session-b3-shipped]] — the surface we're extending

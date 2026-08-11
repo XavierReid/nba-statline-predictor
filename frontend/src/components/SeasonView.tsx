@@ -25,6 +25,7 @@ import LineScore from "./LineScore";
 import BoxScore from "./BoxScore";
 import PlayByPlay from "./PlayByPlay";
 import PlayerModal from "./PlayerModal";
+import SeasonAveragesView from "./SeasonAverages";
 import TeamLogo from "./TeamLogo";
 
 const POLL_INTERVAL_MS = 1000;
@@ -456,11 +457,14 @@ interface SeasonHeaderProps {
   onSwitchRun: (id: number) => void;
   onDeleteRun: (id: number) => void;
   onRerunRun: (r: SimulationSummary) => void;
+  viewMode: "games" | "averages";
+  onViewMode: (m: "games" | "averages") => void;
 }
 
 function SeasonHeader({
   sim, standings, cancelledAt, onNewSim,
   runs, onSwitchRun, onDeleteRun, onRerunRun,
+  viewMode, onViewMode,
 }: SeasonHeaderProps) {
   const fr = franchiseFor(sim.team, sim.season);
   const style = fr ? { borderTop: `3px solid ${fr.primaryColor}` } : undefined;
@@ -477,6 +481,24 @@ function SeasonHeader({
         </div>
       </div>
       <div className="sh-right">
+        <div className="sh-view-toggle" role="tablist" aria-label="Season view">
+          <button
+            role="tab"
+            aria-selected={viewMode === "games"}
+            className={`sh-view-btn ${viewMode === "games" ? "on" : ""}`}
+            onClick={() => onViewMode("games")}
+          >
+            Games
+          </button>
+          <button
+            role="tab"
+            aria-selected={viewMode === "averages"}
+            className={`sh-view-btn ${viewMode === "averages" ? "on" : ""}`}
+            onClick={() => onViewMode("averages")}
+          >
+            Averages
+          </button>
+        </div>
         <RunPicker
           runs={runs}
           currentId={sim.id}
@@ -513,6 +535,7 @@ export default function SeasonView() {
   // Bumped once per poll tick to trigger a re-render with fresh elapsed time.
   const [tick, setTick] = useState(0);
   const [formPrefill, setFormPrefill] = useState<FormPrefill | undefined>(undefined);
+  const [viewMode, setViewMode] = useState<"games" | "averages">("games");
 
   // Refetch the run list — called at init and after any create/delete/complete.
   const refreshRuns = useCallback(async () => {
@@ -787,9 +810,17 @@ export default function SeasonView() {
         onSwitchRun={switchToRun}
         onDeleteRun={deleteRun}
         onRerunRun={rerunRun}
+        viewMode={viewMode}
+        onViewMode={setViewMode}
       />
-      <SeasonStandings standings={standings} />
-      <SeasonGameList rows={rows} season={sim.season} onSelect={setSelectedGame} />
+      {viewMode === "games" ? (
+        <>
+          <SeasonStandings standings={standings} />
+          <SeasonGameList rows={rows} season={sim.season} onSelect={setSelectedGame} />
+        </>
+      ) : (
+        <SeasonAveragesView simId={sim.id} />
+      )}
     </>
   );
 }

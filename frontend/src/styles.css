@@ -36,6 +36,117 @@ h1 {
 }
 .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
 
+/* App header with tabs on the right so the shell reads as a two-pane app
+   (Single Game / Season) without pushing the title to a second line. */
+.app-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; flex-wrap: wrap;
+}
+.app-tabs {
+  display: flex; gap: 4px;
+  padding: 4px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px;
+  align-self: center;
+}
+.app-tab {
+  background: transparent; border: none;
+  color: var(--muted); cursor: pointer;
+  padding: 7px 14px; border-radius: 6px;
+  font-size: 13px; font-weight: 600;
+  transition: background 0.12s, color 0.12s;
+}
+.app-tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.app-tab.on {
+  background: var(--accent); color: #1a1205;
+}
+
+/* --- Season view --------------------------------------------------------- */
+.season-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.sh-identity { display: flex; align-items: center; gap: 16px; }
+.sh-identity .team-logo--lg { width: 64px; height: 64px; }
+.sh-text { display: flex; flex-direction: column; gap: 4px; }
+.sh-team { font-size: 22px; font-weight: 800; }
+.sh-meta { font-size: 12px; color: var(--muted); }
+.sh-record { text-align: right; }
+.sh-record-big {
+  font-size: 32px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.sh-record-sub { font-size: 12px; color: var(--muted); }
+
+.season-standings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 24px;
+}
+.ss-cell { display: flex; flex-direction: column; gap: 4px; }
+.ss-k {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--muted); font-weight: 600;
+}
+.ss-v {
+  font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.ss-v em { color: var(--muted); font-size: 12px; font-style: normal; margin-left: 4px; }
+
+.season-games {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.season-games table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.season-games th, .season-games td { padding: 9px 12px; text-align: left; font-variant-numeric: tabular-nums; }
+.season-games th {
+  background: var(--panel-2); color: var(--muted);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  cursor: pointer; user-select: none;
+}
+.season-games th:hover { color: var(--text); }
+.season-games tbody tr { border-bottom: 1px solid var(--line); }
+.season-games tbody tr:last-child { border-bottom: none; }
+.season-games tbody tr.clickable { cursor: pointer; }
+.season-games tbody tr.clickable:hover { background: var(--panel-2); }
+.season-games td.date { color: var(--muted); }
+.season-games td.score { font-weight: 700; }
+.season-games td.margin { font-weight: 700; }
+.season-games td.pm-plus, .season-games td.pm-minus { text-align: left; }
+.season-games .game-opp-cell { display: inline-flex; align-items: center; gap: 8px; }
+.season-games .game-opp-cell .loc { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.season-games .game-opp-cell .opp-name { font-weight: 600; }
+.season-games .team-logo--sm { width: 22px; height: 22px; }
+.ot-badge {
+  margin-left: 6px;
+  font-size: 10px; font-weight: 700;
+  color: var(--accent); letter-spacing: 0.5px;
+}
+
+.season-game-detail { display: flex; flex-direction: column; gap: 16px; }
+.back-btn {
+  align-self: flex-start;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 13px; cursor: pointer;
+}
+.back-btn:hover { background: var(--line); }
+
 .controls {
   display: flex;
   flex-wrap: wrap;

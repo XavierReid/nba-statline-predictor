@@ -110,6 +110,48 @@ export interface PlayerProfile {
   ratings: Record<string, number>;
 }
 
+// One game inside a completed SimulationRun (from GET /simulations/{id}).
+export interface SimulatedGameSummary {
+  game_id: string;
+  game_date: string;
+  home_team: string;
+  away_team: string;
+  home_score: number;
+  away_score: number;
+  went_to_ot: boolean;
+  win: boolean;   // true iff the run's team won
+}
+
+// GET /simulations/{id} response
+export interface SimulationStatus {
+  id: number;
+  team: string;         // abbr
+  season: string;
+  seed: number;
+  status: "pending" | "running" | "complete" | "cancelled" | "failed";
+  games_completed: number;
+  total_games: number;
+  wins: number | null;
+  losses: number | null;
+  created_at: string;
+  completed_at: string | null;
+  games: SimulatedGameSummary[] | null;
+}
+
+// GET /simulations/ list-response entry (subset of SimulationStatus)
+export interface SimulationSummary {
+  id: number;
+  team: string;
+  season: string;
+  status: SimulationStatus["status"];
+  games_completed: number;
+  total_games: number;
+  wins: number | null;
+  losses: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface SimulateGameResponse {
   season: string;
   seed: number;

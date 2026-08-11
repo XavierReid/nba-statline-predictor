@@ -1,4 +1,11 @@
-import type { PlayerProfile, SeasonCoverage, SimulateGameResponse, Team } from "./types";
+import type {
+  PlayerProfile,
+  SeasonCoverage,
+  SimulateGameResponse,
+  SimulationStatus,
+  SimulationSummary,
+  Team,
+} from "./types";
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -26,6 +33,22 @@ export interface SimulateArgs {
   seed?: number;
   preset: string;
   include_pbp: boolean;
+}
+
+// Season sim (B1: read-only browse).
+export async function listSimulations(): Promise<SimulationSummary[]> {
+  return get<SimulationSummary[]>("/simulations/");
+}
+
+export async function getSimulation(id: number): Promise<SimulationStatus> {
+  return get<SimulationStatus>(`/simulations/${id}`);
+}
+
+export async function getSeasonGame(
+  simId: number,
+  gameId: string
+): Promise<SimulateGameResponse> {
+  return get<SimulateGameResponse>(`/simulations/${simId}/games/${encodeURIComponent(gameId)}`);
 }
 
 export async function simulateGame(args: SimulateArgs): Promise<SimulateGameResponse> {

@@ -14,15 +14,17 @@ from app.services.events import flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
 from app.services.sim_config import SimConfig
-from app.api.helpers import get_team, sim_game_is_win
+from app.api.helpers import build_box, get_team, sim_game_is_win
 from app.api.schemas.simulations import (
     CreateSimulationRequest,
+    PossessionEvent,
+    QuarterScores,
+    SimulateGameResponse,
     SimulatedGameSummary,
     SimulationCreatedResponse,
     SimulationStatusResponse,
     SimulationSummary,
     StartSimulationRequest,
-    PossessionEvent,
     resolve_config,
 )
 
@@ -265,6 +267,64 @@ def delete_simulation(sim_id: int, db: Session = Depends(get_db)):
     db.execute(delete(SimulationRun).where(SimulationRun.id == sim_id))
     db.commit()
     return {"id": sim_id, "deleted": True}
+
+
+@season_router.get("/{sim_id}/games/{game_id}", response_model=SimulateGameResponse)
+def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db)):
+    """Return the full box + line score + PBP for one game in a season sim.
+
+    Re-simulates deterministically using the stored seed — identical shape to
+    POST /simulations/game, so the frontend can reuse LineScore/BoxScore/
+    PlayByPlay components. Same "no event persistence" approach as the
+    events endpoint below.
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
+    if sim.status != "complete":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Simulation {sim_id} is '{sim.status}' — only completed runs have browseable games.",
+        )
+
+    sg = db.execute(
+        select(SimulatedGame)
+        .where(SimulatedGame.simulation_id == sim_id, SimulatedGame.game_id == game_id)
+    ).scalar_one_or_none()
+    if not sg:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found in simulation {sim_id}.")
+
+    real_game = db.get(Game, game_id)
+    home_players = load_roster(db, real_game.home_team_id, sim.season)
+    away_players = load_roster(db, real_game.away_team_id, sim.season)
+
+    stored = (sim.parameters or {}).get("sim_config")
+    cfg = SimConfig(**stored) if stored else SimConfig()
+
+    seed = _game_seed(sim.seed, game_id)
+    result = simulate_game(
+        home_players, away_players,
+        seed=seed, season=sim.season,
+        steps=200, capture_descriptions=True,
+        config=cfg,
+    )
+
+    home_ids = {p["id"] for p in home_players}
+    return SimulateGameResponse(
+        season=sim.season,
+        seed=seed,
+        home_team=real_game.home_team.abbreviation,
+        away_team=real_game.away_team.abbreviation,
+        home_score=result["home_score"],
+        away_score=result["away_score"],
+        quarter_scores=QuarterScores(
+            home=result["quarter_scores"]["home"],
+            away=result["quarter_scores"]["away"],
+        ),
+        home_box=build_box(home_players, result["box_score"]),
+        away_box=build_box(away_players, result["box_score"]),
+        events=flatten_and_enrich(result["chunk_events"], home_ids),
+    )
 
 
 @season_router.get("/{sim_id}/games/{game_id}/events", response_model=list[PossessionEvent])

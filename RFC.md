@@ -1581,3 +1581,131 @@ Real 2025-26 BOS anchors (post-ingestion): pulled from `TeamSeasonStats` + `Play
 - [[project-myleague-vision]] — long-term direction shapes B/C design (not this session)
 - [[feedback-simulation-engineering-loop]] — define → implement → instrument → validate; this session is the "validate" step for the shipped stack as a whole
 - [[feedback-investigation-convergence]] — falsification is a session outcome; a clean pass tells us the stack is coherent, a red-flag tells us to fix an integration bug first
+
+---
+
+# Season Sim UI — Session B1 (spec)
+
+**Owner:** frontend session, 2026-08-10.
+**Type:** frontend feature; **one** backend endpoint addition (game-detail read).
+**Pipeline:** all 8 steps (backend + frontend). Includes UAT.
+**Blocked-by:** Session A DoD signed off (verified 2026-08-10).
+
+## Motivation
+
+The team-scoped season simulator has a complete backend (spec + create + start + poll + cancel + list + delete + per-game events) but zero UI. Session A validated the stack runs coherently. Session B1 wires up a **read-only browse** of an already-completed run — the smallest UI surface that exercises the whole rendering path (season-level aggregates + game list + game drill-in) without adding lifecycle-management state (create/start/cancel), which is B2.
+
+## User flow (B1)
+
+1. User opens the app → new **"Season"** tab in the header (existing single-game view stays as "Single Game" tab).
+2. Season tab loads:
+   - **Empty state** if no completed runs exist: message + "Season sims start via API for now — UI coming next session." (Placeholder for the B2 create-flow.)
+   - Otherwise, auto-loads the **most recent completed run**.
+3. Season view shows: team identity header, standings-line, game list.
+4. Clicking a game row opens a **game detail view** (in-page swap; back button returns to the list).
+5. Game detail reuses existing `LineScore`, `BoxScore`, `PlayByPlay`, `PlayerModal` components — no visual divergence from single-game.
+
+## Components
+
+- **App-level tabs** (new). `SingleGameView` (extracted from current `App.tsx` body) + `SeasonView` (new).
+- **`SeasonView`** — top-level container; fetches most-recent completed run, drives the child views.
+- **`SeasonHeader`** — team logo + name + season + record + config summary + timestamp.
+- **`SeasonStandings`** — one-row summary: W-L (W%), home W-L, away W-L, PPG scored/allowed, blowout%, OT%.
+- **`SeasonGameList`** — sortable table (date | opponent | score | W/L | OT badge). Row hover, click to drill in. Uses `TeamLogo` for opponent identity.
+- **`SeasonGameDetail`** — hosts the reused `LineScore` + `BoxScore` + `PlayByPlay` + `PlayerModal`.
+
+## Backend gap (one new endpoint)
+
+`GET /simulations/{sim_id}/games/{game_id}` → returns the same `SimulateGameResponse` shape as `POST /simulations/game`.
+
+- Re-simulates deterministically (same seed-derivation as the events endpoint).
+- Response includes `home_score / away_score / quarter_scores / went_to_ot / home_box / away_box / events` — everything the existing single-game components already consume.
+- 404 on missing sim/game; 422 if sim not complete.
+- **Non-goal for B1:** persisting events. Keeping the "re-simulate on demand" approach the events endpoint already uses.
+
+## API client additions (`frontend/src/api.ts`)
+
+- `listSimulations()` — GET `/simulations/`
+- `getSimulation(id)` — GET `/simulations/{id}`
+- `getSeasonGame(simId, gameId)` — GET `/simulations/{simId}/games/{gameId}`
+
+## State machine (B1)
+
+Simple. No polling.
+
+```
+[loading] → fetches listSimulations
+    ├─ no completed → [empty]
+    └─ picks first completed → fetches getSimulation(id) → [season-loaded]
+
+[season-loaded]
+    ├─ user clicks game → fetches getSeasonGame → [game-detail]
+    └─ user clicks tab → [single-game]
+
+[game-detail]
+    └─ back → [season-loaded] (list cached, no refetch)
+```
+
+## Visual conventions (reuse existing)
+
+- Team logos / colors: `TeamLogo` + `franchiseFor` (era-aware).
+- Game list W/L colored using existing `.pm-plus` / `.pm-minus` (green/red).
+- Winning team's abbr/name renders in `readableOnDark(primaryColor)` in the game list.
+- Season header follows the LineScore card treatment (top-border stripe in team primary color).
+- Font stack + tabular numerals: already global from prior cosmetic pass.
+
+## Loading / empty / error states
+
+- **Loading (list fetch):** subtle centered spinner in the season card.
+- **Empty (no completed runs):** informative message with a "Coming next session: create runs from the UI" note. Not stark.
+- **Error (fetch fail):** error banner reusing existing `.error` class.
+- **Game-detail loading:** overlay spinner inside the game-detail region; season list stays visible.
+- **Game-detail error:** back button + inline error message.
+
+## Tests
+
+- **Backend:** `tests/test_api_season.py` — new endpoint test: 200 with expected shape for a valid sim/game; 404 for unknown IDs; 422 if sim not complete.
+- **Frontend:** Vitest — `SeasonGameList` renders + sort behavior; `SeasonStandings` computes record correctly given a mock summary; `SeasonView` state-machine (loading → season-loaded → game-detail → back). No new snapshot tests.
+- **Not tested (UAT territory):** visual polish, click interactions on real data.
+
+## UAT scenarios
+
+Xavier runs these against the deployed frontend after commit:
+
+1. **Load season tab with Session A's persisted run.** Standings show 29-53, home/away split, PPG 113.5/119.6, blowout ~29%.
+2. **Sort game list by date descending → ascending.** Verify order flips.
+3. **Sort by margin.** Verify biggest blowouts float to top.
+4. **Click a game row.** Verify LineScore + BoxScore + PlayByPlay render, same look as single-game view.
+5. **Click a player in the season game's boxscore.** Verify PlayerModal opens.
+6. **Click "Back to season".** Verify list re-renders without refetch, sort state preserved.
+7. **Switch to Single Game tab and back.** Season data stays cached (no visible reload).
+8. **Try loading with no completed runs** (delete existing runs via API or start with fresh DB): verify empty state renders informatively.
+9. **Confirm no console errors, no unstyled flashes.**
+
+## Definition of done
+
+- [ ] Backend endpoint shipped + tested (200/404/422)
+- [ ] Frontend components + API client + Vitest tests passing
+- [ ] `npm run build` clean, no `tsc` errors, no browser console errors
+- [ ] All 9 UAT scenarios pass
+- [ ] Session A's persisted run is browseable end-to-end
+- [ ] No changes to any existing single-game component (`LineScore`, `BoxScore`, `PlayByPlay`, `PlayerModal` untouched — pure reuse)
+- [ ] Xavier sign-off on UAT
+- [ ] Commit + push
+
+## Non-goals (deferred)
+
+- **Create/start/cancel flow** — B2.
+- **Run picker** (choose which completed run to browse) — B2 or B3.
+- **Preset / config UI** — B3.
+- **Delete / re-run controls** — B3.
+- **Standings across the league** — session C (full-league sim).
+- **MyLeague between-games controls** — long-term ([[project-myleague-vision]]).
+- **Persisting events** for game detail — stay with re-simulate-on-demand (matches existing events endpoint pattern).
+
+## Related memories
+
+- [[project-season-validation-a]] — the run being browsed
+- [[project-myleague-vision]] — long-term direction; B1 doesn't close doors
+- [[feedback-session-definition]] — B1 sized to one PR-sized concept
+- [[feedback-verify-against-reference]] — game-detail reuses single-game components verbatim

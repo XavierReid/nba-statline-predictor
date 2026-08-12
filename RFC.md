@@ -2110,3 +2110,104 @@ Directional predictions to validate:
 - [[feedback-refactor-behavior-invariance]] — refactor discipline; this is a *behavior* change though, so different discipline applies
 - [[feedback-accounting-as-validation]] — measure before / after residuals before calling it done
 - [[feedback-simulation-engineering-loop]] — define → implement → instrument → validate
+
+---
+
+# Sim-Realism Analysis Session (spec)
+
+**Owner:** measurement session, 2026-08-12.
+**Type:** validation/audit; NO engine changes; NO tuning.
+**Pipeline:** step 1 (spec) + step 6 (UAT-style review of the report).
+**Blocked-by:** 7-fouls fix shipped (`5e14078`); cleanup shipped (`70b867a`).
+
+## Motivation
+
+Session A validated one team's season-scale run coherently. Sessions B1-B4 built the UI to browse runs. During UI work Xavier casually flagged aggregate discrepancies (BOS W-L wildly under real, Brown MPG deficit, home advantage absent). None have been probed cross-team. This session extends the validation to a four-team panel and classifies each observed discrepancy as (a) systemic mechanism gap, (b) team-specific roster interaction, (c) RNG variance / sample-size noise.
+
+**Core philosophy (Xavier 2026-08-12):**
+> This is a realism audit, not a hunt for reasons to tune the simulator. If BOS is weird, then OKC/DEN/GSW tell us whether it's team-specific. If all four are weird in the same direction, that's evidence for a systemic mechanism. If only one roster profile is weird, that's much more interesting than simply saying "the simulator is off."
+
+## Scope
+
+- **Four teams, 2025-26, one seed per team (distinct + recorded)**, full 82-game schedule.
+- Team profiles chosen for structural contrast:
+  - **BOS** — Session A baseline for continuity
+  - **OKC** — young rotation-heavy roster; stresses depth allocation
+  - **DEN** — single-star (Jokic) usage-concentrated; stresses star model
+  - **GSW** — spacing-heavy, high-3PA offense; stresses shooting/pace balance
+- **Distinct seeds per team**, recorded in report: BOS=26, OKC=27, DEN=28, GSW=29. Distinct to avoid shared-RNG artifact; deterministic to enable re-run.
+- **Preset:** drama-m3 (matches Session A + all prior calibration anchors).
+
+## Metrics + thresholds (defined ahead of run per Xavier)
+
+### Record realism
+- Raw W-L record + real W-L (from 2025-26 game outcomes)
+- **Win-pct delta** — sim W% − real W% (so 41-41 vs 45-37 is +0.049)
+- Absolute wins delta
+- Comment on both raw + pct so a 4-game gap in 82 doesn't look bigger than it is
+
+### Home advantage
+- Sim home W%
+- Sim home-vs-away W% differential
+- Real home W% (from real 2025-26 outcomes for the same team)
+- Distinguishes "home teams win at the right rate" vs "home/away effect is directionally correct"
+
+### Blowouts
+- **Threshold locked pre-run: 20+ point margin.**
+- Report: blowout rate (%) sim + real
+- Also: full margin distribution (p10, p25, p50, p75, p90) sim + real
+
+### OT
+- Sim OT/game rate
+- Real OT/game rate for the team
+- **Explicit sample-size caveat: 4×82 = 328 games is too few to establish that any OT-rate delta is systemic.** Report as descriptive only.
+
+### Star-usage concentration
+- **Top-1 share of team FGA** (top player's FGA / team FGA)
+- **Top-2 share of team FGA**
+- **Usage-based top-1 share** (top player's FGA / total scoring possessions when on court — approximation from top-player pmg × sim pace)
+- Compare against real analogues from PlayerSeasonStats (`fga` per player)
+
+### Score / pace / possession-level
+Compare sim season vs single-game calibration anchors (all per team-game):
+- PPG scored / allowed
+- FGA / FTA / PF / TOV
+- stat_poss (approximated via `FGA + 0.44 × FTA + TOV − OREB` from persisted lines)
+- Pace (if TeamSeasonStats provides real anchor; otherwise sim only)
+
+### Rotation model spot-checks
+- MPG deficit / surplus for top-5 by minutes (real MPG minus sim MPG)
+- PF/team-game vs real
+- Fouled-out rate (games where any player hit PF=6)
+
+## Classification taxonomy
+
+For each observed discrepancy, tag as one of:
+- **`systemic`** — shows up cross-team in the same direction (all four teams under-produce OT, under-serve stars, etc.); likely a mechanism gap
+- **`roster-interaction`** — shows up on 1-2 teams, ties to a structural profile difference (young-rotation team's rotation is systemically wrong; single-star team's usage cap misfires)
+- **`sample-noise`** — magnitude smaller than expected variance for 4×82; can't be distinguished from RNG
+- **`data-gap`** — the discrepancy is against a real anchor we don't have or don't trust
+- **`already-known`** — matches a previously-banked residual
+
+## Not this session
+
+- **No tuning.** No SimConfig changes. No calibration constant tweaks. No mechanism edits.
+- If a discrepancy screams for a fix, add to `project-next-session-focus` and move on.
+- No new teams beyond BOS/OKC/DEN/GSW.
+- No new backend / frontend features.
+
+## Deliverable
+
+- `scratch/sim_realism_audit_2025_26.json` — full machine-readable report:
+  - per-team block: identity (team, season, seed, run id), record, home split, margin distribution, star concentration, per-team-game rates, top-5 rotation
+  - cross-team summary: which metrics show systemic patterns, which vary
+  - classification table: metric × team × tag
+- Memory memo: `project-sim-realism-audit-a.md` — human-readable narrative of what we learned
+- Update `project-next-session-focus` with any actionable items surfaced
+
+## Related memories
+
+- [[project-season-validation-a]] — the single-team baseline this extends
+- [[project-sim-vs-real-averages]] — B4's data plumbing (endpoint returns most of what we need)
+- [[feedback-simulation-engineering-loop]] — this is the "validate" step for a broader cross-section
+- [[feedback-investigation-convergence]] — falsification is a session outcome; if a suspected residual doesn't hold up cross-team, that's a real finding

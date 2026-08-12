@@ -437,10 +437,7 @@ def _select_action(ctx, result: dict) -> Action:
     # event (returns terminal) and the game loop re-runs the possession for the resumed shot —
     # the same OREB-style two-event lifecycle (the foul is a discrete dead-ball event; the
     # offense keeps the ball and its objective, only the ball handler is re-drawn).
-    # At most ONE pre-shot non-shooting foul opportunity per offensive possession: a resumed shot
-    # (after such a foul reset the clock) already had it, so it is skipped here — the possession
-    # otherwise re-enters the pipeline normally (shot selection, steals, turnovers, shooting fouls).
-    ns_prob = 0.0 if ctx.resumed_after_foul else _nonshooting_foul_prob(ctx, ball_handler)
+    ns_prob = _nonshooting_foul_prob(ctx, ball_handler)
     if cfg.use_foul_rate_level and ns_prob:
         ns_prob *= _lineup_foul_level(defense, ctx)   # era-level: fewer non-shooting fouls for a clean lineup
     if rng.random() < ns_prob:

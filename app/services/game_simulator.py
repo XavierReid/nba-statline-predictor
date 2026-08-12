@@ -236,7 +236,6 @@ def simulate_game(
         quarter_clock: float = 720.0,
         behavior_profile: object = None,
         defense_in_bonus: bool = False,
-        resumed_after_foul: bool = False,
     ):
         # gs is a captured object; mutating its attributes needs no `nonlocal`.
         gs.game_clock += sec_per_poss
@@ -274,7 +273,6 @@ def simulate_game(
             behavior_profile=behavior_profile if behavior_profile is not None else NORMAL_PROFILE,
             defense_in_bonus=defense_in_bonus,
             foul_counts={p["id"]: box[p["id"]]["pf"] for p in defense if p["id"] in box} if cfg.use_foul_caution else None,
-            resumed_after_foul=resumed_after_foul,
             season_ctx=season_ctx,
         )
         event = resolve_possession(ctx)
@@ -402,7 +400,6 @@ def simulate_game(
         oreb_depth = 0
         next_is_fastbreak = False
         foul_reset_depth = 0        # consecutive pre-bonus non-shooting fouls on this possession
-        next_is_foul_reset = False  # the upcoming possession is the shot resumed after such a foul
 
         while quarter_clock > 0:
             # Strategic foul check — final period only (Q4 or any OT): intentional
@@ -509,7 +506,6 @@ def simulate_game(
                             oreb_depth = 0
                             next_is_fastbreak = False
                             foul_reset_depth = 0
-                            next_is_foul_reset = False
                             continue
 
             # Sample possession time
@@ -650,7 +646,6 @@ def simulate_game(
                 quarter_clock=quarter_clock,
                 behavior_profile=poss_profile,
                 defense_in_bonus=defense_in_bonus,
-                resumed_after_foul=next_is_foul_reset,
             )
             behavior.update(event, current_is_home, game_state)
 
@@ -698,7 +693,6 @@ def simulate_game(
                     patch_rotation(away_rotation, fouled_out_pid, away_by_min, current_minute + 1, box)
 
             next_is_fastbreak = False
-            next_is_foul_reset = False  # deprecated under in-line pre-bonus representation
             # Pre-bonus non-shooting foul is now an in-possession event (see
             # possession._select_action + _restart_offensive_phase). The
             # statistical possession does NOT terminate on the foul; the offense

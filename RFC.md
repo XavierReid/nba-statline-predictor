@@ -2211,3 +2211,109 @@ For each observed discrepancy, tag as one of:
 - [[project-sim-vs-real-averages]] — B4's data plumbing (endpoint returns most of what we need)
 - [[feedback-simulation-engineering-loop]] — this is the "validate" step for a broader cross-section
 - [[feedback-investigation-convergence]] — falsification is a session outcome; if a suspected residual doesn't hold up cross-team, that's a real finding
+
+---
+
+# Star-MPG Minute-Allocation Instrument (spec)
+
+**Owner:** measurement session, 2026-08-13.
+**Type:** instrumentation; NO engine changes; NO tuning.
+**Pipeline:** step 1 (spec) + step 6 (Xavier review of the report).
+**Blocked-by:** realism audit banked (`dd9fa3b`).
+
+## Motivation
+
+The 2026-08-12 realism audit ([[project-sim-realism-audit-a]]) confirmed a CROSS-TEAM SYMPTOM: top-creator minutes are systematically ~4-6 lower than real across all four roster profiles (Jokic -5.6, Brown -4.5, Curry -3.6, Butler -6.1), with compensating bench minutes. The symptom is confirmed; the specific causal mechanism is not. Before touching any rotation code, we instrument the complete minute-allocation chain and answer the question Xavier posed:
+
+> Where do the star's missing minutes actually go?
+
+If the missing minutes flow into scheduled bench rotation, that localizes the mechanism to the pre-game rotation builder. If they flow to game-state triggers (foul trouble, garbage-time subs, fatigue), the mechanism is per-possession. We don't want to invent a "star preference" lever if the true cause is elsewhere.
+
+## Scope
+
+- **Same 4-team panel + seeds as the realism audit** — BOS=26, OKC=27, DEN=28, GSW=29.
+- **Same preset (drama-m3), same season (2025-26).**
+- Panel-wide minute-decomposition report for the **top-1 by real MPG** on each team (Jokic / Brown / Curry / Butler) plus top-2 for context.
+- No engine changes. No SimConfig tweaks. No mechanism proposals in this session.
+
+## Instrument — data to capture, per team
+
+The instrumentation must trace minutes at multiple resolutions. Every metric below is *sim-side only* (per-possession trace) unless labeled real.
+
+### 1. Top-line aggregates
+- Top-1 player: MPG total, real MPG anchor, delta
+- Top-2 share of team minutes
+- Starter (top-5 by MPG) vs bench (rest) minute totals
+- Same for real from `PlayerSeasonStats`
+
+### 2. Substitution events per top-1
+- Count of substitutions per game (in + out)
+- Distribution of sub timing within quarters
+- Whether subs cluster on fixed minute boundaries (e.g. Q1 6:00 → out, Q1 3:00 → in) vs. game-state triggers
+
+### 3. Foul / availability contribution
+- Top-1 fouled-out rate (games where PF reached 6)
+- Games where top-1 hit 4+ fouls (foul-trouble threshold)
+- Total minutes lost to foul-trouble subs
+- Games with top-1 marked unavailable (`use_availability` config check — probably `False` at drama-m3 default; confirm)
+
+### 4. Quarter-by-quarter allocation
+- Top-1 minutes per quarter (Q1/Q2/Q3/Q4)
+- Real MPG per quarter (from `PlayerGameLog` if available — otherwise skip with data-gap flag)
+- Sim Q4 minutes: close-game (|margin| ≤ 8 with < 5 min in Q4) vs. blowout (|margin| ≥ 20 at end of Q3)
+
+### 5. Rotation schedule inspection
+- Load `build_rotation` output for the top-1 pre-game
+- Compare scheduled MPG vs actual MPG (does the rotation TELL the sim to play the star ~X min, and the sim delivers that? or is the rotation itself under-allocating?)
+- Whether the top-1's rotation slot has a hard-coded cap
+
+### 6. Missing-minute destinations
+- For each ~4-6 missing minute, identify which bench player caught them (by comparing sim MPG deltas — real MPG for the bench player minus sim MPG)
+- Ranked list of "gainers" — the sim's bench over-servers
+- Are the gainers concentrated (1-2 players) or diffuse (5+ players)?
+
+### 7. Fatigue / rest logic
+- Is there any `fatigue` or explicit rest mechanic in the current sim (`use_fatigue` config; grep for stamina/rest constants)?
+- If yes, how much does it contribute to top-1 minute loss?
+
+### 8. Cross-team comparison table
+- 4-team panel: for each metric above, side-by-side.
+- Compute cross-team consistency: is the pattern the same on all 4? Or does DEN's Jokic differ from BOS's Brown?
+
+## Deliverable
+
+- `scratch/star_mpg_probe_2025_26.py` — the instrument script.
+- `scratch/star_mpg_probe_2025_26.json` — structured per-team + cross-team report.
+- Memory memo: `project-star-mpg-probe.md` — findings + causal localization + priority-ordered follow-ups.
+- **No** production code changes.
+
+## Key question locking
+
+**Primary question:** Where do the star's missing minutes actually go?
+
+**Secondary questions:**
+- Do bench "gainers" match across teams (systemic scheduler bias) or vary by team (roster-interaction)?
+- Is the top-1 missing more minutes in close games or blowouts?
+- Does the current sim rotation output SCHEDULE the missing minutes to the bench, or does the sim DEVIATE from the scheduled top-1 minutes?
+
+## What this session does NOT do
+
+- No fix. No tuning. No mechanism proposal.
+- No changes to `rotations.py`, `game_simulator.py`, `select_active_roster`, or `build_rotation`.
+- No new SimConfig field.
+- No fixture recapture — instrumentation is add-only.
+
+## Definition of done
+
+- [ ] Instrument runs to completion for all 4 teams
+- [ ] JSON report written with all 8 categories
+- [ ] Memo written classifying findings (where do the minutes go? scheduled or game-state?)
+- [ ] Xavier reviews and decides: (a) proceed to a mechanism fix session with a specific target, (b) probe further before proposing, or (c) bank as understood and pursue another arc
+- [ ] Baseline preserved for future comparison
+
+## Related memories
+
+- [[project-sim-realism-audit-a]] — the source of the star-MPG finding
+- [[project-season-validation-a]] — Session A baseline includes Brown MPG anchor
+- [[feedback-causal-probe-before-mechanism]] — this session IS the falsification step
+- [[feedback-investigation-convergence]] — converge on the specific engine decision producing the aggregate

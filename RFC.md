@@ -2431,3 +2431,90 @@ Rationale:
 - [[project-star-mpg-probe]] — should update after fix to reflect residual Pattern A findings
 - [[project-sim-realism-audit-a]] — the 4-team panel baseline for UAT
 - [[project-bug-7-fouls-jokic]] — precedent for fixture-recapture + aggregate-impact discipline
+
+---
+
+# Build-Rotation + Garbage-Sort Bundled Fix (spec, take 2)
+
+**Owner:** dedicated bug-fix session (next).
+**Blocked-by:** design decision locked 2026-08-13 (this document).
+
+## Design decision (locked, Xavier 2026-08-13)
+
+**Per-game-MPG preservation, not total-minutes preservation.**
+
+The purpose of the simulator is to reproduce realistic basketball behavior **when players are available**, not to preserve the historical season's total minutes when those totals were depressed by missed games.
+
+### Conceptual separation (this is the durable framing)
+
+- **Availability** — whether a player is available to play THIS game.
+- **Role / workload when available** — how many minutes that player should receive when they DO play.
+- **Role hierarchy** — who gets priority for those minutes.
+- **Extended roster** — supplies realistic replacement players when higher-ranked players are unavailable.
+
+The current sim conflates the first two — Curry's 40-game real season is compressed into a "23 MPG in every game" schedule, which is not his role, it's his availability discount smeared across appearances.
+
+### What changes
+
+- **`build_rotation` scheduled-minute allocation:** use per-game MPG (`p["mpg"]`) as the role signal, not availability-normalized `p["minutes"]`. Available Curry → ~30.9 MPG target when he plays.
+- **`game_simulator.py:194-195` hierarchy sort:** use `p["mpg"]` — same field, propagates through MODE_GARBAGE / patch_rotation / foul-trouble replacement.
+
+### What does NOT change
+
+- Scheduled MPG remains subject to existing constraints — total team minutes, lineup feasibility, substitutions, foul trouble, game state / garbage time, OT handling. **Not a hard minute guarantee.**
+- `use_availability=True` semantics are preserved. If availability modeling is enabled, missed games remain actual unavailable games; they don't dilute the player's MPG on the games they do play.
+
+## Scope for the immediate fix
+
+Narrow — five items:
+
+1. `build_rotation` uses per-game MPG for scheduled allocation.
+2. Hierarchy sort at `game_simulator.py:194-195` swaps `minutes` → `mpg`.
+3. Audit all hierarchy consumers (foul-trouble replacement, patch_rotation, MODE_GARBAGE, is_starter).
+4. 4-team panel re-run with correctness gates.
+5. Fixture recapture + full pytest.
+
+Gates from earlier RFC entry still apply:
+- Panel-level PPG / Opp PPG / FGA / FTA / PF: <0.5/team-game movement.
+- Panel Curry realized MPG rises toward real 30.9 (does not regress).
+- Real top-1 == sim top-1 on ≥3/4 teams.
+- Star deficit decreases across ALL panel teams (not shifted to a different player).
+
+**Additional measurement for this session's report** — per Xavier's per-game-MPG design implication:
+- Simulated season TOTAL minutes for each panel star vs real season total.
+- Explicitly acknowledge that total-minutes divergence is EXPECTED for injury-limited players under this interpretation and is NOT auto-classified as a regression. The gate is per-game realism, not season-total preservation.
+
+## Explicitly NOT this session (deferred)
+
+Xavier flagged two related design implications during the design lock that will need their own session:
+
+1. **Roster depth for season sims.** Once MPG = "workload when available", capping the sim pool at the top 10 is artificial — real NBA teams reach deeper when injuries, rest, foul trouble, and matchup decisions bite. Extended roster should supply a realistic replacement pool. Deeper players wouldn't get meaningful minutes by default; the hierarchy/rotation logic should naturally concentrate minutes toward primaries and reach deeper only when circumstances require it.
+
+2. **Availability model for season sims.** `use_availability=False` is useful for isolating rotation behavior but insufficient for a realistic 82-game season. Real players don't play all 82 games. Availability is part of the basketball model, not noise to eliminate.
+
+Neither belongs in the immediate hierarchy fix. Documenting here so we don't accidentally treat the current top-10/no-availability configuration as the final season-sim architecture.
+
+## Follow-up session scope (documented for later)
+
+**Session on roster + availability for season sim.** Tests:
+
+- Top-10 pool vs extended roster
+- `use_availability=True` vs `False` in a season sim
+- Interaction between availability and per-game MPG (does availability correctly gate WHETHER a player plays without diluting HOW MUCH they play when available?)
+- Whether deeper roster players receive realistic replacement minutes
+- Whether season-level player appearances + minutes become more realistic
+- Key invariant to check: **availability must not dilute MPG on games where the player IS available.**
+
+Measurement bar for that session's report:
+- Games played / availability rate by player
+- MPG conditional on appearing
+- Total season minutes
+- Team minutes conservation
+- Top-10 vs 11+ minute share
+- Number of games requiring 11th/12th/etc. players
+
+## Related memories
+
+- [[project-garbage-rotation-inversion]] — diagnosis + failed isolated-fix attempt
+- [[project-star-mpg-probe]] — the ordering context
+- [[project-season-sim-roster-availability]] — new memo for the follow-up session

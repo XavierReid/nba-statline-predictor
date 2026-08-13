@@ -2317,3 +2317,117 @@ The instrumentation must trace minutes at multiple resolutions. Every metric bel
 - [[project-season-validation-a]] — Session A baseline includes Brown MPG anchor
 - [[feedback-causal-probe-before-mechanism]] — this session IS the falsification step
 - [[feedback-investigation-convergence]] — converge on the specific engine decision producing the aggregate
+
+---
+
+# Garbage-Rotation Inversion Fix (spec)
+
+**Owner:** dedicated bug-fix session, 2026-08-13.
+**Type:** sim-engine behavior change.
+**Pipeline:** all 8 steps.
+**Blocked-by:** bug fully diagnosed in [[project-garbage-rotation-inversion]].
+
+## Motivation
+
+`MODE_GARBAGE` in `app/services/rotation.py:114` selects `players_by_min[-5:]` — the last 5 in the roster's ordered list. The assumption is "last 5 = deepest bench." That assumption is false when the roster's `minutes` field reflects **availability-normalized season shares** (`MPG × games_played` → normalized to 240) rather than role hierarchy.
+
+For GSW 2025-26 the roster orders Podziemski (28.4 MPG × 82 games = high share) above Curry (30.9 MPG × ~40 games = lower share). `[-5:]` returns Curry+Butler+Melton+Horford+Porzingis — the actual starting five. **Garbage mode fires correctly and then promotes the stars.**
+
+Confirmed reproduction: run #53, game `0022501060`, Curry played 43.6 min in a +59 blowout.
+
+## Root cause chain
+
+1. `roster.py:330-334`: `minutes` field on each player = `w / total * 240` where `w = MPG × games_played`. Correct for share-of-team-minutes accounting; **incorrect as a role-hierarchy indicator when a star misses games**.
+2. `game_simulator.py:194-195`: `home_by_min = sorted(home_players, key=lambda p: p["minutes"], reverse=True)`. Uses the field from (1) — inherits the inversion.
+3. `rotation.py:114` (MODE_GARBAGE): `eligible[-5:]` from `players_by_min` — assumes descending-by-hierarchy, gets ascending-by-availability instead.
+4. `rotation.py:104-109` (foul-trouble subs "best available replacement"): also traverses `players_by_min`. **Same latent inversion — needs verification whether it bites.**
+
+## Design choices
+
+### Option A — Add a role-hierarchy field alongside the availability field
+Introduce `role_mpg` (or `mpg` — already partially set at `roster.py:323` but not used by rotation) that stays constant regardless of availability. Sort `players_by_min` by this field for rotation-decision purposes. Keep the availability-normalized `minutes` for scheduled-minute allocation.
+
+- Pros: minimal blast radius; explicit separation of concerns.
+- Cons: introduces a second ordering — every consumer must be audited to pick the right one.
+
+### Option B — Use `mpg` (per-game-played) directly for all rotation ordering
+Replace `sorted(..., key=lambda p: p["minutes"], ...)` with `sorted(..., key=lambda p: p["mpg"], ...)` in `game_simulator.py:194-195`. The `mpg` field already exists (line 323) as "raw per-game-played minutes."
+
+- Pros: single field; matches real-world "who is the star" better than availability-adjusted total.
+- Cons: `build_rotation` may implicitly rely on the normalized field to build the minute schedule that sums correctly to 240. Need to audit that path too.
+
+### Option C — Reverse the slice direction to `[:5]`
+Change `MODE_GARBAGE` to return `eligible[:5]` (first 5, assumed to be starters). Only touches garbage mode itself; hyper-targeted.
+
+- Pros: minimal diff; doesn't touch the roster or ordering.
+- Cons: **THIS IS BACKWARDS.** MODE_GARBAGE is meant to bench the stars, not put them in. `[:5]` under a descending sort of the CORRECT ordering would put the starters on the floor — the opposite of what garbage time is for. Documenting for completeness only.
+
+### Option D — Do not slice; explicitly identify starters
+Track "starter" flags at roster load (already done: `roster.py:322` sets `is_starter = i < 5`). Have MODE_GARBAGE return all NON-starter eligible players trimmed to 5. Similarly, foul-trouble sub logic could prefer non-starters.
+
+- Pros: explicit; doesn't depend on any ordering assumption.
+- Cons: `is_starter` uses the same `enumerate(players)` order (i.e. same availability-normalized field), so it inherits the same bug. Fix must cascade.
+
+## Recommended approach — Option B
+
+**Sort `players_by_min` (in both `home_by_min` / `away_by_min`) by `mpg` descending, not `minutes` descending.**
+
+Rationale:
+- `mpg` = raw MPG per game played = correct role-hierarchy indicator.
+- `minutes` (availability-normalized) can continue to drive `build_rotation`'s scheduled-minute allocation (that's where it's correct — the schedule SHOULD reflect availability).
+- Every downstream consumer of `players_by_min` (garbage mode, foul-trouble replacement, patch_rotation) is looking for role hierarchy, not availability-adjusted share.
+
+`is_starter` should be re-derived from `mpg` for consistency (or scrapped if unused elsewhere).
+
+## Additional audit items (in-scope)
+
+- **`build_rotation`** in `rotation.py:17`: does it also use `p["minutes"]` for anything hierarchy-related? If yes, may or may not need the same swap.
+- **Foul-trouble sub replacement** (`rotation.py:104-109`): confirm the "best available" candidate ranking uses the right field.
+- **`patch_rotation`** post-foul-out: same check.
+- **`select_active_roster`** (availability model): out of scope — that's about who plays, not what order.
+
+## Expected impact
+
+- **GSW +59 reproduction**: Curry minutes should drop to a plausible 20-25 (from 43.6). Podziemski should drop too.
+- **Panel star-MPG** (BOS=26/OKC=27/DEN=28/GSW=29):
+  - Pattern B (GSW): scheduled Curry MPG should rise closer to real 30.9 as roster ordering fixes.
+  - Pattern A (BOS/OKC/DEN): realized-vs-scheduled deficit should shrink some, because garbage mode will no longer promote the stars in those rare cases (though Pattern A's dominant driver is likely still foul-trouble subs / fouled-out, not garbage inversion).
+- **Cross-team**: sim top-1 by MPG should equal real top-1 on more teams (currently 1/4 match).
+- **Aggregate season stats** (per Xavier's 0.5/team-game bar): expected impact on team-level PPG / FGA / PF is small — this is a within-team minute-shuffle, not a scoring-mechanic change. But butterfly-effect RNG cascade will drift the box_score fixture (same class as the 7-fouls fix).
+
+## Tests
+
+- **Backend unit:** `tests/test_garbage_rotation_ordering.py` — assert that MODE_GARBAGE on a synthetic 10-player roster (5 high-`mpg`, 5 low-`mpg`) returns the LOW-mpg players. Add a case where an injury-limited high-mpg star has lower `minutes` than a durable role player — assert the star is NOT in MODE_GARBAGE's output.
+- **Fixture regression:** re-capture `box_score_baseline.json` under the fixed behavior. Document the expected drift.
+- **Full pytest suite:** 366+ green.
+
+## UAT scenarios
+
+1. **Reproduction:** re-run GSW seed 758993585 game `0022501060`, verify Curry minutes drop from 43.6 to a plausible ≤25.
+2. **Panel re-run:** BOS=26, OKC=27, DEN=28, GSW=29 with fix. Compare per-star MPG to [[project-star-mpg-probe]] baseline. Expected: scheduled vs real gap on Curry shrinks; realized on all 4 improves toward real.
+3. **Session A regression:** BOS 82-game seed 26 aggregate metrics stay within 0.5/team-game on PPG / FGA / FTA / PF.
+4. **Sim top-1 audit:** on BOS/DEN/GSW, sim top-1 by MPG should now equal or converge toward the real top-1.
+
+## Definition of done
+
+- [ ] Design choice locked with Xavier (Option B recommended)
+- [ ] Roster ordering swap applied at `game_simulator.py:194-195` (and cascade if audit finds more sites)
+- [ ] Unit test asserting MODE_GARBAGE excludes high-`mpg` injury-limited stars
+- [ ] `box_score_baseline.json` recaptured; drift documented per [[project-bug-7-fouls-jokic]] pattern (affected games, biggest cell changes, expected reason)
+- [ ] Full pytest suite green
+- [ ] UAT scenarios all pass — including the +59 game reproduction and the 4-team panel re-run against baseline
+- [ ] Xavier sign-off
+- [ ] Commit + push
+
+## Not this session
+
+- Any change to `build_rotation`'s minute-allocation math (that's role-scheduling, separate).
+- Reconsidering what "garbage lineup" should mean at a higher level (e.g. G-League-tier players separately from bench 3-4).
+- Q3-Q4 realization probe for Pattern A teams — deferred; may or may not still be needed after this fix.
+
+## Related
+
+- [[project-garbage-rotation-inversion]] — the bug diagnosis this session fixes
+- [[project-star-mpg-probe]] — should update after fix to reflect residual Pattern A findings
+- [[project-sim-realism-audit-a]] — the 4-team panel baseline for UAT
+- [[project-bug-7-fouls-jokic]] — precedent for fixture-recapture + aggregate-impact discipline

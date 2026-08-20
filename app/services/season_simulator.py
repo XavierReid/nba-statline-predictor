@@ -126,9 +126,19 @@ def run_season_simulation(simulation_id: int, config: Optional["SimConfig"] = No
         # Cache rosters — load each team once, reuse across all their games
         roster_cache: dict[int, Optional[list[dict]]] = {}
 
+        # Honor the config's roster_depth and pre_negation settings on the
+        # initial load — previously ignored, which silently pinned depth=10 and
+        # pre_negation=False regardless of cfg. See project-cluster-b-audit-a.
+        roster_depth = getattr(config, "roster_depth", 10) if config else 10
+        roster_pre_negation = (getattr(config, "use_pre_negation_probs", True)
+                                if config else True)
+
         def get_roster(team_id: int) -> Optional[list[dict]]:
             if team_id not in roster_cache:
-                roster_cache[team_id] = load_roster(db, team_id, sim.season)
+                roster_cache[team_id] = load_roster(
+                    db, team_id, sim.season,
+                    depth=roster_depth, pre_negation=roster_pre_negation,
+                )
             return roster_cache[team_id]
 
         completed = 0
@@ -147,7 +157,11 @@ def run_season_simulation(simulation_id: int, config: Optional["SimConfig"] = No
                 continue
 
             seed = _game_seed(sim.seed, game.id)
-            result = simulate_game(home_players, away_players, seed=seed, season=sim.season, config=config)
+            result = simulate_game(
+                home_players, away_players, seed=seed, season=sim.season,
+                config=config, db=db,
+                home_team_id=game.home_team_id, away_team_id=game.away_team_id,
+            )
 
             _persist_game(db, simulation_id, game, result, home_players, away_players)
 

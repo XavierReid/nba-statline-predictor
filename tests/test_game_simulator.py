@@ -23,6 +23,7 @@ def make_player(pid: int, is_starter: bool = True) -> dict:
     return {
         "id": pid,
         "name": f"Player{pid}",
+        "mpg": 32.0 if is_starter else 15.0,
         "minutes": 32.0 if is_starter else 15.0,
         "is_starter": is_starter,
         "usage_rate": 0.22,

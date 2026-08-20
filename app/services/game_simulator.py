@@ -30,6 +30,7 @@ from app.services.roster import load_roster
 from app.services.rotation import (
     GAME_MINUTES,
     MODE_GARBAGE,
+    MODE_OT_CLOSE,
     MODE_SCHEDULED,
     build_rotation,
     patch_rotation,
@@ -191,6 +192,12 @@ def simulate_game(
     tip_winner_is_home = rng.random() < 0.5
 
     box: dict = {pid: empty_stats() for pid in list(home_by_id) + list(away_by_id)}
+    # Hierarchy sort by availability-normalized `minutes` (not raw mpg). Ships
+    # WITH MODE_OT_CLOSE (2026-08-17) but the mpg-hierarchy change is bundled
+    # with the unresolved scheduler question — see project-rotation-attempt-4
+    # for the GSW compensation-removal that recurs when this sort key changes
+    # without a scheduler fix. Left as-is until scheduler + hierarchy can ship
+    # together.
     home_by_min = sorted(home_players, key=lambda p: p["minutes"], reverse=True)
     away_by_min = sorted(away_players, key=lambda p: p["minutes"], reverse=True)
 
@@ -551,13 +558,21 @@ def simulate_game(
                     diag.record_garbage_entry(margin_abs)
                 if gs.home_conceded or gs.away_conceded:
                     diag.record_garbage_possession()
+            # OT closing lineup takes precedence over garbage: real coaches
+            # close OT with their best five regardless of margin. See
+            # project-star-mpg-margin-bucket (real OT Jokić 44.83 vs sim 34.37).
+            is_ot = q_idx >= 4
+            home_mode = (MODE_OT_CLOSE if is_ot
+                         else (MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED))
+            away_mode = (MODE_OT_CLOSE if is_ot
+                         else (MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED))
             home_active_ids = resolve_lineup(
                 home_rotation, current_minute, home_by_min, box,
-                MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED,
+                home_mode,
                 foul_trouble_subs=cfg.use_foul_trouble_subs)
             away_active_ids = resolve_lineup(
                 away_rotation, current_minute, away_by_min, box,
-                MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED,
+                away_mode,
                 foul_trouble_subs=cfg.use_foul_trouble_subs)
             # Enforce the foul-out invariant: rotation lookups schedule the
             # replacement for `current_minute + 1`, so the same-minute lookup
@@ -583,11 +598,11 @@ def simulate_game(
                 if current_is_home:
                     def_lineup = [away_by_id[pid] for pid in away_active_ids if pid in away_by_id]
                     def_baseline = away_def_baseline
-                    def_mode = MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED
+                    def_mode = away_mode
                 else:
                     def_lineup = [home_by_id[pid] for pid in home_active_ids if pid in home_by_id]
                     def_baseline = home_def_baseline
-                    def_mode = MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED
+                    def_mode = home_mode
                 lq = compute_lineup_quality(def_lineup, def_baseline)
                 team_defense_factor *= lq["defense"]
                 diag.record_lineup_defense(def_mode, lq["defense"])

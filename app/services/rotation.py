@@ -66,10 +66,11 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
 
 
 # Rotation modes — the resolver picks a mode from game state, and the lineup is
-# the output of that mode. Future behaviors (closing lineups, foul-trouble subs,
-# injury overrides) become additional modes, not special cases in the game loop.
+# the output of that mode. Future behaviors (foul-trouble subs, injury overrides)
+# become additional modes, not special cases in the game loop.
 MODE_SCHEDULED = "scheduled"
 MODE_GARBAGE = "garbage"
+MODE_OT_CLOSE = "ot_close"
 
 
 def resolve_lineup(
@@ -91,7 +92,15 @@ def resolve_lineup(
     players deepest in the planned rotation hierarchy (players_by_min order),
     skipping foul-outs and backfilling up the hierarchy if the bench is short.
     Deterministic: hierarchy order, not accumulated in-game minutes.
+    MODE_OT_CLOSE: real coaches close OT with their best five. Returns the top
+    five by hierarchy (players_by_min front) with foul-outs excluded, backfilling
+    from the next-highest available. Takes precedence over MODE_GARBAGE in OT.
+    Foul-trouble subs are already a no-op in q>=3 (see _in_foul_trouble), so this
+    mode doesn't need to consult them.
     """
+    if mode == MODE_OT_CLOSE:
+        eligible = [p["id"] for p in players_by_min if not box[p["id"]]["fouled_out"]]
+        return eligible[:5]
     if mode == MODE_SCHEDULED:
         lineup = rotation[minute]
         if not foul_trouble_subs:

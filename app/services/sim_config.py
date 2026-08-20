@@ -274,7 +274,7 @@ DRAMA_M3 = SimConfig(
     # renormalization — silently reassigns their output to replacements (no team-strength cost).
     # Kept as a toggle; DRAMA_M3_SEASON opts in. Replacement-quality is a separate open gap (3.4g).
     use_availability=False,
-    roster_depth=18,
+    roster_depth=15,                        # real NBA active-roster max
     availability_min_active=9,
     use_garbage_rotation=True,
     use_lineup_quality=True,

@@ -472,18 +472,32 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found in simulation {sim_id}.")
 
     real_game = db.get(Game, game_id)
-    home_players = load_roster(db, real_game.home_team_id, sim.season)
-    away_players = load_roster(db, real_game.away_team_id, sim.season)
-
     stored = (sim.parameters or {}).get("sim_config")
     cfg = SimConfig(**stored) if stored else SimConfig()
+
+    # Honor stored config's roster_depth + pre_negation so the re-sim uses the
+    # same roster shape the season sim used. Pass db + team_ids so game_simulator
+    # can reload for availability if the config requests it. Prior to this fix
+    # the drill-in silently used load_roster's defaults (depth=10, pre_negation=
+    # False) and skipped the availability reload -- producing a completely
+    # different game than the persisted season-sim result.
+    home_players = load_roster(
+        db, real_game.home_team_id, sim.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
+    away_players = load_roster(
+        db, real_game.away_team_id, sim.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
 
     seed = _game_seed(sim.seed, game_id)
     result = simulate_game(
         home_players, away_players,
         seed=seed, season=sim.season,
         steps=200, capture_descriptions=True,
-        config=cfg,
+        config=cfg, db=db,
+        home_team_id=real_game.home_team_id,
+        away_team_id=real_game.away_team_id,
     )
 
     home_ids = {p["id"] for p in home_players}
@@ -523,18 +537,32 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found in simulation {sim_id}.")
 
     real_game = db.get(Game, game_id)
-    home_players = load_roster(db, real_game.home_team_id, sim.season)
-    away_players = load_roster(db, real_game.away_team_id, sim.season)
-
     stored = (sim.parameters or {}).get("sim_config")
     cfg = SimConfig(**stored) if stored else SimConfig()
+
+    # Honor stored config's roster_depth + pre_negation so the re-sim uses the
+    # same roster shape the season sim used. Pass db + team_ids so game_simulator
+    # can reload for availability if the config requests it. Prior to this fix
+    # the drill-in silently used load_roster's defaults (depth=10, pre_negation=
+    # False) and skipped the availability reload -- producing a completely
+    # different game than the persisted season-sim result.
+    home_players = load_roster(
+        db, real_game.home_team_id, sim.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
+    away_players = load_roster(
+        db, real_game.away_team_id, sim.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
 
     seed = _game_seed(sim.seed, game_id)
     result = simulate_game(
         home_players, away_players,
         seed=seed, season=sim.season,
         steps=200, capture_descriptions=True,
-        config=cfg,
+        config=cfg, db=db,
+        home_team_id=real_game.home_team_id,
+        away_team_id=real_game.away_team_id,
     )
 
     home_ids = {p["id"] for p in home_players}

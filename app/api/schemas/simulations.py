@@ -245,6 +245,32 @@ class SimulatedGameSummary(BaseModel):
     win: bool
 
 
+class StandingsRow(BaseModel):
+    """One team's row in a league-sim standings response."""
+    rank: int                    # 1..30, based on sort order after tie-breakers
+    team_id: int                 # canonical
+    team_abbr: str               # presentation
+    wins: int
+    losses: int
+    pct: float                   # W / (W + L), 3 decimals
+    gb: float                    # (leader_wins - team_wins + team_losses - leader_losses) / 2; 0.0 for leader
+
+
+class StandingsResponse(BaseModel):
+    """Standings for a league-scope simulation.
+
+    Provisional while incomplete: `is_complete=False` and `games_completed<total_games`
+    means these standings reflect only games persisted so far. The UI should label
+    accordingly.
+    """
+    sim_id: int
+    season: str
+    is_complete: bool
+    games_completed: int
+    total_games: int
+    standings: list[StandingsRow]
+
+
 class SimulationStatusResponse(BaseModel):
     id: int
     team: Optional[str] = None      # None for league-scope sims

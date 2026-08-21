@@ -138,6 +138,72 @@ class ScheduleIntegrityError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
+# Standings computation (derived state — no persistence)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TeamStanding:
+    rank: int
+    team_id: int
+    team_abbr: str
+    wins: int
+    losses: int
+    pct: float
+    gb: float
+
+
+def compute_standings(
+    game_rows: List[Tuple[str, int, int, int, int, str]],
+) -> List[TeamStanding]:
+    """Compute standings from a list of finalized game tuples.
+
+    Each row: (game_id, home_team_id, away_team_id, home_score, away_score,
+    home_team_abbr) — plus the away abbr is passed as the 7th element (see
+    caller). Actually we pass all needed fields as a dict to keep this simple.
+
+    Callers should use compute_standings_from_sim below; this pure function
+    is designed for the synthetic-standings test.
+    """
+    # Aggregate wins/losses per team.
+    stats: dict = {}  # team_id -> {"abbr": str, "wins": int, "losses": int}
+    for game_id, home_id, away_id, home_score, away_score, home_abbr, away_abbr in game_rows:
+        stats.setdefault(home_id, {"abbr": home_abbr, "wins": 0, "losses": 0})
+        stats.setdefault(away_id, {"abbr": away_abbr, "wins": 0, "losses": 0})
+        if home_score > away_score:
+            stats[home_id]["wins"] += 1
+            stats[away_id]["losses"] += 1
+        else:
+            stats[home_id]["losses"] += 1
+            stats[away_id]["wins"] += 1
+
+    # Sort with tie-breakers: W desc, L asc, team_id asc.
+    entries = sorted(
+        stats.items(),
+        key=lambda kv: (-kv[1]["wins"], kv[1]["losses"], kv[0]),
+    )
+    if not entries:
+        return []
+
+    # GB relative to the leader (rank 1).
+    leader_w = entries[0][1]["wins"]
+    leader_l = entries[0][1]["losses"]
+
+    rows: List[TeamStanding] = []
+    for rank_idx, (team_id, s) in enumerate(entries, start=1):
+        gp = s["wins"] + s["losses"]
+        pct = round(s["wins"] / gp, 3) if gp > 0 else 0.0
+        gb = round(
+            ((leader_w - s["wins"]) + (s["losses"] - leader_l)) / 2.0, 1
+        )
+        rows.append(TeamStanding(
+            rank=rank_idx, team_id=team_id, team_abbr=s["abbr"],
+            wins=s["wins"], losses=s["losses"],
+            pct=pct, gb=gb,
+        ))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # League simulation background task
 # ---------------------------------------------------------------------------
 import logging  # noqa: E402

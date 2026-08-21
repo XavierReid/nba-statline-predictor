@@ -1,12 +1,15 @@
 import type {
+  CreateLeagueSimulationBody,
   CreateSimulationBody,
   PlayerProfile,
   SeasonAverages,
   SeasonCoverage,
   SimulateGameResponse,
+  SimulatedGameSummary,
   SimulationCreated,
   SimulationStatus,
   SimulationSummary,
+  StandingsResponse,
   Team,
 } from "./types";
 
@@ -75,6 +78,25 @@ export async function getSeasonAverages(simId: number): Promise<SeasonAverages> 
 
 export async function createSimulation(body: CreateSimulationBody): Promise<SimulationCreated> {
   return post<SimulationCreated>("/simulations/", body);
+}
+
+// League sim (C-2). Standings + team-in-league drill-in are derived state.
+export async function createLeagueSimulation(
+  body: CreateLeagueSimulationBody
+): Promise<SimulationCreated> {
+  return post<SimulationCreated>("/simulations/league", body);
+}
+
+export async function getStandings(simId: number): Promise<StandingsResponse> {
+  return get<StandingsResponse>(`/simulations/${simId}/standings`);
+}
+
+export async function getLeagueTeamGames(
+  simId: number, teamAbbr: string
+): Promise<SimulatedGameSummary[]> {
+  return get<SimulatedGameSummary[]>(
+    `/simulations/${simId}/team/${encodeURIComponent(teamAbbr)}/games`
+  );
 }
 
 export async function startSimulation(id: number): Promise<SimulationCreated> {

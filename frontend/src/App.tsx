@@ -1,8 +1,9 @@
 import { useState } from "react";
 import SingleGameView from "./components/SingleGameView";
 import SeasonView from "./components/SeasonView";
+import LeagueView from "./components/LeagueView";
 
-type Tab = "single" | "season";
+type Tab = "single" | "season" | "league";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("single");
@@ -30,9 +31,19 @@ export default function App() {
           >
             Season
           </button>
+          <button
+            role="tab"
+            className={`app-tab ${tab === "league" ? "on" : ""}`}
+            aria-selected={tab === "league"}
+            onClick={() => setTab("league")}
+          >
+            League
+          </button>
         </div>
       </div>
-      {tab === "single" ? <SingleGameView /> : <SeasonView />}
+      {tab === "single" ? <SingleGameView /> :
+       tab === "season" ? <SeasonView /> :
+       <LeagueView />}
     </div>
   );
 }

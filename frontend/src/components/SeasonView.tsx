@@ -233,7 +233,8 @@ interface RunningStateProps {
   elapsedMs: number;
 }
 function SeasonRunningState({ sim, onCancel, cancelling, elapsedMs }: RunningStateProps) {
-  const fr = franchiseFor(sim.team, sim.season);
+  // SeasonView handles team-scope sims only; team is guaranteed non-null.
+  const fr = franchiseFor(sim.team!, sim.season);
   const pct = sim.total_games ? Math.min(100, (sim.games_completed / sim.total_games) * 100) : 0;
   const rate = elapsedMs > 0 && sim.games_completed > 0 ? sim.games_completed / (elapsedMs / 1000) : 0;
   const remaining = rate > 0 ? Math.max(0, (sim.total_games - sim.games_completed) / rate) : null;
@@ -242,7 +243,7 @@ function SeasonRunningState({ sim, onCancel, cancelling, elapsedMs }: RunningSta
   return (
     <div className="season-running" style={fr ? { borderTop: `3px solid ${fr.primaryColor}` } : undefined}>
       <div className="sr-identity">
-        <TeamLogo abbr={sim.team} season={sim.season} size="lg" />
+        <TeamLogo abbr={sim.team!} season={sim.season} size="lg" />
         <div>
           <div className="sh-team">{fr ? `${fr.city} ${fr.nickname}` : sim.team}</div>
           <div className="sh-meta">{sim.season} · seed {sim.seed} · run #{sim.id} · {sim.status}</div>
@@ -466,12 +467,13 @@ function SeasonHeader({
   runs, onSwitchRun, onDeleteRun, onRerunRun,
   viewMode, onViewMode,
 }: SeasonHeaderProps) {
-  const fr = franchiseFor(sim.team, sim.season);
+  // SeasonView handles team-scope sims only; team is guaranteed non-null.
+  const fr = franchiseFor(sim.team!, sim.season);
   const style = fr ? { borderTop: `3px solid ${fr.primaryColor}` } : undefined;
   return (
     <div className="season-header" style={style}>
       <div className="sh-identity">
-        <TeamLogo abbr={sim.team} season={sim.season} size="lg" />
+        <TeamLogo abbr={sim.team!} season={sim.season} size="lg" />
         <div className="sh-text">
           <div className="sh-team">{fr ? `${fr.city} ${fr.nickname}` : sim.team}</div>
           <div className="sh-meta">
@@ -694,7 +696,7 @@ export default function SeasonView() {
   const rerunRun = useCallback((r: SimulationSummary) => {
     // Carry seed so re-run defaults to exact reproduction; user can clear or
     // change the seed in the form before submitting to get variation.
-    setFormPrefill({ team: r.team, season: r.season, seed: r.seed, preset: "drama-m3" });
+    setFormPrefill({ team: r.team ?? undefined, season: r.season, seed: r.seed, preset: "drama-m3" });
     setMode("form");
     setError(null);
   }, []);
@@ -751,7 +753,7 @@ export default function SeasonView() {
 
   // browse
   if (!sim) return <div className="empty-hint">No completed run.</div>;
-  const rows = (sim.games ?? []).map((g) => extendRow(g, sim.team));
+  const rows = (sim.games ?? []).map((g) => extendRow(g, sim.team!));
   const standings = computeStandings(rows);
 
   if (selectedGame) {

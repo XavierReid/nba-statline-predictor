@@ -13,7 +13,7 @@ from app.models.team import Team
 from app.services.events import flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
-from app.services.league_simulator import run_league_simulation
+from app.services.league_simulator import compute_standings, run_league_simulation
 from app.services.sim_config import SimConfig
 from app.api.helpers import build_box, get_team, sim_game_is_win
 from app.api.schemas.simulations import (
@@ -28,6 +28,8 @@ from app.api.schemas.simulations import (
     SimulationCreatedResponse,
     SimulationStatusResponse,
     SimulationSummary,
+    StandingsResponse,
+    StandingsRow,
     StartSimulationRequest,
     TeamAveragesResponse,
     resolve_config,
@@ -314,6 +316,121 @@ def list_simulations(db: Session = Depends(get_db)):
             completed_at=sim.completed_at,
         ))
     return summaries
+
+
+@season_router.get(
+    "/{sim_id}/team/{team_abbr}/games", response_model=list[SimulatedGameSummary],
+)
+def get_league_team_games(sim_id: int, team_abbr: str, db: Session = Depends(get_db)):
+    """League-sim team drill-in: the team's game list from a league simulation.
+
+    Returns the same SimulatedGameSummary shape as the team-scoped
+    `games` array, so the existing team-season UI can consume it unchanged.
+    Rejects scope=team (that's what GET /simulations/{id} already exposes).
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
+    if sim.scope != "league":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Simulation {sim_id} has scope={sim.scope!r}; "
+                   "this endpoint is only for league-scope sims.",
+        )
+
+    team = db.execute(
+        select(Team).where(Team.abbreviation == team_abbr.upper())
+    ).scalar_one_or_none()
+    if not team:
+        raise HTTPException(status_code=404, detail=f"Team '{team_abbr}' not found.")
+
+    # Games the team participated in (home OR away), in date order.
+    rows = db.execute(
+        select(SimulatedGame, Game)
+        .join(Game, SimulatedGame.game_id == Game.id)
+        .where(SimulatedGame.simulation_id == sim_id)
+        .where((Game.home_team_id == team.id) | (Game.away_team_id == team.id))
+        .order_by(Game.game_date)
+    ).all()
+
+    out: list = []
+    for sg, g in rows:
+        is_home = g.home_team_id == team.id
+        win = (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
+        out.append(SimulatedGameSummary(
+            game_id=sg.game_id,
+            game_date=str(g.game_date),
+            home_team=g.home_team.abbreviation,
+            away_team=g.away_team.abbreviation,
+            home_score=sg.home_score,
+            away_score=sg.away_score,
+            went_to_ot=sg.went_to_ot,
+            win=win,
+        ))
+    return out
+
+
+@season_router.get("/{sim_id}/standings", response_model=StandingsResponse)
+def get_standings(sim_id: int, db: Session = Depends(get_db)):
+    """League-sim standings. Derived from persisted SimulatedGame rows.
+
+    Provisional when the run is incomplete — `is_complete=False` in the
+    response and `games_completed<total_games`. UI should label as such.
+    Rejects scope=team with 422.
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
+    if sim.scope != "league":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Simulation {sim_id} has scope={sim.scope!r}; "
+                   "standings are only defined for league-scope simulations.",
+        )
+
+    # Pull all persisted games for the sim in one shot; join to Game for team ids.
+    rows = db.execute(
+        select(
+            SimulatedGame.game_id, Game.home_team_id, Game.away_team_id,
+            SimulatedGame.home_score, SimulatedGame.away_score,
+        )
+        .join(Game, SimulatedGame.game_id == Game.id)
+        .where(SimulatedGame.simulation_id == sim_id)
+    ).all()
+
+    # Team abbreviations in one query (30 teams max in a league sim).
+    team_ids = set()
+    for _, hid, aid, _, _ in rows:
+        team_ids.add(hid); team_ids.add(aid)
+    abbr_by_id = {
+        t.id: t.abbreviation for t in db.execute(
+            select(Team).where(Team.id.in_(team_ids))
+        ).scalars().all()
+    } if team_ids else {}
+
+    # Feed compute_standings as (game_id, home_id, away_id, hscore, ascore,
+    # home_abbr, away_abbr) tuples.
+    tuples = [
+        (gid, hid, aid, hs, as_, abbr_by_id.get(hid, "?"), abbr_by_id.get(aid, "?"))
+        for gid, hid, aid, hs, as_ in rows
+    ]
+    computed = compute_standings(tuples)
+
+    total_games = (sim.parameters or {}).get("total_games", 1230)
+    return StandingsResponse(
+        sim_id=sim.id,
+        season=sim.season,
+        is_complete=(sim.status == "complete"),
+        games_completed=sim.games_completed,
+        total_games=total_games,
+        standings=[
+            StandingsRow(
+                rank=s.rank, team_id=s.team_id, team_abbr=s.team_abbr,
+                wins=s.wins, losses=s.losses, pct=s.pct, gb=s.gb,
+            )
+            for s in computed
+        ],
+    )
 
 
 @season_router.delete("/{sim_id}", status_code=200)

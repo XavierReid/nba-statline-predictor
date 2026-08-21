@@ -122,6 +122,8 @@ export interface SimulatedGameSummary {
   win: boolean;   // true iff the run's team won
 }
 
+export type SimulationScope = "team" | "league";
+
 // POST /simulations/ request body
 export interface CreateSimulationBody {
   team: string;         // abbr
@@ -130,10 +132,18 @@ export interface CreateSimulationBody {
   config?: { preset?: string } | null;
 }
 
+// POST /simulations/league request body
+export interface CreateLeagueSimulationBody {
+  season: string;
+  seed?: number | null;
+  config?: { preset?: string } | null;
+}
+
 // POST /simulations/ response (also start response)
 export interface SimulationCreated {
   id: number;
-  team: string;
+  team: string | null;                // null for league sims
+  scope: SimulationScope;
   season: string;
   seed: number;
   status: "pending" | "running" | "complete" | "cancelled" | "failed";
@@ -142,7 +152,8 @@ export interface SimulationCreated {
 // GET /simulations/{id} response
 export interface SimulationStatus {
   id: number;
-  team: string;         // abbr
+  team: string | null;                // null for league sims
+  scope: SimulationScope;
   season: string;
   seed: number;
   status: "pending" | "running" | "complete" | "cancelled" | "failed";
@@ -158,7 +169,8 @@ export interface SimulationStatus {
 // GET /simulations/ list-response entry (subset of SimulationStatus)
 export interface SimulationSummary {
   id: number;
-  team: string;
+  team: string | null;                // null for league sims
+  scope: SimulationScope;
   season: string;
   seed: number;
   status: SimulationStatus["status"];
@@ -168,6 +180,25 @@ export interface SimulationSummary {
   losses: number | null;
   created_at: string;
   completed_at: string | null;
+}
+
+// GET /simulations/{id}/standings response
+export interface StandingsRow {
+  rank: number;
+  team_id: number;
+  team_abbr: string;
+  wins: number;
+  losses: number;
+  pct: number;
+  gb: number;
+}
+export interface StandingsResponse {
+  sim_id: number;
+  season: string;
+  is_complete: boolean;
+  games_completed: number;
+  total_games: number;
+  standings: StandingsRow[];
 }
 
 // Sim season averages per player, side-by-side with the ingested real anchors.

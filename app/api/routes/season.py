@@ -13,9 +13,11 @@ from app.models.team import Team
 from app.services.events import flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
+from app.services.league_simulator import run_league_simulation
 from app.services.sim_config import SimConfig
 from app.api.helpers import build_box, get_team, sim_game_is_win
 from app.api.schemas.simulations import (
+    CreateLeagueSimulationRequest,
     CreateSimulationRequest,
     PlayerAveragesRow,
     PossessionEvent,
@@ -65,7 +67,8 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
     from dataclasses import asdict
     initial_cfg = resolve_config(req.config)
     sim = SimulationRun(
-        season=req.season, team_id=team.id, seed=seed, status="pending",
+        season=req.season, scope="team", team_id=team.id,
+        seed=seed, status="pending",
         parameters={"sim_config": asdict(initial_cfg)},
     )
     db.add(sim)
@@ -73,7 +76,52 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
     db.refresh(sim)
 
     return SimulationCreatedResponse(
-        id=sim.id, team=req.team.upper(), season=req.season, seed=seed, status=sim.status
+        id=sim.id, team=req.team.upper(), scope="team",
+        season=req.season, seed=seed, status=sim.status,
+    )
+
+
+@season_router.post("/league", response_model=SimulationCreatedResponse, status_code=201)
+def create_league_simulation(
+    req: CreateLeagueSimulationRequest, db: Session = Depends(get_db),
+):
+    """Create a full 30-team 1230-game league simulation (status: pending).
+
+    Root seed derives per-game seeds deterministically. Config is captured at
+    creation time. Call POST /simulations/{id}/start to begin.
+    """
+    running = db.execute(
+        select(SimulationRun).where(SimulationRun.status == "running")
+    ).scalar_one_or_none()
+    if running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Simulation {running.id} is already running. Cancel it first."
+        )
+
+    seed = req.seed if req.seed is not None else random.randint(0, 2**31)
+    from dataclasses import asdict
+    # Default to drama-m3-season if no config supplied (the audit-validated
+    # season preset — availability ON, roster_depth=15).
+    if req.config is None:
+        from app.api.schemas.simulations import SimConfigRequest
+        req_config = SimConfigRequest(preset="drama-m3-season")
+    else:
+        req_config = req.config
+    initial_cfg = resolve_config(req_config)
+
+    sim = SimulationRun(
+        season=req.season, scope="league", team_id=None,
+        seed=seed, status="pending",
+        parameters={"sim_config": asdict(initial_cfg)},
+    )
+    db.add(sim)
+    db.commit()
+    db.refresh(sim)
+
+    return SimulationCreatedResponse(
+        id=sim.id, team=None, scope="league",
+        season=req.season, seed=seed, status=sim.status,
     )
 
 
@@ -120,12 +168,20 @@ def start_simulation(
     else:
         stored = (sim.parameters or {}).get("sim_config")
         cfg = SimConfig(**stored) if stored else SimConfig()
-    background_tasks.add_task(run_season_simulation, sim_id, cfg)
-
-    team = db.get(Team, sim.team_id)
-    return SimulationCreatedResponse(
-        id=sim.id, team=team.abbreviation, season=sim.season, seed=sim.seed, status="running"
-    )
+    # Dispatch to the appropriate service based on scope
+    if sim.scope == "league":
+        background_tasks.add_task(run_league_simulation, sim_id, cfg)
+        return SimulationCreatedResponse(
+            id=sim.id, team=None, scope="league",
+            season=sim.season, seed=sim.seed, status="running",
+        )
+    else:
+        background_tasks.add_task(run_season_simulation, sim_id, cfg)
+        team = db.get(Team, sim.team_id)
+        return SimulationCreatedResponse(
+            id=sim.id, team=team.abbreviation, scope="team",
+            season=sim.season, seed=sim.seed, status="running",
+        )
 
 
 @season_router.get("/{sim_id}", response_model=SimulationStatusResponse)
@@ -139,7 +195,7 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
     if not sim:
         raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
 
-    team = db.get(Team, sim.team_id)
+    team = db.get(Team, sim.team_id) if sim.team_id else None
     simulated_games = db.execute(
         select(SimulatedGame)
         .where(SimulatedGame.simulation_id == sim_id)
@@ -147,21 +203,28 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         .order_by(Game.game_date)
     ).scalars().all()
 
-    total_games = (sim.parameters or {}).get("total_games", 82)
+    default_total = 1230 if sim.scope == "league" else 82
+    total_games = (sim.parameters or {}).get("total_games", default_total)
 
     wins = losses = None
     games_summary = None
     if sim.status == "complete":
-        wins = losses = 0
         games_summary = []
+        # Team-scope: compute the team's W-L. League-scope: leave wins/losses
+        # None (standings are a C-2 endpoint) but still list every game with
+        # its full home/away score.
+        if sim.scope == "team":
+            wins = losses = 0
         for sg in simulated_games:
             real_game = db.get(Game, sg.game_id)
-            is_home = real_game.home_team_id == sim.team_id
-            win = (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
-            if win:
-                wins += 1
-            else:
-                losses += 1
+            win_flag = False
+            if sim.scope == "team":
+                is_home = real_game.home_team_id == sim.team_id
+                win_flag = (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)
+                if win_flag:
+                    wins += 1
+                else:
+                    losses += 1
             games_summary.append(SimulatedGameSummary(
                 game_id=sg.game_id,
                 game_date=str(real_game.game_date),
@@ -170,12 +233,13 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
                 home_score=sg.home_score,
                 away_score=sg.away_score,
                 went_to_ot=sg.went_to_ot,
-                win=win,
+                win=win_flag,
             ))
 
     return SimulationStatusResponse(
         id=sim.id,
-        team=team.abbreviation,
+        team=team.abbreviation if team else None,
+        scope=sim.scope,
         season=sim.season,
         seed=sim.seed,
         status=sim.status,
@@ -223,10 +287,13 @@ def list_simulations(db: Session = Depends(get_db)):
 
     summaries = []
     for sim in runs:
-        team = db.get(Team, sim.team_id)
-        total_games = (sim.parameters or {}).get("total_games", 82)
+        team = db.get(Team, sim.team_id) if sim.team_id else None
+        default_total = 1230 if sim.scope == "league" else 82
+        total_games = (sim.parameters or {}).get("total_games", default_total)
         wins = losses = None
-        if sim.status == "complete":
+        # Team-scope only computes W-L in the list view; league standings are a
+        # C-2 endpoint (out of scope for C-1).
+        if sim.status == "complete" and sim.scope == "team":
             sim_games = db.execute(
                 select(SimulatedGame).where(SimulatedGame.simulation_id == sim.id)
             ).scalars().all()
@@ -234,7 +301,8 @@ def list_simulations(db: Session = Depends(get_db)):
             losses = len(sim_games) - wins
         summaries.append(SimulationSummary(
             id=sim.id,
-            team=team.abbreviation,
+            team=team.abbreviation if team else None,
+            scope=sim.scope,
             season=sim.season,
             seed=sim.seed,
             status=sim.status,

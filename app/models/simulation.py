@@ -1,13 +1,21 @@
 from typing import Optional
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, JSON,
+    String, UniqueConstraint, func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
 
 class SimulationRun(Base):
-    """A single season simulation run.
+    """A single simulation run.
+
+    scope:
+        "team"   → single-team 82-game season sim; team_id IS NOT NULL
+        "league" → full 30-team 1230-game season sim; team_id IS NULL
+    Enforced by a DB CHECK constraint below + the create endpoint.
 
     status lifecycle:
         pending → running → complete    (terminal)
@@ -15,10 +23,22 @@ class SimulationRun(Base):
                    └─▶ cancelled       (terminal)
     """
     __tablename__ = "simulation_runs"
+    __table_args__ = (
+        # scope=team ⇒ team_id must be set; scope=league ⇒ team_id must be null.
+        # See project-session-c-design-lock.
+        CheckConstraint(
+            "(scope = 'team' AND team_id IS NOT NULL) OR "
+            "(scope = 'league' AND team_id IS NULL)",
+            name="ck_sim_run_scope_team_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     season: Mapped[str] = mapped_column(String(8), nullable=False)
-    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(8), nullable=False, default="team")
+    team_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("teams.id"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
 
     seed: Mapped[int] = mapped_column(Integer, nullable=False)

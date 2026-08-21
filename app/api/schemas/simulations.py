@@ -100,6 +100,15 @@ class CreateSimulationRequest(BaseModel):
     config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
 
 
+class CreateLeagueSimulationRequest(BaseModel):
+    """Full 30-team 1230-game league season sim (C-1)."""
+    season: str = Field(..., description="Season string, e.g. '2016-17'")
+    seed: Optional[int] = Field(None, description="Root RNG seed. Omit for random. "
+                                                    "Per-game seeds derived deterministically.")
+    config: Optional[SimConfigRequest] = Field(None, description="Simulation config. "
+                                                                    "Defaults to drama-m3-season.")
+
+
 class StartSimulationRequest(BaseModel):
     config: Optional[SimConfigRequest] = Field(None, description="Simulation config. Omit for baseline.")
 
@@ -218,7 +227,8 @@ class StepThroughResponse(BaseModel):
 
 class SimulationCreatedResponse(BaseModel):
     id: int
-    team: str
+    team: Optional[str] = None      # None for league-scope sims
+    scope: str = "team"             # "team" | "league"
     season: str
     seed: int
     status: str
@@ -237,7 +247,8 @@ class SimulatedGameSummary(BaseModel):
 
 class SimulationStatusResponse(BaseModel):
     id: int
-    team: str
+    team: Optional[str] = None      # None for league-scope sims
+    scope: str = "team"
     season: str
     seed: int
     status: str
@@ -278,7 +289,8 @@ class SeasonAveragesResponse(BaseModel):
 
 class SimulationSummary(BaseModel):
     id: int
-    team: str
+    team: Optional[str] = None      # None for league-scope sims
+    scope: str = "team"
     season: str
     seed: int                          # exposed so the UI can re-run with the same seed
     status: str

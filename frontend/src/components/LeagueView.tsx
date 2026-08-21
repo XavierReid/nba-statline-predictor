@@ -10,7 +10,7 @@
  * than a RunPicker button. Same functionality. Refactor into RunPicker is on
  * the UI-batch backlog (task #91). See project-session-c2-design-lock.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   cancelSimulation,
   createLeagueSimulation,
@@ -29,11 +29,13 @@ import type {
   SimulationStatus,
   SimulationSummary,
   StandingsResponse,
+  StandingsRow,
 } from "../types";
 import LineScore from "./LineScore";
 import BoxScore from "./BoxScore";
 import PlayByPlay from "./PlayByPlay";
 import TeamLogo from "./TeamLogo";
+import { conferenceOf } from "../data/conferences";
 
 type View =
   | { kind: "picker" }
@@ -126,18 +128,20 @@ function LeaguePicker({ onStart, onSelect, onError }: LeaguePickerProps) {
   const [seed, setSeed] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [s, r] = await Promise.all([getSeasons(), listSimulations()]);
-      setSeasons(s);
-      setRuns(r.filter((x) => x.scope === "league"));
-      if (s.length && !season) setSeason(s[0].season);
-    } catch (e) {
-      onError(String(e));
-    }
-  }, [onError, season]);
-
-  useEffect(() => { load(); }, [load]);
+  // Load seasons FIRST so the form is usable ASAP. Past-runs table loads
+  // asynchronously — no blocking on the potentially-larger sim list.
+  useEffect(() => {
+    getSeasons()
+      .then((s) => {
+        setSeasons(s);
+        if (s.length) setSeason((cur) => cur || s[0].season);
+      })
+      .catch((e) => onError(String(e)));
+    listSimulations()
+      .then((r) => setRuns(r.filter((x) => x.scope === "league")))
+      .catch((e) => onError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -328,6 +332,32 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
 
   if (!data) return <div>Loading standings…</div>;
 
+  // Split by conference. Recompute per-conference rank + GB (each conference
+  // has its own leader). Unknown-conference teams fall through to an "Other"
+  // section — only relevant if the DB ever contains a team not in the current
+  // East/West alignment.
+  const conferences = ["East", "West"] as const;
+  const byConf: Record<string, StandingsRow[]> = { East: [], West: [], Other: [] };
+  for (const row of data.standings) {
+    const conf = conferenceOf(row.team_abbr) ?? "Other";
+    byConf[conf].push(row);
+  }
+  // Rerank within each conference and recompute GB relative to conf leader.
+  function rerank(rows: StandingsRow[]): StandingsRow[] {
+    if (rows.length === 0) return rows;
+    // Already ordered by the backend's global sort; splitting preserves order.
+    const leader = rows[0];
+    return rows.map((r, i) => ({
+      ...r,
+      rank: i + 1,
+      gb: Math.round(
+        ((leader.wins - r.wins) + (r.losses - leader.losses)) / 2 * 10
+      ) / 10,
+    }));
+  }
+  const eastRows = rerank(byConf.East);
+  const westRows = rerank(byConf.West);
+
   return (
     <div className="league-standings-view">
       <div className="league-standings-header">
@@ -339,6 +369,43 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
           </span>
         )}
       </div>
+
+      <div className="league-standings-conferences" style={{
+        display: "grid", gap: "1.5rem",
+        gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+      }}>
+        {conferences.map((conf) => (
+          <ConferenceTable
+            key={conf}
+            title={`${conf}ern Conference`}
+            rows={conf === "East" ? eastRows : westRows}
+            onTeamClick={onTeamClick}
+          />
+        ))}
+      </div>
+
+      {byConf.Other.length > 0 && (
+        <ConferenceTable
+          title="Other / Unaligned"
+          rows={rerank(byConf.Other)}
+          onTeamClick={onTeamClick}
+        />
+      )}
+    </div>
+  );
+}
+
+
+function ConferenceTable({
+  title, rows, onTeamClick,
+}: {
+  title: string;
+  rows: StandingsRow[];
+  onTeamClick: (abbr: string) => void;
+}) {
+  return (
+    <div>
+      <h3>{title}</h3>
       <table className="league-standings-table">
         <thead>
           <tr>
@@ -351,7 +418,7 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
           </tr>
         </thead>
         <tbody>
-          {data.standings.map((row) => (
+          {rows.map((row) => (
             <tr
               key={row.team_id}
               className="standings-row"

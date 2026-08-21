@@ -150,7 +150,9 @@ function NewSeasonForm({ onCreated, onError, onDetectedActive, prefill }: NewSea
         // Another run is already active — recover by finding it.
         try {
           const runs = await listSimulations();
-          const active = runs.find((r) => r.status === "running" || r.status === "pending");
+          const active = runs.find(
+            (r) => r.scope === "team" && (r.status === "running" || r.status === "pending")
+          );
           if (active) {
             onDetectedActive(active.id);
             return;
@@ -541,7 +543,10 @@ export default function SeasonView() {
 
   // Refetch the run list — called at init and after any create/delete/complete.
   const refreshRuns = useCallback(async () => {
-    const rs = await listSimulations();
+    // SeasonView only shows team-scope sims; league-scope sims live under
+    // the League tab. See project-session-c2-shipped.
+    const all = await listSimulations();
+    const rs = all.filter((r) => r.scope === "team");
     setRuns(rs);
     return rs;
   }, []);

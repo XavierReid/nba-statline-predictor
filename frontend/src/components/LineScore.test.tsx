@@ -26,7 +26,7 @@ describe("LineScore", () => {
     expect(screen.queryByText(/overtime/i)).not.toBeInTheDocument();
   });
 
-  it("adds an OT column and note when periods exceed 4", () => {
+  it("adds an OT column when periods exceed 4", () => {
     render(
       <LineScore
         game={game({
@@ -37,7 +37,6 @@ describe("LineScore", () => {
       />
     );
     expect(screen.getByText("OT1")).toBeInTheDocument();
-    expect(screen.getByText(/overtime/i)).toBeInTheDocument();
   });
 
   it("marks the winning row", () => {

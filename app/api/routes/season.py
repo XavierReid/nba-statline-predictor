@@ -13,7 +13,7 @@ from app.models.team import Team
 from app.services.events import flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
-from app.services.league_simulator import compute_standings, run_league_simulation
+from app.services.league_simulator import _season_bounds, compute_standings, run_league_simulation
 from app.services.sim_config import SimConfig
 from app.api.helpers import build_box, get_team, sim_game_is_win
 from app.api.schemas.simulations import (
@@ -686,6 +686,29 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
     )
 
     home_ids = {p["id"] for p in home_players}
+
+    # Schedule context: matchup# (Nth meeting this season) + each team's game#.
+    # Pulls this season's schedule once and ranks by date; game_id is a stable
+    # tiebreak so doubleheaders (rare) don't wobble.
+    ht_id, at_id = real_game.home_team_id, real_game.away_team_id
+    start, end = _season_bounds(sim.season)
+    season_games = db.execute(
+        select(Game.id, Game.game_date, Game.home_team_id, Game.away_team_id)
+        .where(Game.game_date >= start, Game.game_date <= end)
+    ).all()
+    def _dated(rows):
+        return sorted(rows, key=lambda r: (r.game_date, r.id))
+    home_schedule = _dated([r for r in season_games if ht_id in (r.home_team_id, r.away_team_id)])
+    away_schedule = _dated([r for r in season_games if at_id in (r.home_team_id, r.away_team_id)])
+    matchup_schedule = _dated([
+        r for r in season_games
+        if {r.home_team_id, r.away_team_id} == {ht_id, at_id}
+    ])
+    home_game_no = next((i + 1 for i, r in enumerate(home_schedule) if r.id == game_id), None)
+    away_game_no = next((i + 1 for i, r in enumerate(away_schedule) if r.id == game_id), None)
+    matchup_index = next((i + 1 for i, r in enumerate(matchup_schedule) if r.id == game_id), None)
+    matchup_total = len(matchup_schedule) or None
+
     return SimulateGameResponse(
         season=sim.season,
         seed=seed,
@@ -700,6 +723,11 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
         home_box=build_box(home_players, result["box_score"]),
         away_box=build_box(away_players, result["box_score"]),
         events=flatten_and_enrich(result["chunk_events"], home_ids),
+        game_date=real_game.game_date.isoformat(),
+        matchup_index=matchup_index,
+        matchup_total=matchup_total,
+        home_game_no=home_game_no,
+        away_game_no=away_game_no,
     )
 
 

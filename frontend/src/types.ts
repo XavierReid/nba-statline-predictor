@@ -250,4 +250,10 @@ export interface SimulateGameResponse {
   home_box: PlayerLine[];
   away_box: PlayerLine[];
   events?: PossessionEvent[] | null;
+  // Schedule context — populated only by season/league drill-in endpoints.
+  game_date?: string | null;
+  matchup_index?: number | null;
+  matchup_total?: number | null;
+  home_game_no?: number | null;
+  away_game_no?: number | null;
 }

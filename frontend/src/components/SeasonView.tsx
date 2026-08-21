@@ -22,6 +22,7 @@ import type {
 import { franchiseFor } from "../data/franchises";
 import { readableOnDark } from "../data/color";
 import LineScore from "./LineScore";
+import GameContextHeader from "./GameContextHeader";
 import BoxScore from "./BoxScore";
 import PlayByPlay from "./PlayByPlay";
 import PlayerModal from "./PlayerModal";
@@ -771,6 +772,7 @@ export default function SeasonView() {
         {gameError && <div className="error">{gameError}</div>}
         {gameDetail && (
           <>
+            <GameContextHeader game={gameDetail} />
             <LineScore game={gameDetail} />
             <div className="boxes">
               <BoxScore

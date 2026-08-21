@@ -35,7 +35,9 @@ import LineScore from "./LineScore";
 import BoxScore from "./BoxScore";
 import PlayByPlay from "./PlayByPlay";
 import TeamLogo from "./TeamLogo";
+import GameContextHeader from "./GameContextHeader";
 import { conferenceOf } from "../data/conferences";
+import { franchiseFor } from "../data/franchises";
 
 type View =
   | { kind: "picker" }
@@ -361,7 +363,7 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
   return (
     <div className="league-standings-view">
       <div className="league-standings-header">
-        <button onClick={onBack}>← All league simulations</button>
+        <button className="back-btn" onClick={onBack}>← All league simulations</button>
         <h2>{data.season} Standings</h2>
         {!data.is_complete && (
           <span className="provisional-badge">
@@ -380,6 +382,7 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
             title={`${conf}ern Conference`}
             rows={conf === "East" ? eastRows : westRows}
             onTeamClick={onTeamClick}
+            season={data.season}
           />
         ))}
       </div>
@@ -389,6 +392,7 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
           title="Other / Unaligned"
           rows={rerank(byConf.Other)}
           onTeamClick={onTeamClick}
+          season={data.season}
         />
       )}
     </div>
@@ -397,47 +401,57 @@ function LeagueStandings({ simId, onBack, onTeamClick, onError }: LeagueStanding
 
 
 function ConferenceTable({
-  title, rows, onTeamClick,
+  title, rows, onTeamClick, season,
 }: {
   title: string;
   rows: StandingsRow[];
   onTeamClick: (abbr: string) => void;
+  season?: string;
 }) {
   return (
-    <div>
-      <h3>{title}</h3>
+    <div className="conference-panel">
+      <h3 className="conference-title">{title}</h3>
       <table className="league-standings-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Team</th>
-            <th>W</th>
-            <th>L</th>
-            <th>PCT</th>
-            <th>GB</th>
+            <th className="col-rank">#</th>
+            <th className="col-team">Team</th>
+            <th className="col-num">W</th>
+            <th className="col-num">L</th>
+            <th className="col-num">PCT</th>
+            <th className="col-num">GB</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.team_id}
-              className="standings-row"
-              onClick={() => onTeamClick(row.team_abbr)}
-              style={{ cursor: "pointer" }}
-            >
-              <td>{row.rank}</td>
-              <td>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <TeamLogo abbr={row.team_abbr} size="sm" />
-                  <strong>{row.team_abbr}</strong>
-                </span>
-              </td>
-              <td>{row.wins}</td>
-              <td>{row.losses}</td>
-              <td>{row.pct.toFixed(3)}</td>
-              <td>{row.gb === 0 ? "—" : row.gb.toFixed(1)}</td>
-            </tr>
-          ))}
+          {rows.map((row, i) => {
+            const fr = franchiseFor(row.team_abbr, season);
+            const accent = fr?.primaryColor || "transparent";
+            return (
+              <tr
+                key={row.team_id}
+                className={`standings-row ${i % 2 === 0 ? "even" : "odd"}`}
+                onClick={() => onTeamClick(row.team_abbr)}
+                style={{ ["--team-accent" as string]: accent } as React.CSSProperties}
+              >
+                <td className="col-rank">{row.rank}</td>
+                <td className="col-team">
+                  <span className="team-cell">
+                    <TeamLogo abbr={row.team_abbr} size="sm" season={season} />
+                    <span className="team-names">
+                      <strong className="team-abbr">{row.team_abbr}</strong>
+                      {fr?.fullName && (
+                        <span className="team-full">{fr.fullName}</span>
+                      )}
+                    </span>
+                  </span>
+                </td>
+                <td className="col-num">{row.wins}</td>
+                <td className="col-num">{row.losses}</td>
+                <td className="col-num">{row.pct.toFixed(3)}</td>
+                <td className="col-num">{row.gb === 0 ? "—" : row.gb.toFixed(1)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -473,18 +487,36 @@ function LeagueTeamGames({
 
   const wins = games.filter((g) => g.win).length;
   const losses = games.length - wins;
+  const fr = franchiseFor(teamAbbr, season);
+  const accent = fr?.primaryColor || "transparent";
 
   return (
-    <div className="league-team-games">
+    <div
+      className="league-team-games"
+      style={{ ["--team-accent" as string]: accent } as React.CSSProperties}
+    >
       <div className="league-team-header">
-        <button onClick={onBack}>← Standings</button>
-        <TeamLogo abbr={teamAbbr} size="lg" season={season} />
-        <h2>{teamAbbr} — {season}</h2>
-        <span className="record">{wins}-{losses}</span>
+        <button className="back-btn" onClick={onBack}>← Standings</button>
+        <div className="league-team-hero">
+          <TeamLogo abbr={teamAbbr} size="lg" season={season} />
+          <div className="league-team-heading">
+            <h2>{fr?.fullName || teamAbbr}</h2>
+            <div className="league-team-meta">
+              <span className="record">{wins}-{losses}</span>
+              <span className="dot">·</span>
+              <span>{season}</span>
+            </div>
+          </div>
+        </div>
       </div>
       <table className="league-games-table">
         <thead>
-          <tr><th>Date</th><th>Matchup</th><th>Score</th><th>Result</th></tr>
+          <tr>
+            <th>Date</th>
+            <th>Matchup</th>
+            <th className="col-num">Score</th>
+            <th className="col-result">Result</th>
+          </tr>
         </thead>
         <tbody>
           {games.map((g) => (
@@ -492,16 +524,28 @@ function LeagueTeamGames({
               key={g.game_id}
               className={`game-row ${g.win ? "win" : "loss"}`}
               onClick={() => onGameClick(g.game_id)}
-              style={{ cursor: "pointer" }}
             >
-              <td>{g.game_date}</td>
-              <td>
-                <TeamLogo abbr={g.away_team} size="sm" season={season} /> {g.away_team}
-                {" @ "}
-                <TeamLogo abbr={g.home_team} size="sm" season={season} /> {g.home_team}
+              <td className="col-date">{g.game_date}</td>
+              <td className="col-matchup">
+                <span className="matchup-team">
+                  <TeamLogo abbr={g.away_team} size="sm" season={season} />
+                  <span>{g.away_team}</span>
+                </span>
+                <span className="at">@</span>
+                <span className="matchup-team">
+                  <TeamLogo abbr={g.home_team} size="sm" season={season} />
+                  <span>{g.home_team}</span>
+                </span>
               </td>
-              <td>{g.away_score}–{g.home_score}{g.went_to_ot ? " OT" : ""}</td>
-              <td className={g.win ? "win" : "loss"}>{g.win ? "W" : "L"}</td>
+              <td className="col-num">
+                {g.away_score}–{g.home_score}
+                {g.went_to_ot && <span className="ot-chip">OT</span>}
+              </td>
+              <td className="col-result">
+                <span className={`wl-chip ${g.win ? "win" : "loss"}`}>
+                  {g.win ? "W" : "L"}
+                </span>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -535,7 +579,8 @@ function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailPr
 
   return (
     <div className="league-game-detail">
-      <button onClick={onBack}>← Back to team games</button>
+      <button className="back-btn" onClick={onBack}>← Back to team games</button>
+      <GameContextHeader game={game} />
       <LineScore game={game} />
       <div className="game-boxscores">
         <BoxScore

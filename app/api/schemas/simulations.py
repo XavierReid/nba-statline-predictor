@@ -206,6 +206,13 @@ class SimulateGameResponse(BaseModel):
     home_box: list[PlayerLine]
     away_box: list[PlayerLine]
     events: Optional[list[PossessionEvent]] = None
+    # Schedule context — only populated by season/league drill-in endpoints,
+    # not by POST /simulations/game (which has no schedule).
+    game_date: Optional[str] = None
+    matchup_index: Optional[int] = None    # 1..matchup_total
+    matchup_total: Optional[int] = None
+    home_game_no: Optional[int] = None     # 1..82 (or era-specific)
+    away_game_no: Optional[int] = None
 
 
 class StepThroughResponse(BaseModel):

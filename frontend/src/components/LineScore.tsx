@@ -62,9 +62,6 @@ export default function LineScore({ game }: { game: SimulateGameResponse }) {
           {row("home", game.home_team, game.home_score, homeWin)}
         </tbody>
       </table>
-      {periods > 4 && (
-        <p className="ot-note">Went to {periods - 4 === 1 ? "overtime" : `${periods - 4} overtimes`}.</p>
-      )}
     </div>
   );
 }

@@ -80,6 +80,17 @@ class SimConfig:
     endgame_milk_time_mean: float = 20.0     # leading offense — time over expected points
     endgame_milk_time_std: float = 2.0
 
+    # --- end-of-period hold-for-last-shot (2026-08-17 clock-milking probe) ---
+    # Real teams hold for the last shot of a period even when not in a tie game:
+    # baseline measured 33% of Q1-Q3 last-made-FGs land in the final 5 seconds,
+    # sim was producing ~15% of that rate. When quarter_clock drops into the
+    # window, extend halfcourt possession time so the shot fires with a few
+    # seconds left. Independent of margin — Q1-Q3 hold behavior is universal.
+    use_hold_last_shot: bool = False
+    hold_last_shot_clock_max: int = 24        # trigger when quarter_clock <= this
+    hold_last_shot_leave_min: float = 2.0     # seconds of clock to leave for the shot
+    hold_last_shot_leave_max: float = 4.0
+
     # --- tie-seeking shot value (gap 3.3; late_game.tie_seek_three_shift) ---
     # The base engine picks its normal CHASE shot mix regardless of deficit, so it
     # under-shoots the tying three when down 3 and over-shoots threes when down 1 —
@@ -273,8 +284,14 @@ DRAMA_M3 = SimConfig(
     # turnover) but for a single NAMED-player game it randomly sits stars and — via the 240-min
     # renormalization — silently reassigns their output to replacements (no team-strength cost).
     # Kept as a toggle; DRAMA_M3_SEASON opts in. Replacement-quality is a separate open gap (3.4g).
+    # DRAMA_M3 is the single-game preset (per the `use_availability` comment
+    # below). Availability is OFF here, so top-10 is the intended pool — adding
+    # extra depth without availability dilutes star scheduled MPG via the
+    # availability-weighted `minutes` normalization (see project-cluster-b-audit-a
+    # d15_availOFF finding). DRAMA_M3_SEASON re-sets roster_depth=15 explicitly
+    # because it opts into availability, which is where the extended pool works.
     use_availability=False,
-    roster_depth=15,                        # real NBA active-roster max
+    roster_depth=10,
     availability_min_active=9,
     use_garbage_rotation=True,
     use_lineup_quality=True,
@@ -285,6 +302,7 @@ DRAMA_M3 = SimConfig(
     use_foul_caution=True,
     use_foul_rate_level=True,
     use_bonus_system=True,
+    use_hold_last_shot=True,
     nonshooting_foul_scale=1.3,
     shooting_foul_scale=1.9,
     and1_rate_factor=0.4,
@@ -298,6 +316,7 @@ DRAMA_M3 = SimConfig(
 from dataclasses import replace as _replace  # noqa: E402
 DRAMA_M3_SEASON = _replace(
     DRAMA_M3, use_availability=True,
+    roster_depth=15,   # real NBA active max; availability draws from this pool
     use_lineup_creation=True, creation_form="usage_pass_space", creation_k=0.145,
 )
 

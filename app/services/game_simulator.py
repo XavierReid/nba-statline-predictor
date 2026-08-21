@@ -537,6 +537,20 @@ def simulate_game(
                     diag.endgame_time_delta += poss_time - override
                     poss_time = override
                     poss_category = "endgame"
+
+            # End-of-period hold-for-last-shot (2026-08-17). Real Q1-Q3 last-made
+            # FGs cluster in the final 5s (~33% of them) — sim was at ~15% of
+            # that rate. When quarter_clock enters the window, extend halfcourt
+            # possession time so the shot leaves the intended few seconds. Only
+            # LENGTHENS poss_time — if endgame_pacing already stretched it (Q4
+            # milk), we keep the longer value.
+            if (cfg.use_hold_last_shot
+                    and poss_category in ("halfcourt", "endgame")
+                    and cfg.hold_last_shot_leave_max < quarter_clock <= cfg.hold_last_shot_clock_max):
+                leave = rng.uniform(cfg.hold_last_shot_leave_min, cfg.hold_last_shot_leave_max)
+                hold_time = quarter_clock - leave
+                if hold_time > poss_time:
+                    poss_time = hold_time
             poss_time = min(poss_time, quarter_clock)
             quarter_clock -= poss_time
 

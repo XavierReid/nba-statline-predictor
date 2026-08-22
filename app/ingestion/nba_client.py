@@ -65,8 +65,22 @@ def fetch_games_for_season(season: str) -> list[dict]:
     for game_id, rows in rows_by_game.items():
         if len(rows) != 2:
             continue
-        home = next((r for r in rows if 'vs.' in r['MATCHUP']), None)
-        away = next((r for r in rows if '@' in r['MATCHUP']), None)
+        # Parse the matchup string ONCE — for most games the two rows use the
+        # standard "HOME vs. AWAY" / "AWAY @ HOME" pair, but neutral-site and
+        # in-season-tournament games (NBA Cup semis/finals, Paris games, etc.)
+        # can have BOTH rows show the same "X @ Y" string. The old check
+        # `next(r for r in rows if 'vs.' in r['MATCHUP'])` returned None on
+        # those and silently dropped the game. Instead, parse once and match
+        # rows by TEAM_ABBREVIATION. Cost 5 games in 2024-25 alone.
+        matchup = rows[0]['MATCHUP']
+        if ' vs. ' in matchup:
+            home_abbr, away_abbr = matchup.split(' vs. ', 1)
+        elif ' @ ' in matchup:
+            away_abbr, home_abbr = matchup.split(' @ ', 1)
+        else:
+            continue
+        home = next((r for r in rows if r['TEAM_ABBREVIATION'] == home_abbr), None)
+        away = next((r for r in rows if r['TEAM_ABBREVIATION'] == away_abbr), None)
         if not home or not away:
             continue
         is_final = home['WL'] is not None

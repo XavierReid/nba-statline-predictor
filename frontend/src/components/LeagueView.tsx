@@ -628,7 +628,7 @@ function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailPr
       <button className="back-btn" onClick={onBack}>← Back to team games</button>
       <GameContextHeader game={game} />
       <LineScore game={game} />
-      <div className="game-boxscores">
+      <div className="boxes">
         <BoxScore
           title={game.away_team}
           players={game.away_box}

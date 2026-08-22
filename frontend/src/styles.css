@@ -1195,4 +1195,3 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .wl-chip.loss { background: rgba(248, 113, 113, 0.15); color: #f87171; }
 
 .league-game-detail { display: flex; flex-direction: column; gap: 16px; }
-.game-boxscores { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }

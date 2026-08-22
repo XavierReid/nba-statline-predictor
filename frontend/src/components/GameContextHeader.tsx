@@ -36,11 +36,11 @@ export default function GameContextHeader({ game }: { game: SimulateGameResponse
       {(game.home_game_no || game.away_game_no) && (
         <div className="game-context-line game-context-games">
           {game.away_game_no && (
-            <span>{game.away_team} G{game.away_game_no}/82</span>
+            <span>{game.away_team} game {game.away_game_no} of 82</span>
           )}
           {game.away_game_no && game.home_game_no && <span className="dot"> · </span>}
           {game.home_game_no && (
-            <span>{game.home_team} G{game.home_game_no}/82</span>
+            <span>{game.home_team} game {game.home_game_no} of 82</span>
           )}
         </div>
       )}

@@ -611,6 +611,11 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Substitution rows sit quieter than stat events — half-opacity, italic. */
 .pbp tr.pbp-sub td { color: var(--muted); font-style: italic; font-size: 12px; }
 .pbp tr.pbp-sub td.score { color: transparent; }
+.pbp tr.pbp-starters td {
+  font-style: normal; font-weight: 700; font-size: 11px;
+  color: var(--text); letter-spacing: 0.02em;
+  background: var(--panel-2); border-top: 1px solid var(--line);
+}
 .pbp tr.pbp-period-sep td {
   background: var(--panel-2);
   color: var(--muted);
@@ -1036,7 +1041,50 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .league-runs-table button:hover { background: var(--line); }
 
-.league-running { padding: 24px; text-align: center; }
+.league-running { padding: 24px 0; }
+.league-running-card {
+  max-width: 640px; margin: 0 auto;
+  padding: 24px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; display: flex; flex-direction: column; gap: 14px;
+}
+.league-running-header {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+}
+.league-running-header h2 { margin: 0; font-size: 18px; }
+.league-running-status {
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.league-running-status[data-status="running"]   { background: rgba(75,159,255,0.15); color: var(--accent-2); }
+.league-running-status[data-status="complete"]  { background: rgba(62,207,142,0.15); color: var(--win); }
+.league-running-status[data-status="cancelled"] { background: rgba(248,113,113,0.15); color: #f87171; }
+.league-running-status[data-status="failed"]    { background: rgba(248,113,113,0.15); color: #f87171; }
+.league-running-meta {
+  display: flex; align-items: baseline; gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.league-running-meta .lrm-primary { font-size: 15px; font-weight: 700; }
+.league-running-meta .lrm-pct     { color: var(--muted); font-size: 13px; }
+.league-running-meta .lrm-eta     { margin-left: auto; color: var(--muted); font-size: 12px; }
+.league-running-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.league-running-loading {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 40px; color: var(--muted);
+}
+
+.league-runs-loading {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px; margin-top: 16px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; color: var(--muted); font-size: 13px;
+}
+
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .league-standings-header {
   display: flex; align-items: center; gap: 16px;

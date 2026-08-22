@@ -37,6 +37,41 @@ function collate(events: SimEvent[]): CollatedRow[] {
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
 
+    // Initial-lineup SUBs (player_out === null) come in per-team runs of 5
+    // at the very start of the stream. Collate each run into a single
+    // "STARTERS · [names]" row so the PBP doesn't open with 10 rows of
+    // one-player-each announcements. Engine still emits 10 discrete SUBs
+    // (correctness gate depends on that); this is display-only.
+    if (
+      e.type === "SUBSTITUTION" &&
+      e.player_out == null &&
+      e.player_in != null
+    ) {
+      const names: string[] = [];
+      let j = i;
+      while (
+        j < events.length &&
+        events[j].type === "SUBSTITUTION" &&
+        events[j].player_out == null &&
+        events[j].is_home === e.is_home
+      ) {
+        const n = extractStarterName(events[j].description);
+        if (n) names.push(n);
+        j++;
+      }
+      const synthetic: SimEvent = {
+        ...e,
+        description: `STARTERS: ${names.join(", ")}`,
+      };
+      rows.push({
+        parent: synthetic,
+        suffix: "",
+        types: new Set<SimEventType>(["SUBSTITUTION"]),
+      });
+      i = j - 1; // outer for-loop will i++ past the last folded event
+      continue;
+    }
+
     // AST/BLK → fold onto parent SHOT from the same possession.
     if ((e.type === "AST" || e.type === "BLK") && rows.length > 0) {
       const prev = rows[rows.length - 1];
@@ -83,6 +118,12 @@ function collate(events: SimEvent[]): CollatedRow[] {
 function extractName(desc: string | null | undefined): string | null {
   if (!desc) return null;
   const m = desc.match(/^(.+?) (assists?|blocks?|steals?)\b/);
+  return m ? m[1] : null;
+}
+
+function extractStarterName(desc: string | null | undefined): string | null {
+  if (!desc) return null;
+  const m = desc.match(/^(.+?) starts$/);
   return m ? m[1] : null;
 }
 
@@ -212,9 +253,11 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
                     const a = e.running_away_score ?? "";
                     const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
                     const isSub = e.type === "SUBSTITUTION";
+                    const isStarters = isSub && e.description?.startsWith("STARTERS:");
                     const rowClass = [
                       e.is_home ? "home" : "away",
                       isSub ? "pbp-sub" : "",
+                      isStarters ? "pbp-starters" : "",
                     ].filter(Boolean).join(" ");
                     out.push(
                       <tr key={i} className={rowClass}>

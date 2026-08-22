@@ -308,12 +308,15 @@ def _describe_ast(ev: dict, name_map: dict) -> str:
 
 def _describe_sub(ev: dict, name_map: dict) -> str:
     # Initial-lineup emit has player_out=None; render as a starter announcement
-    # rather than a sub (there is no one being replaced at game start).
+    # rather than a sub (there is no one being replaced at game start). The
+    # frontend PBP collapses the 10 initial SUBs into two "STARTERS · TEAM: …"
+    # rows, but the per-event description below still renders sensibly for
+    # any consumer that walks the raw stream.
     player_in = _name(name_map, ev.get("player_in"))
     player_out = ev.get("player_out")
     if player_out is None:
         return f"{player_in} starts"
-    return f"{player_in} enters for {_name(name_map, player_out)}"
+    return f"{player_in} enters the game for {_name(name_map, player_out)}"
 
 
 _DESCRIBE = {

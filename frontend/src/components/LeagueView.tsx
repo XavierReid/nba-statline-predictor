@@ -126,6 +126,7 @@ interface LeaguePickerProps {
 function LeaguePicker({ onStart, onSelect, onError }: LeaguePickerProps) {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
   const [runs, setRuns] = useState<SimulationSummary[]>([]);
+  const [runsLoading, setRunsLoading] = useState(true);
   const [season, setSeason] = useState("");
   const [seed, setSeed] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -141,7 +142,8 @@ function LeaguePicker({ onStart, onSelect, onError }: LeaguePickerProps) {
       .catch((e) => onError(String(e)));
     listSimulations()
       .then((r) => setRuns(r.filter((x) => x.scope === "league")))
-      .catch((e) => onError(String(e)));
+      .catch((e) => onError(String(e)))
+      .finally(() => setRunsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -190,7 +192,13 @@ function LeaguePicker({ onStart, onSelect, onError }: LeaguePickerProps) {
         </button>
       </form>
 
-      {runs.length > 0 && (
+      {runsLoading && (
+        <div className="league-runs-loading">
+          <span className="spinner" aria-hidden="true" />
+          Loading past simulations…
+        </div>
+      )}
+      {!runsLoading && runs.length > 0 && (
         <div className="league-runs">
           <h3>Past league simulations</h3>
           <table className="league-runs-table">
@@ -275,28 +283,58 @@ function LeagueRunning({ simId, onComplete, onCancel, onError }: LeagueRunningPr
     }
   }
 
-  if (!status) return <div>Loading simulation…</div>;
+  if (!status) return (
+    <div className="league-running">
+      <div className="league-running-loading">
+        <span className="spinner" aria-hidden="true" />
+        Loading simulation…
+      </div>
+    </div>
+  );
   const pct = status.total_games > 0 ? (status.games_completed / status.total_games * 100) : 0;
+  const eta = status.status === "running" && status.games_completed > 0
+    ? Math.round((status.total_games - status.games_completed) * 0.02)
+    : null;
 
   return (
     <div className="league-running">
-      <h2>Simulating {status.season} — 1230 games</h2>
-      <div className="progress-bar">
-        <div className="progress-fill" style={{ width: `${pct}%` }} />
+      <div className="league-running-card">
+        <div className="league-running-header">
+          <h2>Simulating {status.season}</h2>
+          <span className="league-running-status" data-status={status.status}>
+            {status.status}
+          </span>
+        </div>
+        <div className="progress-bar">
+          <div className="progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="league-running-meta">
+          <span className="lrm-primary">
+            {status.games_completed.toLocaleString()} / {status.total_games.toLocaleString()} games
+          </span>
+          <span className="lrm-pct">{pct.toFixed(1)}%</span>
+          {eta !== null && (
+            <span className="lrm-eta">~{eta}s remaining</span>
+          )}
+        </div>
+        {status.status === "running" && (
+          <button className="cancel-btn" onClick={handleCancel} disabled={cancelling}>
+            {cancelling ? "Cancelling…" : "Cancel simulation"}
+          </button>
+        )}
+        {status.status === "cancelled" && (
+          <div className="league-running-done">
+            <p>Simulation cancelled.</p>
+            <button className="back-btn" onClick={onCancel}>← Back</button>
+          </div>
+        )}
+        {status.status === "failed" && (
+          <div className="league-running-done">
+            <p>Simulation failed.</p>
+            <button className="back-btn" onClick={onCancel}>← Back</button>
+          </div>
+        )}
       </div>
-      <p>{status.games_completed} / {status.total_games} games ({pct.toFixed(1)}%)</p>
-      <p>Status: <strong>{status.status}</strong></p>
-      {status.status === "running" && (
-        <button onClick={handleCancel} disabled={cancelling}>
-          {cancelling ? "Cancelling…" : "Cancel"}
-        </button>
-      )}
-      {status.status === "cancelled" && (
-        <p>Simulation cancelled. <button onClick={onCancel}>Back</button></p>
-      )}
-      {status.status === "failed" && (
-        <p>Simulation failed. <button onClick={onCancel}>Back</button></p>
-      )}
     </div>
   );
 }

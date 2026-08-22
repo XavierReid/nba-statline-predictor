@@ -27,7 +27,7 @@ export default function SimulateView() {
           aria-selected={scope === "team"}
           onClick={() => setScope("team")}
         >
-          Team Season
+          Team
         </button>
         <button
           role="tab"

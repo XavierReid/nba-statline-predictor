@@ -32,7 +32,7 @@ interface CollatedRow {
 //   - Offensive foul: TOV(P) + FOUL(P)      one row reading as "P commits an offensive foul"
 // The typed event stream is still complete underneath. Standalone REB/FT/FOUL rows and
 // isolated STL/BLK/AST at possession boundaries all still render on their own.
-function collate(events: SimEvent[]): CollatedRow[] {
+function collate(events: SimEvent[], homeTeam: string, awayTeam: string): CollatedRow[] {
   const rows: CollatedRow[] = [];
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
@@ -59,9 +59,10 @@ function collate(events: SimEvent[]): CollatedRow[] {
         if (n) names.push(n);
         j++;
       }
+      const teamLabel = e.is_home ? homeTeam : awayTeam;
       const synthetic: SimEvent = {
         ...e,
-        description: `STARTERS: ${names.join(", ")}`,
+        description: `${teamLabel} STARTERS: ${names.join(", ")}`,
       };
       rows.push({
         parent: synthetic,
@@ -137,7 +138,10 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
 
   // Every hook that follows must run on every render even when we return null
   // — collate + filter memos are always live so React sees a stable order.
-  const rows = useMemo(() => collate(events), [events]);
+  const rows = useMemo(
+    () => collate(events, game.home_team, game.away_team),
+    [events, game.home_team, game.away_team]
+  );
   const maxQuarter = useMemo(
     () => rows.reduce((m, r) => Math.max(m, r.parent.quarter), 1),
     [rows]
@@ -253,7 +257,7 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
                     const a = e.running_away_score ?? "";
                     const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
                     const isSub = e.type === "SUBSTITUTION";
-                    const isStarters = isSub && e.description?.startsWith("STARTERS:");
+                    const isStarters = isSub && e.description?.includes("STARTERS:");
                     const rowClass = [
                       e.is_home ? "home" : "away",
                       isSub ? "pbp-sub" : "",

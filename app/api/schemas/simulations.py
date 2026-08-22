@@ -190,6 +190,12 @@ class SimEvent(BaseModel):
     # FOUL — set when a strategic (intentional) foul was committed.
     intentional: Optional[bool] = None
 
+    # SUBSTITUTION — player_in enters for player_out. player_out is null on
+    # initial-lineup SUBs (game start). player_id mirrors player_in when
+    # present, else player_out.
+    player_in: Optional[int] = None
+    player_out: Optional[int] = None
+
 
 # Back-compat alias — existing route imports read `PossessionEvent`.
 PossessionEvent = SimEvent

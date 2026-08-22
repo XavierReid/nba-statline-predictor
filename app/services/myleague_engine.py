@@ -25,14 +25,14 @@ from app.models.game import Game
 from app.models.myleague import MyLeagueEvent, MyLeagueState
 from app.models.simulation import SimulatedGame, SimulationRun
 from app.services.game_simulator import load_roster, simulate_game
-from app.services.league_simulator import _season_bounds, validate_season_schedule
+from app.services.league_simulator import season_bounds, validate_season_schedule
 from app.services.myleague_state import (
     MyLeagueEventPayload,
     SeasonState,
     apply_events,
     build_state,
     filter_available_players,
-    _ALLOWED_EVENT_TYPES,
+    ALLOWED_EVENT_TYPES,
 )
 from app.services.season_simulator import _game_seed, _persist_game
 from app.services.sim_config import SimConfig
@@ -87,7 +87,7 @@ def create_run(
 
     # Cursor starts the day BEFORE the season's first game so the first
     # advance_to() call picks up day 1.
-    start, _ = _season_bounds(season)
+    start, _ = season_bounds(season)
     initial_cursor = start - timedelta(days=1)
 
     state_row = MyLeagueState(
@@ -157,7 +157,7 @@ def append_event(
     history mutable — instead we surface a hard error so callers know to
     time-travel is a separate architectural feature (not M-1a).
     """
-    if event_type not in _ALLOWED_EVENT_TYPES:
+    if event_type not in ALLOWED_EVENT_TYPES:
         raise MyLeagueError(f"unknown event_type {event_type!r}")
     sim = db.get(SimulationRun, simulation_id)
     if not sim or sim.scope != "myleague":
@@ -207,7 +207,7 @@ def _scheduled_games_between(
     already_completed: set,
 ) -> List[Game]:
     """Games with after_date < game_date <= through_date not yet simulated."""
-    start, end = _season_bounds(season)
+    start, end = season_bounds(season)
     # Clamp to season window for safety.
     lo = max(after_date, start - timedelta(days=1))
     hi = min(through_date, end)

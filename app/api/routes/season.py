@@ -13,7 +13,7 @@ from app.models.team import Team
 from app.services.events import flatten_and_enrich
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
-from app.services.league_simulator import _season_bounds, compute_standings, run_league_simulation
+from app.services.league_simulator import season_bounds, compute_standings, run_league_simulation
 from app.services.sim_config import SimConfig
 from app.api.helpers import build_box, get_team, sim_game_is_win
 from app.api.schemas.simulations import (
@@ -729,7 +729,7 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
     # Pulls this season's schedule once and ranks by date; game_id is a stable
     # tiebreak so doubleheaders (rare) don't wobble.
     ht_id, at_id = real_game.home_team_id, real_game.away_team_id
-    start, end = _season_bounds(sim.season)
+    start, end = season_bounds(sim.season)
     season_games = db.execute(
         select(Game.id, Game.game_date, Game.home_team_id, Game.away_team_id)
         .where(Game.game_date >= start, Game.game_date <= end)

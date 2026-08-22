@@ -30,7 +30,7 @@ from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 EVENT_SET_UNAVAILABLE = "SET_UNAVAILABLE"
 EVENT_SET_AVAILABLE = "SET_AVAILABLE"
 
-_ALLOWED_EVENT_TYPES = frozenset({EVENT_SET_UNAVAILABLE, EVENT_SET_AVAILABLE})
+ALLOWED_EVENT_TYPES = frozenset({EVENT_SET_UNAVAILABLE, EVENT_SET_AVAILABLE})
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ def apply_events(
     for ev in sorted(events, key=lambda e: e.applied_at_date):
         if ev.applied_at_date > at_date:
             break
-        if ev.event_type not in _ALLOWED_EVENT_TYPES:
+        if ev.event_type not in ALLOWED_EVENT_TYPES:
             # Forward-compat: unknown event types are ignored by the fold
             # rather than raising, so a partially-migrated schema doesn't
             # crash older code paths. Persistence layer validates on write.

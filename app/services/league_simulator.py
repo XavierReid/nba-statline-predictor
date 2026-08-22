@@ -40,7 +40,7 @@ class ScheduleIntegrityResult:
     per_team_game_counts: dict
 
 
-def _season_bounds(season: str) -> Tuple[date, date]:
+def season_bounds(season: str) -> Tuple[date, date]:
     """A season 'YYYY-YY' spans Oct 1 of first year to Jul 15 of second."""
     yr = int(season.split("-")[0])
     return date(yr, 10, 1), date(yr + 1, 7, 15)
@@ -59,7 +59,7 @@ def validate_season_schedule(
       - no rows with null date / home_team_id / away_team_id
       - home_team_id != away_team_id for every game
     """
-    start, end = _season_bounds(season)
+    start, end = season_bounds(season)
     games = db.execute(select(Game).where(and_(
         Game.game_date >= start, Game.game_date <= end,
     ))).scalars().all()
@@ -220,7 +220,7 @@ log = logging.getLogger(__name__)
 def _fetch_league_schedule(db: Session, season: str) -> List[Game]:
     """All Game rows in the season window, ordered by date (stable tie-break by id)."""
     from sqlalchemy import asc
-    start, end = _season_bounds(season)
+    start, end = season_bounds(season)
     return list(db.execute(
         select(Game)
         .where(Game.game_date >= start, Game.game_date <= end)

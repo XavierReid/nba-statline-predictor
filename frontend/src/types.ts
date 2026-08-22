@@ -44,7 +44,8 @@ export interface QuarterScores {
 // covers every event kind. See app/services/possession_events.py for the source of
 // truth on each shape.
 export type SimEventType =
-  | "SHOT" | "FOUL" | "FT" | "REB" | "TOV" | "STL" | "BLK" | "AST";
+  | "SHOT" | "FOUL" | "FT" | "REB" | "TOV" | "STL" | "BLK" | "AST"
+  | "SUBSTITUTION";
 
 export interface SimEvent {
   type: SimEventType;
@@ -83,6 +84,13 @@ export interface SimEvent {
 
   // STL — reference back to the parent TOV.
   stolen_from?: number | null;
+
+  // SUBSTITUTION — player_in enters for player_out. player_out is null on
+  // initial-lineup SUBs (game start). player_id mirrors player_in when
+  // present, else player_out, so tag/lookup code can still find "the player
+  // this event is about".
+  player_in?: number | null;
+  player_out?: number | null;
 }
 
 // Back-compat alias for existing imports.

@@ -90,6 +90,12 @@ def apply_typed_event(box: dict, event: dict) -> Tuple[int, Optional[int]]:
         if pid in box:
             box[pid]["ast"] += 1
 
+    # SUBSTITUTION carries lineup transitions, not stats. Explicit no-op so the
+    # 90-game byte-identical fence (test_box_score_derivation_fixture) stays
+    # green when SUBs are introduced into the typed stream.
+    elif etype == "SUBSTITUTION":
+        pass
+
     return pts, fouled_out_pid
 
 

@@ -306,6 +306,16 @@ def _describe_ast(ev: dict, name_map: dict) -> str:
     return f"{assister} assists {_name(name_map, shot_by)}'s {label}"
 
 
+def _describe_sub(ev: dict, name_map: dict) -> str:
+    # Initial-lineup emit has player_out=None; render as a starter announcement
+    # rather than a sub (there is no one being replaced at game start).
+    player_in = _name(name_map, ev.get("player_in"))
+    player_out = ev.get("player_out")
+    if player_out is None:
+        return f"{player_in} starts"
+    return f"{player_in} enters for {_name(name_map, player_out)}"
+
+
 _DESCRIBE = {
     "SHOT": _describe_shot,
     "FOUL": _describe_foul,
@@ -315,4 +325,5 @@ _DESCRIBE = {
     "STL":  _describe_stl,
     "BLK":  _describe_blk,
     "AST":  _describe_ast,
+    "SUBSTITUTION": _describe_sub,
 }

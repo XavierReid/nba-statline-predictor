@@ -608,6 +608,9 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .pbp td.score { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pbp tr.home td.score { color: var(--accent-2); }
 .pbp tr.away td.score { color: var(--accent); }
+/* Substitution rows sit quieter than stat events — half-opacity, italic. */
+.pbp tr.pbp-sub td { color: var(--muted); font-style: italic; font-size: 12px; }
+.pbp tr.pbp-sub td.score { color: transparent; }
 .pbp tr.pbp-period-sep td {
   background: var(--panel-2);
   color: var(--muted);

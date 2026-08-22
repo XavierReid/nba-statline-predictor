@@ -8,8 +8,15 @@ function clock(sec: number): string {
 }
 
 const CHIP_ORDER: SimEventType[] = [
-  "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL",
+  "SHOT", "FT", "AST", "REB", "STL", "BLK", "TOV", "FOUL", "SUBSTITUTION",
 ];
+
+// Short label for the chip UI (SUBSTITUTION → SUB); other types show their
+// name unchanged. Kept as a lookup rather than a Record so unlisted types
+// still fall through to their literal name.
+const CHIP_LABEL: Partial<Record<SimEventType, string>> = {
+  SUBSTITUTION: "SUB",
+};
 
 interface CollatedRow {
   parent: SimEvent;
@@ -169,7 +176,7 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
                   className={activeChips.has(t) ? "pbp-chip on" : "pbp-chip"}
                   onClick={() => toggleChip(t)}
                 >
-                  {t}
+                  {CHIP_LABEL[t] ?? t}
                 </button>
               ))}
               {activeChips.size > 0 && (
@@ -204,8 +211,13 @@ export default function PlayByPlay({ game }: { game: SimulateGameResponse }) {
                     const h = e.running_home_score ?? "";
                     const a = e.running_away_score ?? "";
                     const text = r.suffix ? `${e.description} ${r.suffix}` : e.description;
+                    const isSub = e.type === "SUBSTITUTION";
+                    const rowClass = [
+                      e.is_home ? "home" : "away",
+                      isSub ? "pbp-sub" : "",
+                    ].filter(Boolean).join(" ");
                     out.push(
-                      <tr key={i} className={e.is_home ? "home" : "away"}>
+                      <tr key={i} className={rowClass}>
                         <td className="clock">
                           {periodLabel(e.quarter)} {clock(e.game_clock_seconds)}
                         </td>

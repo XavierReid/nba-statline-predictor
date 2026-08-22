@@ -216,6 +216,77 @@ def simulate_game(
     _typed_all: list = []
     gs = GameState()   # persistent, authoritative game state (roadmap stage B)
 
+    # Substitution tracking. `SUBSTITUTION` events emit at every rotation
+    # transition so the typed event stream is internally sufficient to
+    # reconstruct on-court state at any point. Initial 5 emits as
+    # possession=0 SUBs with player_out=None; deltas emit tagged with the
+    # just-completed possession's number so `apply_typed_event(SUB)` is a
+    # stat no-op relative to the possession that just resolved.
+    # See tests/test_lineup_reconstruction.py for the correctness gate.
+    prev_home_ids: Optional[list] = None
+    prev_away_ids: Optional[list] = None
+
+    def _emit_subs(new_home_ids: list, new_away_ids: list,
+                   quarter: int, clock_seconds: int) -> list:
+        """Diff the previous lineup against the new one, return SUB events.
+
+        First call (prev_*_ids is None) emits initial-lineup SUBs with
+        player_out=None; subsequent calls emit one SUB per delta pair.
+
+        All SUBs are tagged with the UPCOMING possession's number
+        (gs.possession_number + 1) — the possession this transition affects.
+        Using the upcoming number instead of the completed one keeps SUBs
+        aligned with a real possession even at game start (possession=1 for
+        initial 5), so the fence invariant "distinct possessions in typed
+        stream == accounting count" holds without special-casing.
+        """
+        nonlocal prev_home_ids, prev_away_ids
+        subs: list = []
+        upcoming_poss = gs.possession_number + 1
+        for is_home_side, new_ids, prev_ids in (
+            (True,  new_home_ids, prev_home_ids),
+            (False, new_away_ids, prev_away_ids),
+        ):
+            if prev_ids is None:
+                for pid in new_ids:
+                    subs.append({
+                        "type": "SUBSTITUTION",
+                        "possession": upcoming_poss,
+                        "quarter": quarter,
+                        "game_clock_seconds": clock_seconds,
+                        "is_home": is_home_side,
+                        "player_id": pid,
+                        "player_in": pid,
+                        "player_out": None,
+                        "pts": 0,
+                    })
+                continue
+            prev_set = set(prev_ids)
+            new_set = set(new_ids)
+            added = sorted(new_set - prev_set)
+            removed = sorted(prev_set - new_set)
+            # Deterministic 1:1 pairing so PBP renders "P_in for P_out" cleanly.
+            # If added/removed sizes ever drift, still emit each addition + each
+            # removal so the reconstructor can catch the mismatch as an
+            # invariant violation (rather than silently swallowing it).
+            for i in range(max(len(added), len(removed))):
+                pid_in = added[i] if i < len(added) else None
+                pid_out = removed[i] if i < len(removed) else None
+                subs.append({
+                    "type": "SUBSTITUTION",
+                    "possession": upcoming_poss,
+                    "quarter": quarter,
+                    "game_clock_seconds": clock_seconds,
+                    "is_home": is_home_side,
+                    "player_id": pid_in if pid_in is not None else pid_out,
+                    "player_in": pid_in,
+                    "player_out": pid_out,
+                    "pts": 0,
+                })
+        prev_home_ids = list(new_home_ids)
+        prev_away_ids = list(new_away_ids)
+        return subs
+
     def _maybe_snapshot(elapsed_minutes: float, current_q_idx: int) -> None:
         while chunk_duration and elapsed_minutes >= next_threshold[0]:
             chunks.append({
@@ -596,6 +667,28 @@ def simulate_game(
             if fouled_out:
                 home_active_ids = [pid for pid in home_active_ids if pid not in fouled_out]
                 away_active_ids = [pid for pid in away_active_ids if pid not in fouled_out]
+
+            # Emit SUB events for the transition INTO this possession. Tagged
+            # with the just-completed possession's number (gs.possession_number
+            # is not yet incremented for this iteration) so SUBs sit at the
+            # tail of the completing possession's chunk, and box-score
+            # accumulation for the possession about to resolve unambiguously
+            # belongs to the NEW lineup.
+            _subs = _emit_subs(
+                home_active_ids, away_active_ids,
+                quarter=q_idx + 1,
+                clock_seconds=int(quarter_clock),
+            )
+            if _subs:
+                if name_map is not None:
+                    for sev in _subs:
+                        sev["description"] = describe_typed_event(sev, name_map)
+                _typed_all.extend(_subs)
+                if steps:
+                    current_chunk_events.extend(_subs)
+                elif capture_descriptions:
+                    all_events.extend(_subs)
+
             in_mismatch = gs.home_conceded != gs.away_conceded
             pre_poss_margin = abs(gs.home_score - gs.away_score)
 

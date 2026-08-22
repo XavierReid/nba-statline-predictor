@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import games, ingestion, players, simulations, teams
+from app.api import games, ingestion, myleague, players, simulations, teams
 from app.config import settings
 
 
@@ -47,3 +47,4 @@ app.include_router(games.router)
 app.include_router(simulations.router)
 app.include_router(ingestion.router)
 app.include_router(teams.router)
+app.include_router(myleague.router)

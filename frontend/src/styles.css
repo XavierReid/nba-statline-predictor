@@ -1195,3 +1195,97 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .wl-chip.loss { background: rgba(248, 113, 113, 0.15); color: #f87171; }
 
 .league-game-detail { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------------------------------------------------------------------------
+   MyLeague view — franchise-mode dashboard (M-1c)
+--------------------------------------------------------------------------- */
+.myleague-view { padding: 16px 0; }
+.myleague-view .error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid #f87171; color: #f87171;
+  padding: 8px 12px; border-radius: 7px; margin-bottom: 12px;
+}
+
+.myleague-picker h2 { margin: 0 0 8px; font-size: 20px; }
+.myleague-picker .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.myleague-form {
+  display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+  padding: 16px;
+  background: var(--panel); border-radius: 10px; border: 1px solid var(--line);
+}
+.myleague-form label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+}
+.myleague-form select, .myleague-form input {
+  padding: 7px 10px; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; font-size: 13px;
+}
+.myleague-form button {
+  padding: 8px 16px; background: var(--accent); color: #1a1205;
+  border: none; border-radius: 7px; cursor: pointer; font-weight: 700; font-size: 13px;
+}
+.myleague-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.myleague-dashboard { display: flex; flex-direction: column; gap: 16px; }
+.myleague-header { display: flex; flex-direction: column; gap: 12px; }
+.myleague-hero {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 20px; border-radius: 10px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--team-accent, var(--line)) 22%, transparent), transparent),
+    var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--team-accent, var(--line));
+}
+.myleague-hero .team-logo--lg { width: 56px; height: 56px; }
+.myleague-heading h2 { margin: 0 0 4px; font-size: 22px; }
+.myleague-meta {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+  flex-wrap: wrap;
+}
+.myleague-meta .record { font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+.myleague-meta .dot { opacity: 0.5; }
+
+.myleague-advance {
+  display: flex; justify-content: flex-end;
+  padding: 4px 0;
+}
+.myleague-advance button {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+.myleague-columns {
+  display: grid; gap: 16px;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+@media (max-width: 900px) {
+  .myleague-columns { grid-template-columns: 1fr; }
+}
+.myleague-recent, .myleague-standings {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 0 4px;
+}
+.myleague-recent h3, .myleague-standings h3 {
+  margin: 0 12px 8px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 700;
+}
+.myleague-recent-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.myleague-recent-table thead th {
+  padding: 6px 12px; text-align: left; font-size: 10px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.myleague-recent-table thead th.col-num { text-align: right; }
+.myleague-recent-table td {
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+}
+.myleague-recent-table tr:last-child td { border-bottom: none; }
+.myleague-recent-table td.col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* Controlled-team row in standings gets an accent glow. */
+.standings-row.controlled { background: color-mix(in srgb, var(--team-accent) 12%, transparent) !important; }

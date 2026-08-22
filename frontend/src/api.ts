@@ -137,3 +137,21 @@ export async function simulateGame(args: SimulateArgs): Promise<SimulateGameResp
   }
   return r.json();
 }
+
+// --- MyLeague (M-1c) -------------------------------------------------------
+
+export async function createMyLeague(body: import("./types").CreateMyLeagueBody): Promise<import("./types").MyLeagueStateDTO> {
+  return post<import("./types").MyLeagueStateDTO>("/myleague/", body);
+}
+
+export async function advanceMyLeague(id: number, targetDate: string): Promise<import("./types").MyLeagueStateDTO> {
+  return post<import("./types").MyLeagueStateDTO>(`/myleague/${id}/advance`, { target_date: targetDate });
+}
+
+export async function appendMyLeagueEvent(id: number, body: import("./types").AppendMyLeagueEventBody): Promise<import("./types").MyLeagueEventDTO> {
+  return post<import("./types").MyLeagueEventDTO>(`/myleague/${id}/events`, body);
+}
+
+export async function getMyLeague(id: number): Promise<import("./types").MyLeagueSummary> {
+  return get<import("./types").MyLeagueSummary>(`/myleague/${id}`);
+}

@@ -265,3 +265,50 @@ export interface SimulateGameResponse {
   home_game_no?: number | null;
   away_game_no?: number | null;
 }
+
+// --- MyLeague (M-1c) -------------------------------------------------------
+
+export interface MyLeagueStateDTO {
+  simulation_id: number;
+  season: string;
+  root_seed: number;
+  controlled_team_id: number | null;
+  current_calendar_date: string;   // ISO YYYY-MM-DD
+  games_completed: number;
+}
+
+export interface MyLeagueRecentGame {
+  game_id: string;
+  game_date: string;
+  home_team: string;
+  away_team: string;
+  home_score: number;
+  away_score: number;
+  went_to_ot: boolean;
+}
+
+export interface MyLeagueSummary {
+  state: MyLeagueStateDTO;
+  standings: StandingsRow[];
+  recent_games: MyLeagueRecentGame[];
+}
+
+export interface CreateMyLeagueBody {
+  season: string;
+  seed?: number | null;
+  controlled_team_id?: number | null;
+}
+
+export interface AppendMyLeagueEventBody {
+  event_type: string;
+  applied_at_date: string;
+  payload: Record<string, unknown>;
+}
+
+export interface MyLeagueEventDTO {
+  id: number;
+  event_type: string;
+  applied_at_date: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}

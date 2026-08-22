@@ -282,24 +282,62 @@ def cancel_simulation(sim_id: int, db: Session = Depends(get_db)):
 
 @season_router.get("/", response_model=list[SimulationSummary])
 def list_simulations(db: Session = Depends(get_db)):
-    """List all simulation runs, most recent first."""
+    """List all simulation runs, most recent first.
+
+    Fetches everything the response needs in three bulk queries (runs, all
+    games for team-scope sims, all Game rows those reference) instead of
+    the original N+1 pattern (per-sim games query + per-game db.get(Game)),
+    which took 3.7s on ~20 completed sims and dominated the Season Sim tab
+    load time.
+    """
     runs = db.execute(
         select(SimulationRun).order_by(SimulationRun.created_at.desc())
     ).scalars().all()
 
+    # Bulk-load teams referenced by any sim (usually all 30).
+    team_ids = {sim.team_id for sim in runs if sim.team_id is not None}
+    team_by_id = (
+        {t.id: t for t in db.execute(select(Team).where(Team.id.in_(team_ids))).scalars()}
+        if team_ids else {}
+    )
+
+    # Bulk-load SimulatedGame rows for every completed TEAM-scope sim in one query.
+    completed_team_sim_ids = [
+        sim.id for sim in runs
+        if sim.status == "complete" and sim.scope == "team"
+    ]
+    sim_games_by_sim: dict[int, list[SimulatedGame]] = {sid: [] for sid in completed_team_sim_ids}
+    if completed_team_sim_ids:
+        rows = db.execute(
+            select(SimulatedGame).where(SimulatedGame.simulation_id.in_(completed_team_sim_ids))
+        ).scalars().all()
+        for sg in rows:
+            sim_games_by_sim.setdefault(sg.simulation_id, []).append(sg)
+
+        # Bulk-load Game rows once (need home_team_id only, to know if the sim's
+        # team was home). db.get() inside the loop was the N+1 hot spot.
+        game_ids = {sg.game_id for sg in rows}
+        game_home_by_id = dict(
+            db.execute(
+                select(Game.id, Game.home_team_id).where(Game.id.in_(game_ids))
+            ).all()
+        )
+    else:
+        game_home_by_id = {}
+
     summaries = []
     for sim in runs:
-        team = db.get(Team, sim.team_id) if sim.team_id else None
+        team = team_by_id.get(sim.team_id) if sim.team_id else None
         default_total = 1230 if sim.scope == "league" else 82
         total_games = (sim.parameters or {}).get("total_games", default_total)
         wins = losses = None
-        # Team-scope only computes W-L in the list view; league standings are a
-        # C-2 endpoint (out of scope for C-1).
         if sim.status == "complete" and sim.scope == "team":
-            sim_games = db.execute(
-                select(SimulatedGame).where(SimulatedGame.simulation_id == sim.id)
-            ).scalars().all()
-            wins = sum(1 for sg in sim_games if sim_game_is_win(db, sg, sim.team_id))
+            sim_games = sim_games_by_sim.get(sim.id, [])
+            wins = 0
+            for sg in sim_games:
+                is_home = game_home_by_id.get(sg.game_id) == sim.team_id
+                if (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score):
+                    wins += 1
             losses = len(sim_games) - wins
         summaries.append(SimulationSummary(
             id=sim.id,

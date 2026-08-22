@@ -24,11 +24,14 @@ class SimulationRun(Base):
     """
     __tablename__ = "simulation_runs"
     __table_args__ = (
-        # scope=team ⇒ team_id must be set; scope=league ⇒ team_id must be null.
-        # See project-session-c-design-lock.
+        # scope=team ⇒ team_id must be set; scope=league ⇒ team_id must be null;
+        # scope=myleague ⇒ team_id must be null (controlled team is on the
+        # sibling MyLeagueState row). See project-session-c-design-lock and the
+        # M-1a design lock.
         CheckConstraint(
             "(scope = 'team' AND team_id IS NOT NULL) OR "
-            "(scope = 'league' AND team_id IS NULL)",
+            "(scope = 'league' AND team_id IS NULL) OR "
+            "(scope = 'myleague' AND team_id IS NULL)",
             name="ck_sim_run_scope_team_id",
         ),
     )

@@ -36,8 +36,12 @@ import BoxScore from "./BoxScore";
 import PlayByPlay from "./PlayByPlay";
 import TeamLogo from "./TeamLogo";
 import GameContextHeader from "./GameContextHeader";
+import TeamStandingsBlock from "./TeamStandingsBlock";
+import PlayerModal from "./PlayerModal";
 import { conferenceOf } from "../data/conferences";
 import { franchiseFor } from "../data/franchises";
+import { computeStandings, extendRow } from "../lib/teamStandings";
+import type { PlayerLine } from "../types";
 
 type View =
   | { kind: "picker" }
@@ -523,8 +527,10 @@ function LeagueTeamGames({
 
   if (!games) return <div>Loading {teamAbbr} games…</div>;
 
-  const wins = games.filter((g) => g.win).length;
-  const losses = games.length - wins;
+  const rows = games.map((g) => extendRow(g, teamAbbr));
+  const standings = computeStandings(rows);
+  const wins = standings.w;
+  const losses = standings.l;
   const fr = franchiseFor(teamAbbr, season);
   const accent = fr?.primaryColor || "transparent";
 
@@ -547,6 +553,7 @@ function LeagueTeamGames({
           </div>
         </div>
       </div>
+      <TeamStandingsBlock standings={standings} />
       <table className="league-games-table">
         <thead>
           <tr>
@@ -606,6 +613,7 @@ interface LeagueGameDetailProps {
 
 function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailProps) {
   const [game, setGame] = useState<SimulateGameResponse | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerLine | null>(null);
 
   useEffect(() => {
     getSeasonGame(simId, gameId)
@@ -627,7 +635,7 @@ function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailPr
           abbr={game.away_team}
           season={game.season}
           sideLabel="Away"
-          onSelectPlayer={() => {}}
+          onSelectPlayer={setSelectedPlayer}
         />
         <BoxScore
           title={game.home_team}
@@ -635,11 +643,20 @@ function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailPr
           abbr={game.home_team}
           season={game.season}
           sideLabel="Home"
-          onSelectPlayer={() => {}}
+          onSelectPlayer={setSelectedPlayer}
         />
       </div>
       {game.events && game.events.length > 0 && (
         <PlayByPlay game={game} />
+      )}
+      {selectedPlayer && (
+        <PlayerModal
+          key={selectedPlayer.player_id}
+          line={selectedPlayer}
+          season={game.season}
+          events={game.events ?? []}
+          onClose={() => setSelectedPlayer(null)}
+        />
       )}
     </div>
   );

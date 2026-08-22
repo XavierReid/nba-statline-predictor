@@ -14,7 +14,6 @@ import type {
   PlayerLine,
   SeasonCoverage,
   SimulateGameResponse,
-  SimulatedGameSummary,
   SimulationStatus,
   SimulationSummary,
   Team,
@@ -34,52 +33,11 @@ const PRESETS = ["drama-m3", "drama-m3-season", "drama-m3-no-subtypes", "baselin
 type SortKey = "date" | "opponent" | "score" | "margin" | "result";
 type SortDir = "asc" | "desc";
 
-interface RowExt extends SimulatedGameSummary {
-  opponent: string;
-  margin: number;
-  teamScore: number;
-  oppScore: number;
-  isHome: boolean;
-}
-
-function extendRow(g: SimulatedGameSummary, teamAbbr: string): RowExt {
-  const isHome = g.home_team === teamAbbr;
-  const teamScore = isHome ? g.home_score : g.away_score;
-  const oppScore = isHome ? g.away_score : g.home_score;
-  return {
-    ...g,
-    opponent: isHome ? g.away_team : g.home_team,
-    teamScore,
-    oppScore,
-    margin: teamScore - oppScore,
-    isHome,
-  };
-}
-
-function computeStandings(rows: RowExt[]) {
-  const n = rows.length || 1;
-  const w = rows.filter((r) => r.win).length;
-  const home = rows.filter((r) => r.isHome);
-  const away = rows.filter((r) => !r.isHome);
-  const scored = rows.reduce((s, r) => s + r.teamScore, 0) / n;
-  const allowed = rows.reduce((s, r) => s + r.oppScore, 0) / n;
-  const blowouts = rows.filter((r) => Math.abs(r.margin) >= 20).length;
-  const otGames = rows.filter((r) => r.went_to_ot).length;
-  return {
-    gp: rows.length,
-    w,
-    l: rows.length - w,
-    wPct: rows.length ? w / rows.length : 0,
-    homeW: home.filter((r) => r.win).length,
-    homeL: home.length - home.filter((r) => r.win).length,
-    awayW: away.filter((r) => r.win).length,
-    awayL: away.length - away.filter((r) => r.win).length,
-    ppgScored: scored,
-    ppgAllowed: allowed,
-    blowoutRate: rows.length ? blowouts / rows.length : 0,
-    otRate: rows.length ? otGames / rows.length : 0,
-  };
-}
+// RowExt / extendRow / computeStandings live in lib/teamStandings and are
+// re-exported below so this file's downstream users don't need to move imports.
+import { computeStandings, extendRow, type RowExt } from "../lib/teamStandings";
+export { computeStandings, extendRow };
+export type { RowExt };
 
 // --- New-sim form ---------------------------------------------------------
 
@@ -277,19 +235,11 @@ function SeasonRunningState({ sim, onCancel, cancelling, elapsedMs }: RunningSta
 
 // --- Standings + game list (unchanged from B1) ---------------------------
 
+// SeasonStandings — thin wrapper preserved for existing call sites.
+// Shared render lives in TeamStandingsBlock.
+import TeamStandingsBlock from "./TeamStandingsBlock";
 function SeasonStandings({ standings }: { standings: ReturnType<typeof computeStandings> }) {
-  const s = standings;
-  return (
-    <div className="season-standings">
-      <div className="ss-cell"><span className="ss-k">Record</span><span className="ss-v">{s.w}-{s.l} <em>({(s.wPct * 100).toFixed(1)}%)</em></span></div>
-      <div className="ss-cell"><span className="ss-k">Home</span><span className="ss-v">{s.homeW}-{s.homeL}</span></div>
-      <div className="ss-cell"><span className="ss-k">Away</span><span className="ss-v">{s.awayW}-{s.awayL}</span></div>
-      <div className="ss-cell"><span className="ss-k">PPG</span><span className="ss-v">{s.ppgScored.toFixed(1)}</span></div>
-      <div className="ss-cell"><span className="ss-k">Opp PPG</span><span className="ss-v">{s.ppgAllowed.toFixed(1)}</span></div>
-      <div className="ss-cell"><span className="ss-k">Blowout%</span><span className="ss-v">{(s.blowoutRate * 100).toFixed(1)}%</span></div>
-      <div className="ss-cell"><span className="ss-k">OT%</span><span className="ss-v">{(s.otRate * 100).toFixed(1)}%</span></div>
-    </div>
-  );
+  return <TeamStandingsBlock standings={standings} />;
 }
 
 interface GameListProps {
@@ -834,5 +784,5 @@ export default function SeasonView() {
   );
 }
 
-// Exports for testing.
-export { computeStandings, extendRow };
+// computeStandings + extendRow now come from lib/teamStandings; the top-of-file
+// import re-exports them for existing test imports of this file.

@@ -1,41 +1,38 @@
 /**
- * MyLeagueView (M-1c) — minimal franchise-mode surface.
+ * MyLeagueView — franchise-mode surface.
  *
  * Flow:
- *   picker → dashboard
+ *   picker (create new + list past runs) → dashboard
  *
- * Picker: pick season + (optional) controlled team + (optional) seed → POST
- * /myleague/. No "resume existing" list yet (no list endpoint — a follow-up
- * if the URL-copy workflow proves annoying).
- *
- * Dashboard: current-state header + Advance Day button + recent games
- * + standings (using existing ConferenceTable-style layout).
- *
- * Explicitly NOT this session:
- *   - Roster editing UI
- *   - Availability toggle UI (SET_UNAVAILABLE) — endpoint exists, no UI
- *   - Per-team drill-in
- *   - Injury / trade UI
+ * Dashboard:
+ *   - hero (controlled team logo/name/date/W-L/games played)
+ *   - Advance one day button (disabled + "Season complete!" banner when done)
+ *   - two-column: recent games (with controlled-team highlight) + standings
+ *     (East/West split, controlled team highlighted with neutral accent)
  */
 import { useEffect, useState } from "react";
 import {
   advanceMyLeague,
   createMyLeague,
+  deleteSimulation,
   getMyLeague,
   getSeasons,
   getTeams,
+  listSimulations,
 } from "../api";
 import type {
   MyLeagueSummary,
   SeasonCoverage,
+  SimulationSummary,
+  StandingsRow,
   Team,
 } from "../types";
 import TeamLogo from "./TeamLogo";
 import { franchiseFor } from "../data/franchises";
+import { conferenceOf } from "../data/conferences";
 
 type View =
   | { kind: "picker" }
-  | { kind: "creating" }
   | { kind: "dashboard"; simId: number };
 
 export default function MyLeagueView() {
@@ -47,7 +44,7 @@ export default function MyLeagueView() {
       {error && <div className="error">{error}</div>}
       {view.kind === "picker" && (
         <MyLeaguePicker
-          onCreated={(simId) => { setError(null); setView({ kind: "dashboard", simId }); }}
+          onOpened={(simId) => { setError(null); setView({ kind: "dashboard", simId }); }}
           onError={setError}
         />
       )}
@@ -63,21 +60,31 @@ export default function MyLeagueView() {
 }
 
 // ---------------------------------------------------------------------------
-// Picker
+// Picker — create-new form + past-runs table
 // ---------------------------------------------------------------------------
 
 interface PickerProps {
-  onCreated: (simId: number) => void;
+  onOpened: (simId: number) => void;
   onError: (msg: string) => void;
 }
 
-function MyLeaguePicker({ onCreated, onError }: PickerProps) {
+function MyLeaguePicker({ onOpened, onError }: PickerProps) {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [season, setSeason] = useState("");
-  const [teamId, setTeamId] = useState<string>("");   // controlled team — required
+  const [teamId, setTeamId] = useState<string>("");
   const [seed, setSeed] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [runs, setRuns] = useState<SimulationSummary[]>([]);
+  const [runsLoading, setRunsLoading] = useState(true);
+
+  const refreshRuns = () => {
+    setRunsLoading(true);
+    listSimulations()
+      .then((r) => setRuns(r.filter((x) => x.scope === "myleague")))
+      .catch((e) => onError(String(e)))
+      .finally(() => setRunsLoading(false));
+  };
 
   useEffect(() => {
     getSeasons()
@@ -86,6 +93,7 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
         if (s.length) setSeason((cur) => cur || s[0].season);
       })
       .catch((e) => onError(String(e)));
+    refreshRuns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -94,8 +102,6 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
     getTeams(season)
       .then((ts) => {
         setTeams(ts);
-        // Reset team choice if the current pick no longer exists (e.g. an old
-        // franchise the user selected before switching seasons).
         setTeamId((cur) => (ts.some((t) => String(t.id) === cur) ? cur : ""));
       })
       .catch((e) => onError(String(e)));
@@ -112,11 +118,21 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
         seed: seed === "" ? null : Number(seed),
         controlled_team_id: Number(teamId),
       });
-      onCreated(created.simulation_id);
+      onOpened(created.simulation_id);
     } catch (err) {
       onError(String(err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function onDelete(simId: number) {
+    if (!confirm(`Delete MyLeague run #${simId}? This cannot be undone.`)) return;
+    try {
+      await deleteSimulation(simId);
+      refreshRuns();
+    } catch (err) {
+      onError(String(err));
     }
   }
 
@@ -161,6 +177,47 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
           {submitting ? "Creating…" : "Start MyLeague"}
         </button>
       </form>
+
+      {runsLoading && (
+        <div className="league-runs-loading">
+          <span className="spinner" aria-hidden="true" />
+          Loading past MyLeague runs…
+        </div>
+      )}
+      {!runsLoading && runs.length > 0 && (
+        <div className="league-runs">
+          <h3>Past MyLeague runs</h3>
+          <table className="league-runs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Season</th>
+                <th>Seed</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.id}</td>
+                  <td>{r.season}</td>
+                  <td>{r.seed}</td>
+                  <td>{r.status}</td>
+                  <td>{r.games_completed}/{r.total_games}</td>
+                  <td>{new Date(r.created_at).toLocaleDateString()}</td>
+                  <td className="myleague-runs-actions">
+                    <button onClick={() => onOpened(r.id)}>Continue</button>
+                    <button className="danger" onClick={() => onDelete(r.id)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -213,8 +270,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
   if (!summary) return <div className="empty-hint">Loading MyLeague…</div>;
 
   const { state, standings, recent_games } = summary;
-  // Show hero for the controlled team regardless of whether standings has
-  // populated (empty at run-creation time before any games are played).
+  const seasonComplete = state.status === "complete";
   const controlledAbbr = state.controlled_team_abbr;
   const controlledStanding = state.controlled_team_id
     ? standings.find((s) => s.team_id === state.controlled_team_id)
@@ -222,6 +278,10 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
   const wins = controlledStanding?.wins ?? 0;
   const losses = controlledStanding?.losses ?? 0;
   const fr = controlledAbbr ? franchiseFor(controlledAbbr, state.season) : null;
+
+  // Recent games shown for the controlled team get a subtle highlight.
+  const isControlledGame = (homeAbbr: string, awayAbbr: string) =>
+    !!controlledAbbr && (homeAbbr === controlledAbbr || awayAbbr === controlledAbbr);
 
   return (
     <div className="myleague-dashboard">
@@ -241,7 +301,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
                   <span className="dot">·</span>
                   <span>{state.current_calendar_date}</span>
                   <span className="dot">·</span>
-                  <span>{state.games_completed} league games played</span>
+                  <span>{state.games_completed} / {state.total_games} league games played</span>
                 </div>
               </div>
             </>
@@ -251,25 +311,34 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
               <div className="myleague-meta">
                 <span>{state.current_calendar_date}</span>
                 <span className="dot">·</span>
-                <span>{state.games_completed} games played</span>
+                <span>{state.games_completed} / {state.total_games} games played</span>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      <div className="myleague-advance">
-        {lastAdvance && !advancing && (
-          <span className="myleague-advance-toast">{lastAdvance}</span>
-        )}
-        <button className="new-sim-btn" onClick={advanceOneDay} disabled={advancing}>
-          {advancing ? "Advancing…" : "Advance one day →"}
-        </button>
-      </div>
+      {seasonComplete && (
+        <div className="myleague-season-complete">
+          🏆 Season complete — {state.games_completed} games played.
+          Final standings below.
+        </div>
+      )}
+
+      {!seasonComplete && (
+        <div className="myleague-advance">
+          {lastAdvance && !advancing && (
+            <span className="myleague-advance-toast">{lastAdvance}</span>
+          )}
+          <button className="new-sim-btn" onClick={advanceOneDay} disabled={advancing}>
+            {advancing ? "Advancing…" : "Advance one day →"}
+          </button>
+        </div>
+      )}
 
       <div className="myleague-columns">
         <section className="myleague-recent">
-          <h3>Recent results</h3>
+          <h3>{seasonComplete ? "Final games" : "Recent results"}</h3>
           {recent_games.length === 0 ? (
             <p className="empty-hint">No games completed yet. Advance a day to start.</p>
           ) : (
@@ -283,7 +352,10 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
               </thead>
               <tbody>
                 {recent_games.map((g) => (
-                  <tr key={g.game_id}>
+                  <tr
+                    key={g.game_id}
+                    className={isControlledGame(g.home_team, g.away_team) ? "controlled" : ""}
+                  >
                     <td className="col-date">{g.game_date}</td>
                     <td className="col-matchup">
                       <span className="matchup-team">
@@ -308,49 +380,112 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
         </section>
 
         <section className="myleague-standings">
-          <h3>Standings</h3>
+          <h3>{seasonComplete ? "Final standings" : "Standings"}</h3>
           {standings.length === 0 ? (
             <p className="empty-hint">No standings yet.</p>
           ) : (
-            <table className="league-standings-table">
-              <thead>
-                <tr>
-                  <th className="col-rank">#</th>
-                  <th className="col-team">Team</th>
-                  <th className="col-num">W</th>
-                  <th className="col-num">L</th>
-                  <th className="col-num">PCT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {standings.slice(0, 30).map((row, i) => {
-                  const rowFr = franchiseFor(row.team_abbr, state.season);
-                  const accent = rowFr?.primaryColor || "transparent";
-                  const isControlled = state.controlled_team_id === row.team_id;
-                  return (
-                    <tr
-                      key={row.team_id}
-                      className={`standings-row ${i % 2 === 0 ? "even" : "odd"} ${isControlled ? "controlled" : ""}`}
-                      style={{ ["--team-accent" as string]: accent } as React.CSSProperties}
-                    >
-                      <td className="col-rank">{row.rank}</td>
-                      <td className="col-team">
-                        <span className="team-cell">
-                          <TeamLogo abbr={row.team_abbr} size="sm" season={state.season} />
-                          <strong className="team-abbr">{row.team_abbr}</strong>
-                        </span>
-                      </td>
-                      <td className="col-num">{row.wins}</td>
-                      <td className="col-num">{row.losses}</td>
-                      <td className="col-num">{row.pct.toFixed(3)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <SplitStandings
+              standings={standings}
+              season={state.season}
+              controlledTeamId={state.controlled_team_id}
+            />
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SplitStandings — East/West conference split, stacked in the right column
+// ---------------------------------------------------------------------------
+
+function SplitStandings({
+  standings, season, controlledTeamId,
+}: {
+  standings: StandingsRow[];
+  season: string;
+  controlledTeamId: number | null;
+}) {
+  const east: StandingsRow[] = [];
+  const west: StandingsRow[] = [];
+  const other: StandingsRow[] = [];
+  for (const row of standings) {
+    const conf = conferenceOf(row.team_abbr);
+    if (conf === "East") east.push(row);
+    else if (conf === "West") west.push(row);
+    else other.push(row);
+  }
+  // Rerank per conference + recompute GB relative to the conf leader
+  // (mirrors LeagueView's ConferenceTable logic).
+  const rerank = (rows: StandingsRow[]): StandingsRow[] => {
+    if (rows.length === 0) return rows;
+    const leader = rows[0];
+    return rows.map((r, i) => ({
+      ...r,
+      rank: i + 1,
+      gb: Math.round(
+        ((leader.wins - r.wins) + (r.losses - leader.losses)) / 2 * 10
+      ) / 10,
+    }));
+  };
+  return (
+    <div className="myleague-standings-conferences">
+      <MiniConferenceTable title="East" rows={rerank(east)} season={season} controlledTeamId={controlledTeamId} />
+      <MiniConferenceTable title="West" rows={rerank(west)} season={season} controlledTeamId={controlledTeamId} />
+      {other.length > 0 && (
+        <MiniConferenceTable
+          title="Other" rows={rerank(other)} season={season} controlledTeamId={controlledTeamId}
+        />
+      )}
+    </div>
+  );
+}
+
+function MiniConferenceTable({
+  title, rows, season, controlledTeamId,
+}: {
+  title: string;
+  rows: StandingsRow[];
+  season: string;
+  controlledTeamId: number | null;
+}) {
+  return (
+    <div className="mini-conf">
+      <h4>{title}</h4>
+      <table className="league-standings-table">
+        <thead>
+          <tr>
+            <th className="col-rank">#</th>
+            <th className="col-team">Team</th>
+            <th className="col-num">W</th>
+            <th className="col-num">L</th>
+            <th className="col-num">PCT</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => {
+            const isControlled = controlledTeamId === row.team_id;
+            return (
+              <tr
+                key={row.team_id}
+                className={`standings-row ${i % 2 === 0 ? "even" : "odd"} ${isControlled ? "controlled-neutral" : ""}`}
+              >
+                <td className="col-rank">{row.rank}</td>
+                <td className="col-team">
+                  <span className="team-cell">
+                    <TeamLogo abbr={row.team_abbr} size="sm" season={season} />
+                    <strong className="team-abbr">{row.team_abbr}</strong>
+                  </span>
+                </td>
+                <td className="col-num">{row.wins}</td>
+                <td className="col-num">{row.losses}</td>
+                <td className="col-num">{row.pct.toFixed(3)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

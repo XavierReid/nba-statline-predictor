@@ -43,6 +43,8 @@ class MyLeagueStateResponse(BaseModel):
     controlled_team_abbr: Optional[str]     # NULL only if no controlled team
     current_calendar_date: date
     games_completed: int
+    total_games: int                        # season's scheduled game count
+    status: str                             # 'running' | 'complete' | ...
 
 
 class MyLeagueEventResponse(BaseModel):

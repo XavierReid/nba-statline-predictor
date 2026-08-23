@@ -1292,5 +1292,69 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .myleague-recent-table tr:last-child td { border-bottom: none; }
 .myleague-recent-table td.col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 
-/* Controlled-team row in standings gets an accent glow. */
-.standings-row.controlled { background: color-mix(in srgb, var(--team-accent) 12%, transparent) !important; }
+/* Controlled-team row highlight — neutral variant that works for dark
+   team primaries (DEN #0E2240, BKN #000000) where color-mix on the
+   accent produced barely-visible tinting. Uses --accent for a warm,
+   consistent highlight across every team. */
+.standings-row.controlled-neutral {
+  background: rgba(247, 162, 59, 0.14) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.myleague-recent-table tr.controlled {
+  background: rgba(247, 162, 59, 0.10);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.myleague-recent-table tr.controlled td:first-child { padding-left: 15px; }
+
+/* Empty-state spacing inside MyLeague panels — was flush with the
+   panel border which felt cramped. */
+.myleague-recent .empty-hint,
+.myleague-standings .empty-hint {
+  padding: 16px 20px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Season complete banner */
+.myleague-season-complete {
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--win) 15%, transparent);
+  border: 1px solid var(--win);
+  border-radius: 8px;
+  color: var(--win);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* East/West split — small stacked tables inside the standings column. */
+.myleague-standings-conferences {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 0 8px 8px;
+}
+.mini-conf h4 {
+  margin: 8px 4px 4px; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--muted); font-weight: 700;
+}
+.mini-conf .league-standings-table thead th {
+  padding: 4px 6px; font-size: 9px;
+}
+.mini-conf .league-standings-table td {
+  padding: 5px 6px; font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Past-runs table Continue/Delete pair spacing + delete button styling. */
+.myleague-runs-actions { display: flex; gap: 6px; }
+.myleague-runs-actions button {
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+}
+.myleague-runs-actions button:hover { background: var(--line); }
+.myleague-runs-actions button.danger {
+  color: #f87171; border-color: rgba(248,113,113,0.4);
+}
+.myleague-runs-actions button.danger:hover {
+  background: rgba(248,113,113,0.15);
+}

@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
@@ -85,10 +85,21 @@ def create_run(
     db.add(sim)
     db.flush()  # get sim.id
 
-    # Cursor starts the day BEFORE the season's first game so the first
-    # advance_to() call picks up day 1.
+    # Cursor starts the day BEFORE the season's ACTUAL first game so the
+    # first advance_to() call picks up day 1. Using season_bounds() start
+    # was previously ~3 weeks early (Oct 1 vs Oct 21 for a modern season)
+    # which forced the user to click Advance many times before anything
+    # happened. Query the schedule for min(game_date) instead; fall back
+    # to season_bounds when no games exist (shouldn't happen after the
+    # schedule-integrity gate passes, but keeps the fallback honest).
     start, _ = season_bounds(season)
-    initial_cursor = start - timedelta(days=1)
+    first_game_date = db.execute(
+        select(Game.game_date)
+        .where(Game.game_date >= start)
+        .order_by(Game.game_date.asc())
+        .limit(1)
+    ).scalar()
+    initial_cursor = (first_game_date or start) - timedelta(days=1)
 
     state_row = MyLeagueState(
         simulation_id=sim.id,
@@ -311,5 +322,24 @@ def advance_to(
             .values(games_completed=SimulationRun.games_completed + completed_this_advance)
         )
     db.commit()
+
+    # Season-complete detection: mark run.status='complete' when every
+    # game in the season window is persisted. Frontend uses this to lock
+    # the Advance button and shift into final-standings view.
+    total_games = db.execute(
+        select(func.count(Game.id))
+        .where(Game.game_date.between(*season_bounds(sim.season)))
+    ).scalar()
+    persisted_games = db.execute(
+        select(func.count(SimulatedGame.id))
+        .where(SimulatedGame.simulation_id == simulation_id)
+    ).scalar()
+    if total_games and persisted_games >= total_games:
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == simulation_id, SimulationRun.status != "complete")
+            .values(status="complete", completed_at=datetime.now(timezone.utc))
+        )
+        db.commit()
 
     return load_state(db, simulation_id)

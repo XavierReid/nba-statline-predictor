@@ -130,7 +130,7 @@ export interface SimulatedGameSummary {
   win: boolean;   // true iff the run's team won
 }
 
-export type SimulationScope = "team" | "league";
+export type SimulationScope = "team" | "league" | "myleague";
 
 // POST /simulations/ request body
 export interface CreateSimulationBody {
@@ -276,6 +276,8 @@ export interface MyLeagueStateDTO {
   controlled_team_abbr: string | null;
   current_calendar_date: string;   // ISO YYYY-MM-DD
   games_completed: number;
+  total_games: number;
+  status: string;
 }
 
 export interface MyLeagueRecentGame {

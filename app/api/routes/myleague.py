@@ -33,7 +33,9 @@ from app.database import get_db
 from app.models.game import Game
 from app.models.simulation import SimulatedGame, SimulationRun
 from app.models.team import Team
-from app.services.league_simulator import compute_standings
+from sqlalchemy import func
+
+from app.services.league_simulator import compute_standings, season_bounds
 from app.services.myleague_engine import (
     MonotonicTimeError,
     MyLeagueError,
@@ -66,6 +68,10 @@ def _base_state(db: Session, simulation_id: int) -> MyLeagueStateResponse:
     if st.controlled_team_id is not None:
         team = db.get(Team, st.controlled_team_id)
         team_abbr = team.abbreviation if team else None
+    total_games = db.execute(
+        select(func.count(Game.id))
+        .where(Game.game_date.between(*season_bounds(st.season)))
+    ).scalar() or 0
     return MyLeagueStateResponse(
         simulation_id=st.simulation_id,
         season=st.season,
@@ -74,6 +80,8 @@ def _base_state(db: Session, simulation_id: int) -> MyLeagueStateResponse:
         controlled_team_abbr=team_abbr,
         current_calendar_date=st.current_calendar_date,
         games_completed=sim.games_completed if sim else 0,
+        total_games=total_games,
+        status=sim.status if sim else "unknown",
     )
 
 

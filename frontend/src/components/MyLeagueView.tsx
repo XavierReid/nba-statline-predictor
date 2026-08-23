@@ -75,7 +75,7 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
   const [seasons, setSeasons] = useState<SeasonCoverage[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [season, setSeason] = useState("");
-  const [teamId, setTeamId] = useState<string>("");   // "" = God mode
+  const [teamId, setTeamId] = useState<string>("");   // controlled team — required
   const [seed, setSeed] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -92,20 +92,25 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
   useEffect(() => {
     if (!season) return;
     getTeams(season)
-      .then(setTeams)
+      .then((ts) => {
+        setTeams(ts);
+        // Reset team choice if the current pick no longer exists (e.g. an old
+        // franchise the user selected before switching seasons).
+        setTeamId((cur) => (ts.some((t) => String(t.id) === cur) ? cur : ""));
+      })
       .catch((e) => onError(String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [season]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!season || submitting) return;
+    if (!season || !teamId || submitting) return;
     setSubmitting(true);
     try {
       const created = await createMyLeague({
         season,
         seed: seed === "" ? null : Number(seed),
-        controlled_team_id: teamId === "" ? null : Number(teamId),
+        controlled_team_id: Number(teamId),
       });
       onCreated(created.simulation_id);
     } catch (err) {
@@ -119,9 +124,10 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
     <div className="myleague-picker">
       <h2>Start a MyLeague run</h2>
       <p className="subtitle">
-        Advance the season one day at a time. Between games you can (soon)
-        manage rosters, availability, injuries, and trades — for now, it's
-        watch-the-season-unfold.
+        Pick a team to manage and advance the season one day at a time.
+        Between games you can (soon) manage rosters, availability, injuries,
+        and trades. To just watch a season play out, use Season Sim →
+        Full League instead.
       </p>
       <form onSubmit={onSubmit} className="myleague-form">
         <label>
@@ -134,8 +140,8 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
         </label>
         <label>
           Controlled team
-          <select value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-            <option value="">— none (spectate) —</option>
+          <select value={teamId} onChange={(e) => setTeamId(e.target.value)} required>
+            <option value="">— pick a team —</option>
             {teams.map((t) => (
               <option key={t.id} value={t.id}>{t.abbreviation} — {t.city} {t.nickname}</option>
             ))}
@@ -151,7 +157,7 @@ function MyLeaguePicker({ onCreated, onError }: PickerProps) {
             style={{ width: 100 }}
           />
         </label>
-        <button type="submit" disabled={!season || submitting}>
+        <button type="submit" disabled={!season || !teamId || submitting}>
           {submitting ? "Creating…" : "Start MyLeague"}
         </button>
       </form>
@@ -172,6 +178,7 @@ interface DashboardProps {
 function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
   const [summary, setSummary] = useState<MyLeagueSummary | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [lastAdvance, setLastAdvance] = useState<string | null>(null);
 
   const refresh = () => {
     getMyLeague(simId).then(setSummary).catch((e) => onError(String(e)));
@@ -182,13 +189,19 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
   async function advanceOneDay() {
     if (!summary || advancing) return;
     setAdvancing(true);
+    const gamesBefore = summary.state.games_completed;
     try {
-      // Compute next-day ISO from the current cursor.
       const [y, m, d] = summary.state.current_calendar_date.split("-").map(Number);
       const next = new Date(y, m - 1, d);
       next.setDate(next.getDate() + 1);
       const nextIso = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-      await advanceMyLeague(simId, nextIso);
+      const newState = await advanceMyLeague(simId, nextIso);
+      const played = newState.games_completed - gamesBefore;
+      setLastAdvance(
+        played > 0
+          ? `Advanced to ${nextIso} — ${played} game${played === 1 ? "" : "s"} played`
+          : `Advanced to ${nextIso} — off-day, no games`
+      );
       refresh();
     } catch (err) {
       onError(String(err));
@@ -200,10 +213,15 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
   if (!summary) return <div className="empty-hint">Loading MyLeague…</div>;
 
   const { state, standings, recent_games } = summary;
-  const controlledTeamRow = state.controlled_team_id
+  // Show hero for the controlled team regardless of whether standings has
+  // populated (empty at run-creation time before any games are played).
+  const controlledAbbr = state.controlled_team_abbr;
+  const controlledStanding = state.controlled_team_id
     ? standings.find((s) => s.team_id === state.controlled_team_id)
     : null;
-  const fr = controlledTeamRow ? franchiseFor(controlledTeamRow.team_abbr, state.season) : null;
+  const wins = controlledStanding?.wins ?? 0;
+  const losses = controlledStanding?.losses ?? 0;
+  const fr = controlledAbbr ? franchiseFor(controlledAbbr, state.season) : null;
 
   return (
     <div className="myleague-dashboard">
@@ -211,19 +229,19 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
         <button className="back-btn" onClick={onExit}>← Exit</button>
         <div className="myleague-hero"
           style={fr ? ({ ["--team-accent" as string]: fr.primaryColor } as React.CSSProperties) : undefined}>
-          {controlledTeamRow ? (
+          {controlledAbbr ? (
             <>
-              <TeamLogo abbr={controlledTeamRow.team_abbr} size="lg" season={state.season} />
+              <TeamLogo abbr={controlledAbbr} size="lg" season={state.season} />
               <div className="myleague-heading">
-                <h2>{fr?.fullName || controlledTeamRow.team_abbr}</h2>
+                <h2>{fr?.fullName || controlledAbbr}</h2>
                 <div className="myleague-meta">
-                  <span className="record">{controlledTeamRow.wins}-{controlledTeamRow.losses}</span>
+                  <span className="record">{wins}-{losses}</span>
                   <span className="dot">·</span>
                   <span>{state.season}</span>
                   <span className="dot">·</span>
                   <span>{state.current_calendar_date}</span>
                   <span className="dot">·</span>
-                  <span>{state.games_completed} team games played</span>
+                  <span>{state.games_completed} league games played</span>
                 </div>
               </div>
             </>
@@ -231,8 +249,6 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
             <div className="myleague-heading">
               <h2>MyLeague — {state.season}</h2>
               <div className="myleague-meta">
-                <span>Spectate mode</span>
-                <span className="dot">·</span>
                 <span>{state.current_calendar_date}</span>
                 <span className="dot">·</span>
                 <span>{state.games_completed} games played</span>
@@ -243,6 +259,9 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
       </div>
 
       <div className="myleague-advance">
+        {lastAdvance && !advancing && (
+          <span className="myleague-advance-toast">{lastAdvance}</span>
+        )}
         <button className="new-sim-btn" onClick={advanceOneDay} disabled={advancing}>
           {advancing ? "Advancing…" : "Advance one day →"}
         </button>

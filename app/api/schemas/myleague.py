@@ -40,6 +40,7 @@ class MyLeagueStateResponse(BaseModel):
     season: str
     root_seed: int
     controlled_team_id: Optional[int]
+    controlled_team_abbr: Optional[str]     # NULL only if no controlled team
     current_calendar_date: date
     games_completed: int
 

@@ -273,6 +273,7 @@ export interface MyLeagueStateDTO {
   season: string;
   root_seed: number;
   controlled_team_id: number | null;
+  controlled_team_abbr: string | null;
   current_calendar_date: string;   // ISO YYYY-MM-DD
   games_completed: number;
 }

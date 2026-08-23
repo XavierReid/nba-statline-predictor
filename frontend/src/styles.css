@@ -1248,12 +1248,17 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .myleague-meta .dot { opacity: 0.5; }
 
 .myleague-advance {
-  display: flex; justify-content: flex-end;
+  display: flex; justify-content: flex-end; align-items: center; gap: 12px;
   padding: 4px 0;
 }
 .myleague-advance button {
   padding: 10px 20px;
   font-size: 14px;
+}
+.myleague-advance-toast {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
 .myleague-columns {

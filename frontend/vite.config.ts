@@ -15,6 +15,7 @@ export default defineConfig({
       "/teams": API,
       "/ingestion": API,
       "/players": API,
+      "/myleague": API,
     },
   },
   test: {

@@ -54,14 +54,24 @@ myleague_router = APIRouter()
 # ---------------------------------------------------------------------------
 
 def _base_state(db: Session, simulation_id: int) -> MyLeagueStateResponse:
-    """Hydrate the base-state block from DB — used by every response."""
+    """Hydrate the base-state block from DB — used by every response.
+
+    Includes controlled_team_abbr so the UI can render the team's identity
+    (name, logo, colors) without a separate teams-list lookup and without
+    waiting for standings to populate (empty at run-creation time).
+    """
     st = load_state(db, simulation_id)
     sim = db.get(SimulationRun, simulation_id)
+    team_abbr = None
+    if st.controlled_team_id is not None:
+        team = db.get(Team, st.controlled_team_id)
+        team_abbr = team.abbreviation if team else None
     return MyLeagueStateResponse(
         simulation_id=st.simulation_id,
         season=st.season,
         root_seed=st.root_seed,
         controlled_team_id=st.controlled_team_id,
+        controlled_team_abbr=team_abbr,
         current_calendar_date=st.current_calendar_date,
         games_completed=sim.games_completed if sim else 0,
     )

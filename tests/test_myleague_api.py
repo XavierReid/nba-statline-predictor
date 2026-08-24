@@ -230,3 +230,88 @@ def test_get_rejects_non_myleague_scope_as_404():
         assert resp.status_code == 404
     finally:
         _cleanup(sim_id)
+
+
+def _lal_id() -> int:
+    db = SessionLocal()
+    try:
+        from app.models.team import Team as _T
+        return db.execute(select(_T.id).where(_T.abbreviation == "LAL")).scalar_one()
+    finally:
+        db.close()
+
+
+def test_next_game_preview_null_without_controlled_team():
+    """Runs with no controlled team never get a preview."""
+    created = client.post("/myleague/", json={"season": SEASON, "seed": 1}).json()
+    sim_id = created["simulation_id"]
+    try:
+        body = client.get(f"/myleague/{sim_id}").json()
+        assert body["next_game_preview"] is None
+    finally:
+        _cleanup(sim_id)
+
+
+def test_next_game_preview_populated_with_expected_shape():
+    """With a controlled team + upcoming games, the preview is present
+    and every documented field is populated with a sensible value."""
+    created = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 1, "controlled_team_id": _lal_id()},
+    ).json()
+    sim_id = created["simulation_id"]
+    try:
+        body = client.get(f"/myleague/{sim_id}").json()
+        p = body["next_game_preview"]
+        assert p is not None, "preview should be populated with a controlled team + games ahead"
+        # Shape
+        for field in (
+            "game_id", "game_date", "is_home", "opponent_abbr",
+            "matchup_index", "matchup_total",
+            "series_wins_controlled", "series_wins_opponent",
+            "controlled_roster", "opponent_roster",
+        ):
+            assert field in p, f"preview missing field {field}"
+        # Value sanity
+        assert isinstance(p["is_home"], bool)
+        assert p["opponent_abbr"] != "LAL"
+        assert 1 <= p["matchup_index"] <= p["matchup_total"]
+        assert p["series_wins_controlled"] == 0 and p["series_wins_opponent"] == 0
+        assert 1 <= len(p["controlled_roster"]) <= 8
+        assert 1 <= len(p["opponent_roster"]) <= 8
+        for roster in (p["controlled_roster"], p["opponent_roster"]):
+            for r in roster:
+                assert r["player_id"] > 0
+                assert r["name"]
+                assert r["mpg"] >= 0
+    finally:
+        _cleanup(sim_id)
+
+
+def test_next_game_preview_series_updates_after_playing():
+    """After the controlled team plays its first meeting vs an opponent,
+    subsequent previews against a later meeting reflect the series score."""
+    created = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 1, "controlled_team_id": _lal_id()},
+    ).json()
+    sim_id = created["simulation_id"]
+    try:
+        # Advance past the season's first ~10 days so the controlled team has
+        # definitely played at least one game.
+        from datetime import timedelta as _td
+        target = _first_game_date() + _td(days=14)
+        client.post(f"/myleague/{sim_id}/advance", json={"target_date": target.isoformat()})
+        body = client.get(f"/myleague/{sim_id}").json()
+        p = body["next_game_preview"]
+        # If LAL has more meetings ahead, the preview should exist. If the
+        # remaining matchup is against a team LAL has already played, the
+        # series wins for BOTH sides should sum to matchup_index - 1.
+        if p is not None and p["matchup_index"] > 1:
+            total = p["series_wins_controlled"] + p["series_wins_opponent"]
+            assert total == p["matchup_index"] - 1, (
+                f"series wins ({p['series_wins_controlled']}-{p['series_wins_opponent']}) "
+                f"should sum to matchup_index-1 ({p['matchup_index'] - 1})"
+            )
+    finally:
+        _cleanup(sim_id)

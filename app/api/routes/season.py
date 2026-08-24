@@ -480,7 +480,13 @@ def delete_simulation(sim_id: int, db: Session = Depends(get_db)):
     sim = db.get(SimulationRun, sim_id)
     if not sim:
         raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
-    if sim.status == "running":
+    # 'running' means a background task is actively simulating for team/league
+    # scopes — cancel first. For MyLeague there is no background task; the
+    # run's status stays 'running' until every scheduled game is played
+    # (which most sessions never reach), so blocking delete on it would trap
+    # users. myleague_state + myleague_events cascade via ON DELETE CASCADE
+    # on their FKs.
+    if sim.status == "running" and sim.scope != "myleague":
         raise HTTPException(
             status_code=422,
             detail=f"Simulation {sim_id} is running. Cancel it before deleting."

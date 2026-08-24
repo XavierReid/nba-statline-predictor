@@ -27,6 +27,7 @@ from app.api.schemas.myleague import (
     MyLeagueStateResponse,
     MyLeagueSummaryResponse,
     RecentGameRow,
+    UpcomingGameRow,
 )
 from app.api.schemas.simulations import StandingsRow, resolve_config
 from app.database import get_db
@@ -181,6 +182,7 @@ def append_myleague_event(
 # ---------------------------------------------------------------------------
 
 _RECENT_GAMES_LIMIT = 10
+_UPCOMING_GAMES_LIMIT = 5
 
 
 @myleague_router.get("/{sim_id}", response_model=MyLeagueSummaryResponse)
@@ -250,8 +252,46 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
         for gid, gd, hid, aid, hs, ascore, ot in recent_rows
     ]
 
+    # Upcoming games for the controlled team — the next N scheduled games
+    # after the current cursor that involve controlled_team_id, so the
+    # dashboard can show a "you play next: OKC in 2 days" preview. Uses
+    # the Game table directly (not SimulatedGame) since these haven't been
+    # simulated yet. Empty when no controlled team is set.
+    upcoming_games: list[UpcomingGameRow] = []
+    if state.controlled_team_id is not None:
+        from sqlalchemy import or_
+        upcoming_rows = db.execute(
+            select(Game.id, Game.game_date, Game.home_team_id, Game.away_team_id)
+            .where(
+                Game.game_date > state.current_calendar_date,
+                or_(
+                    Game.home_team_id == state.controlled_team_id,
+                    Game.away_team_id == state.controlled_team_id,
+                ),
+            )
+            .order_by(Game.game_date.asc(), Game.id.asc())
+            .limit(_UPCOMING_GAMES_LIMIT)
+        ).all()
+        # Add teams referenced by upcoming games to the abbr map if missing
+        # (the earlier abbr_by_id only covers teams in completed games).
+        missing_ids = {hid for _, _, hid, _ in upcoming_rows} | {aid for _, _, _, aid in upcoming_rows}
+        missing_ids -= set(abbr_by_id.keys())
+        if missing_ids:
+            for t in db.execute(select(Team).where(Team.id.in_(missing_ids))).scalars().all():
+                abbr_by_id[t.id] = t.abbreviation
+        upcoming_games = [
+            UpcomingGameRow(
+                game_id=gid,
+                game_date=gd,
+                home_team=abbr_by_id.get(hid, "?"),
+                away_team=abbr_by_id.get(aid, "?"),
+            )
+            for gid, gd, hid, aid in upcoming_rows
+        ]
+
     return MyLeagueSummaryResponse(
         state=state,
         standings=standings,
         recent_games=recent_games,
+        upcoming_games=upcoming_games,
     )

@@ -66,13 +66,27 @@ class RecentGameRow(BaseModel):
     went_to_ot: bool
 
 
+class UpcomingGameRow(BaseModel):
+    """Next scheduled game for the controlled team (M-2 preview).
+
+    Same shape as RecentGameRow minus scores/OT since these haven't been
+    simulated yet. Only populated when the run has a controlled team.
+    """
+    game_id: str
+    game_date: date
+    home_team: str
+    away_team: str
+
+
 class MyLeagueSummaryResponse(BaseModel):
     """GET /myleague/{id} — full hydration for the front-page dashboard.
 
     Combines base state + league standings (30 rows) + last-N completed
-    games. Deliberately caps at 10 recent games; a full team drill-in
-    would use a dedicated endpoint (out of scope for M-1b).
+    games + next-N upcoming games for the controlled team. Deliberately
+    caps at 10 recent + 5 upcoming; a full team drill-in would use a
+    dedicated endpoint (deferred).
     """
     state: MyLeagueStateResponse
     standings: list[StandingsRow]
     recent_games: list[RecentGameRow]
+    upcoming_games: list[UpcomingGameRow]

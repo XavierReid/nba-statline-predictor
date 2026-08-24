@@ -290,10 +290,18 @@ export interface MyLeagueRecentGame {
   went_to_ot: boolean;
 }
 
+export interface MyLeagueUpcomingGame {
+  game_id: string;
+  game_date: string;
+  home_team: string;
+  away_team: string;
+}
+
 export interface MyLeagueSummary {
   state: MyLeagueStateDTO;
   standings: StandingsRow[];
   recent_games: MyLeagueRecentGame[];
+  upcoming_games: MyLeagueUpcomingGame[];
 }
 
 export interface CreateMyLeagueBody {

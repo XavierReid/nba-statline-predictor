@@ -1316,6 +1316,21 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   font-style: italic;
 }
 
+/* Upcoming games panel — shares recent-table styling; sits below recent
+   in the same left column so the standings column no longer towers over
+   empty whitespace. */
+.myleague-left-col {
+  display: flex; flex-direction: column; gap: 16px; min-width: 0;
+}
+.myleague-upcoming {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 0 4px;
+}
+.myleague-upcoming h3 {
+  margin: 0 12px 8px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 700;
+}
+
 /* Season complete banner */
 .myleague-season-complete {
   padding: 12px 16px;

@@ -269,7 +269,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
 
   if (!summary) return <div className="empty-hint">Loading MyLeague…</div>;
 
-  const { state, standings, recent_games } = summary;
+  const { state, standings, recent_games, upcoming_games } = summary;
   const seasonComplete = state.status === "complete";
   const controlledAbbr = state.controlled_team_abbr;
   const controlledStanding = state.controlled_team_id
@@ -337,6 +337,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
       )}
 
       <div className="myleague-columns">
+        <div className="myleague-left-col">
         <section className="myleague-recent">
           <h3>{seasonComplete ? "Final games" : "Recent results"}</h3>
           {recent_games.length === 0 ? (
@@ -378,6 +379,46 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
             </table>
           )}
         </section>
+
+        {!seasonComplete && controlledAbbr && upcoming_games.length > 0 && (
+          <section className="myleague-upcoming">
+            <h3>Upcoming — {controlledAbbr}</h3>
+            <table className="myleague-recent-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Matchup</th>
+                  <th className="col-num">In</th>
+                </tr>
+              </thead>
+              <tbody>
+                {upcoming_games.map((g) => {
+                  const dayDiff = daysBetween(state.current_calendar_date, g.game_date);
+                  return (
+                    <tr key={g.game_id}>
+                      <td className="col-date">{g.game_date}</td>
+                      <td className="col-matchup">
+                        <span className="matchup-team">
+                          <TeamLogo abbr={g.away_team} size="sm" season={state.season} />
+                          <span>{g.away_team}</span>
+                        </span>
+                        <span className="at">@</span>
+                        <span className="matchup-team">
+                          <TeamLogo abbr={g.home_team} size="sm" season={state.season} />
+                          <span>{g.home_team}</span>
+                        </span>
+                      </td>
+                      <td className="col-num">
+                        {dayDiff === 1 ? "tomorrow" : `${dayDiff}d`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        )}
+        </div>
 
         <section className="myleague-standings">
           <h3>{seasonComplete ? "Final standings" : "Standings"}</h3>
@@ -488,4 +529,15 @@ function MiniConferenceTable({
       </table>
     </div>
   );
+}
+
+// daysBetween(cursorISO, targetISO) — small helper for the upcoming-games
+// "in Nd / tomorrow" hint. Positive integer for target > cursor; 0 for same
+// day (shouldn't happen since upcoming filters game_date > cursor).
+function daysBetween(fromIso: string, toIso: string): number {
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  const from = new Date(fy, fm - 1, fd).getTime();
+  const to = new Date(ty, tm - 1, td).getTime();
+  return Math.round((to - from) / (1000 * 60 * 60 * 24));
 }

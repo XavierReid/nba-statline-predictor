@@ -96,13 +96,14 @@ export default function LeagueView() {
         />
       )}
       {view.kind === "game" && (
-        <LeagueGameDetail
+        <GameDetailView
           simId={view.simId}
           gameId={view.gameId}
           onBack={() =>
             setView({ kind: "team", simId: view.simId, season: view.season, teamAbbr: view.teamAbbr })
           }
           onError={setError}
+          backLabel="← Back to team games"
         />
       )}
     </div>
@@ -595,24 +596,3 @@ function LeagueTeamGames({
 }
 
 
-// LeagueGameDetail is now a thin wrapper around the shared GameDetailView.
-// Kept in-file to preserve the existing view-router usage below.
-
-interface LeagueGameDetailProps {
-  simId: number;
-  gameId: string;
-  onBack: () => void;
-  onError: (msg: string) => void;
-}
-
-function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailProps) {
-  return (
-    <GameDetailView
-      simId={simId}
-      gameId={gameId}
-      onBack={onBack}
-      onError={onError}
-      backLabel="← Back to team games"
-    />
-  );
-}

@@ -56,8 +56,14 @@ def create_simulation(req: CreateSimulationRequest, db: Session = Depends(get_db
             detail=f"No roster data for {req.team} in {req.season}. Run ingestion first."
         )
 
+    # 'running' means a background-task sim (team or league scope) is actively
+    # chewing on games — only one at a time is allowed. MyLeague runs also
+    # carry status='running' but have no background task (user drives them
+    # via Advance clicks); they must NOT block new team/league creations.
+    # See the delete-block fix (9a30ac9) for the same scope-semantic split.
     running = db.execute(
-        select(SimulationRun).where(SimulationRun.status == "running")
+        select(SimulationRun)
+        .where(SimulationRun.status == "running", SimulationRun.scope != "myleague")
     ).scalar_one_or_none()
     if running:
         raise HTTPException(
@@ -92,8 +98,14 @@ def create_league_simulation(
     Root seed derives per-game seeds deterministically. Config is captured at
     creation time. Call POST /simulations/{id}/start to begin.
     """
+    # 'running' means a background-task sim (team or league scope) is actively
+    # chewing on games — only one at a time is allowed. MyLeague runs also
+    # carry status='running' but have no background task (user drives them
+    # via Advance clicks); they must NOT block new team/league creations.
+    # See the delete-block fix (9a30ac9) for the same scope-semantic split.
     running = db.execute(
-        select(SimulationRun).where(SimulationRun.status == "running")
+        select(SimulationRun)
+        .where(SimulationRun.status == "running", SimulationRun.scope != "myleague")
     ).scalar_one_or_none()
     if running:
         raise HTTPException(
@@ -691,7 +703,12 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
     sim = db.get(SimulationRun, sim_id)
     if not sim:
         raise HTTPException(status_code=404, detail=f"Simulation {sim_id} not found.")
-    if sim.status != "complete":
+    # 'complete' gate is right for batch sims (team/league): don't browse until
+    # the run finishes. For MyLeague, 'running' just means "user is still
+    # advancing" — individual games ARE persisted and browseable as soon as
+    # they're simulated. Fall through to the game lookup below (which will
+    # 404 if the specific game hasn't been simulated yet).
+    if sim.status != "complete" and sim.scope != "myleague":
         raise HTTPException(
             status_code=422,
             detail=f"Simulation {sim_id} is '{sim.status}' — only completed runs have browseable games.",

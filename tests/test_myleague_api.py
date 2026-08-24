@@ -315,3 +315,59 @@ def test_next_game_preview_series_updates_after_playing():
             )
     finally:
         _cleanup(sim_id)
+
+
+def test_create_team_sim_not_blocked_by_running_myleague():
+    """A MyLeague run stays in status='running' indefinitely; it must not
+    block creating team- or league-scope batch sims. Regression for the
+    500 (MultipleResultsFound) that was thrown before scoping the guard."""
+    # Create a myleague run first
+    ml = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 1, "controlled_team_id": _lal_id()},
+    ).json()
+    ml_id = ml["simulation_id"]
+    # Now try to create a team-scope sim — must succeed
+    team_created = None
+    try:
+        resp = client.post(
+            "/simulations/",
+            json={"team": "BOS", "season": SEASON, "seed": 99},
+        )
+        assert resp.status_code == 201, resp.text
+        team_created = resp.json()["id"]
+    finally:
+        if team_created:
+            _cleanup(team_created)
+        _cleanup(ml_id)
+
+
+def test_game_drill_in_works_on_running_myleague():
+    """MyLeague runs sit at status='running' but their persisted games
+    should be browseable via /simulations/{id}/games/{game_id}. Regression
+    for the 422 that blocked drill-in before scoping the status check."""
+    ml = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 1, "controlled_team_id": _lal_id()},
+    ).json()
+    sim_id = ml["simulation_id"]
+    try:
+        # Advance to the first game so at least one SimulatedGame exists.
+        day1 = _first_game_date()
+        client.post(f"/myleague/{sim_id}/advance", json={"target_date": day1.isoformat()})
+        # Find a persisted game_id.
+        db = SessionLocal()
+        try:
+            gid = db.execute(
+                select(SimulatedGame.game_id).where(SimulatedGame.simulation_id == sim_id)
+            ).scalars().first()
+        finally:
+            db.close()
+        assert gid is not None, "advance should have persisted at least one game"
+        resp = client.get(f"/simulations/{sim_id}/games/{gid}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["home_team"] and body["away_team"]
+        assert body["home_score"] > 0 or body["away_score"] > 0
+    finally:
+        _cleanup(sim_id)

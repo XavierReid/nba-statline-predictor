@@ -297,11 +297,33 @@ export interface MyLeagueUpcomingGame {
   away_team: string;
 }
 
+export interface PreviewRosterPlayer {
+  player_id: number;
+  name: string;
+  position: string;
+  mpg: number;
+  is_starter: boolean;
+}
+
+export interface NextGamePreview {
+  game_id: string;
+  game_date: string;
+  is_home: boolean;
+  opponent_abbr: string;
+  matchup_index: number;
+  matchup_total: number;
+  series_wins_controlled: number;
+  series_wins_opponent: number;
+  controlled_roster: PreviewRosterPlayer[];
+  opponent_roster: PreviewRosterPlayer[];
+}
+
 export interface MyLeagueSummary {
   state: MyLeagueStateDTO;
   standings: StandingsRow[];
   recent_games: MyLeagueRecentGame[];
   upcoming_games: MyLeagueUpcomingGame[];
+  next_game_preview: NextGamePreview | null;
 }
 
 export interface CreateMyLeagueBody {

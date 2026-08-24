@@ -26,12 +26,21 @@ from app.api.schemas.myleague import (
     MyLeagueEventResponse,
     MyLeagueStateResponse,
     MyLeagueSummaryResponse,
+    NextGamePreview,
+    PreviewRosterPlayer,
     RecentGameRow,
     UpcomingGameRow,
+)
+from app.services.game_simulator import load_roster
+from app.services.myleague_state import (
+    MyLeagueEventPayload,
+    apply_events,
+    filter_available_players,
 )
 from app.api.schemas.simulations import StandingsRow, resolve_config
 from app.database import get_db
 from app.models.game import Game
+from app.models.myleague import MyLeagueEvent, MyLeagueState
 from app.models.simulation import SimulatedGame, SimulationRun
 from app.models.team import Team
 from sqlalchemy import func
@@ -289,9 +298,126 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
             for gid, gd, hid, aid in upcoming_rows
         ]
 
+    # Next-game preview — the very next scheduled game for the controlled
+    # team, with series context and top-8 rotations for both teams.
+    # M-2 read-only surface; roster respects any future availability
+    # events so M-4's SET_UNAVAILABLE flows through automatically.
+    next_game_preview = _build_next_game_preview(db, sim_id, upcoming_rows, abbr_by_id) \
+        if state.controlled_team_id is not None and upcoming_rows else None
+
     return MyLeagueSummaryResponse(
         state=state,
         standings=standings,
         recent_games=recent_games,
         upcoming_games=upcoming_games,
+        next_game_preview=next_game_preview,
+    )
+
+
+def _build_next_game_preview(db, sim_id, upcoming_rows, abbr_by_id) -> NextGamePreview:
+    """Build the NextGamePreview for the controlled team's next game.
+
+    Extracted from the endpoint body to keep the read-path focused.
+    Roster lookups use load_roster + apply future availability events
+    from myleague_events (fold over events with applied_at_date <= game_date).
+    """
+    st = load_state(db, sim_id)
+    controlled_id = st.controlled_team_id
+    assert controlled_id is not None  # caller-guaranteed
+
+    # Refold availability at THIS game's date, not the cursor's date, so a
+    # SET_UNAVAILABLE with applied_at_date=game_date correctly hides the
+    # player from the preview.
+    next_gid, next_gd, next_hid, next_aid = upcoming_rows[0]
+    events = db.execute(
+        select(MyLeagueEvent).where(MyLeagueEvent.myleague_state_id == db.execute(
+            select(MyLeagueState.id).where(MyLeagueState.simulation_id == sim_id)
+        ).scalar_one())
+    ).scalars().all()
+    unavailable = apply_events(
+        [
+            MyLeagueEventPayload(
+                event_type=e.event_type,
+                applied_at_date=e.applied_at_date,
+                payload=e.payload_json or {},
+            )
+            for e in events
+        ],
+        next_gd,
+    )
+
+    is_home = next_hid == controlled_id
+    opponent_id = next_aid if is_home else next_hid
+    opponent_abbr = abbr_by_id.get(opponent_id, "?")
+
+    # Series context: matchup Nth of M, and W-L between the two teams so far.
+    all_matchups = db.execute(
+        select(Game.id, Game.game_date)
+        .where(Game.game_date.between(*season_bounds(st.season)))
+        .where(
+            ((Game.home_team_id == controlled_id) & (Game.away_team_id == opponent_id)) |
+            ((Game.home_team_id == opponent_id) & (Game.away_team_id == controlled_id))
+        )
+        .order_by(Game.game_date.asc(), Game.id.asc())
+    ).all()
+    matchup_ids_in_order = [gid for gid, _ in all_matchups]
+    matchup_total = len(matchup_ids_in_order)
+    matchup_index = matchup_ids_in_order.index(next_gid) + 1 if next_gid in matchup_ids_in_order else 0
+
+    # Series wins so far — only completed games between the two teams.
+    played_matchups = db.execute(
+        select(
+            SimulatedGame.game_id, Game.home_team_id,
+            SimulatedGame.home_score, SimulatedGame.away_score,
+        )
+        .join(Game, SimulatedGame.game_id == Game.id)
+        .where(SimulatedGame.simulation_id == sim_id)
+        .where(SimulatedGame.game_id.in_(matchup_ids_in_order))
+    ).all()
+    series_wins_controlled = 0
+    series_wins_opponent = 0
+    for _, home_id, hs, as_ in played_matchups:
+        home_won = hs > as_
+        controlled_was_home = home_id == controlled_id
+        controlled_won = (home_won and controlled_was_home) or (not home_won and not controlled_was_home)
+        if controlled_won:
+            series_wins_controlled += 1
+        else:
+            series_wins_opponent += 1
+
+    # Rosters — top 8 by mpg, availability-filtered.
+    stored = (db.get(SimulationRun, sim_id).parameters or {}).get("sim_config")
+    cfg = SimConfig(**stored) if stored else SimConfig()
+    controlled_roster_full = load_roster(
+        db, controlled_id, st.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
+    opponent_roster_full = load_roster(
+        db, opponent_id, st.season,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+    )
+    controlled_avail = filter_available_players(controlled_roster_full, controlled_id, unavailable)
+    opponent_avail = filter_available_players(opponent_roster_full, opponent_id, unavailable)
+    def _top8(players):
+        return sorted(players, key=lambda p: p.get("mpg", p.get("minutes", 0)), reverse=True)[:8]
+    def _to_preview(p):
+        return PreviewRosterPlayer(
+            player_id=p["id"],
+            name=p["name"],
+            position=p.get("position", "F"),
+            mpg=round(float(p.get("mpg", p.get("minutes", 0))), 1),
+            is_starter=bool(p.get("is_starter", False)),
+        )
+
+    return NextGamePreview(
+        game_id=next_gid,
+        game_date=next_gd,
+        is_home=is_home,
+        opponent_abbr=opponent_abbr,
+        matchup_index=matchup_index,
+        matchup_total=matchup_total,
+        series_wins_controlled=series_wins_controlled,
+        series_wins_opponent=series_wins_opponent,
+        controlled_roster=[_to_preview(p) for p in _top8(controlled_avail)],
+        opponent_roster=[_to_preview(p) for p in _top8(opponent_avail)],
     )

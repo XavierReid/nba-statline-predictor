@@ -22,6 +22,7 @@ import {
 } from "../api";
 import type {
   MyLeagueSummary,
+  NextGamePreview,
   SeasonCoverage,
   SimulationSummary,
   StandingsRow,
@@ -269,7 +270,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
 
   if (!summary) return <div className="empty-hint">Loading MyLeague…</div>;
 
-  const { state, standings, recent_games, upcoming_games } = summary;
+  const { state, standings, recent_games, upcoming_games, next_game_preview } = summary;
   const seasonComplete = state.status === "complete";
   const controlledAbbr = state.controlled_team_abbr;
   const controlledStanding = state.controlled_team_id
@@ -336,6 +337,10 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
         </div>
       )}
 
+      {!seasonComplete && next_game_preview && (
+        <NextGameCard preview={next_game_preview} controlledAbbr={controlledAbbr!} season={state.season} cursor={state.current_calendar_date} />
+      )}
+
       <div className="myleague-columns">
         <div className="myleague-left-col">
         <section className="myleague-recent">
@@ -380,9 +385,14 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
           )}
         </section>
 
-        {!seasonComplete && controlledAbbr && upcoming_games.length > 0 && (
+        {!seasonComplete && controlledAbbr && (() => {
+          // Drop the game promoted into NextGameCard so it doesn't appear twice.
+          const promotedId = next_game_preview?.game_id;
+          const rows = upcoming_games.filter((g) => g.game_id !== promotedId);
+          if (rows.length === 0) return null;
+          return (
           <section className="myleague-upcoming">
-            <h3>Upcoming — {controlledAbbr}</h3>
+            <h3>{next_game_preview ? "After that" : "Upcoming"} — {controlledAbbr}</h3>
             <table className="myleague-recent-table">
               <thead>
                 <tr>
@@ -392,7 +402,7 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {upcoming_games.map((g) => {
+                {rows.map((g) => {
                   const dayDiff = daysBetween(state.current_calendar_date, g.game_date);
                   return (
                     <tr key={g.game_id}>
@@ -417,7 +427,8 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
               </tbody>
             </table>
           </section>
-        )}
+          );
+        })()}
         </div>
 
         <section className="myleague-standings">
@@ -540,4 +551,90 @@ function daysBetween(fromIso: string, toIso: string): number {
   const from = new Date(fy, fm - 1, fd).getTime();
   const to = new Date(ty, tm - 1, td).getTime();
   return Math.round((to - from) / (1000 * 60 * 60 * 24));
+}
+
+// ---------------------------------------------------------------------------
+// NextGameCard — full-width pre-game preview card for the controlled team's
+// next scheduled game. Two side-by-side rotation panels (controlled + opponent)
+// with matchup/series context in the header.
+// ---------------------------------------------------------------------------
+
+function NextGameCard({
+  preview, controlledAbbr, season, cursor,
+}: {
+  preview: NextGamePreview;
+  controlledAbbr: string;
+  season: string;
+  cursor: string;
+}) {
+  const days = daysBetween(cursor, preview.game_date);
+  const relative =
+    days === 0 ? "today"
+    : days === 1 ? "tomorrow"
+    : `in ${days} days`;
+  const ctrlFr = franchiseFor(controlledAbbr, season);
+  const oppFr = franchiseFor(preview.opponent_abbr, season);
+  const location = preview.is_home ? "vs" : "@";
+  const seriesLabel = preview.matchup_total > 1
+    ? `${ordinal(preview.matchup_index)} of ${preview.matchup_total} meetings · series ${preview.series_wins_controlled}-${preview.series_wins_opponent}`
+    : "First meeting";
+
+  return (
+    <div className="myleague-next-card">
+      <div className="myleague-next-header">
+        <span className="myleague-next-eyebrow">Next game · {relative}</span>
+        <div className="myleague-next-matchup">
+          <span
+            className="myleague-next-team"
+            style={ctrlFr ? ({ ["--team-accent" as string]: ctrlFr.primaryColor } as React.CSSProperties) : undefined}
+          >
+            <TeamLogo abbr={controlledAbbr} size="lg" season={season} />
+            <span className="myleague-next-team-name">{ctrlFr?.fullName || controlledAbbr}</span>
+          </span>
+          <span className="myleague-next-vs">{location}</span>
+          <span
+            className="myleague-next-team"
+            style={oppFr ? ({ ["--team-accent" as string]: oppFr.primaryColor } as React.CSSProperties) : undefined}
+          >
+            <TeamLogo abbr={preview.opponent_abbr} size="lg" season={season} />
+            <span className="myleague-next-team-name">{oppFr?.fullName || preview.opponent_abbr}</span>
+          </span>
+        </div>
+        <div className="myleague-next-meta">
+          <span>{preview.game_date}</span>
+          <span className="dot">·</span>
+          <span>{seriesLabel}</span>
+        </div>
+      </div>
+      <div className="myleague-next-rosters">
+        <RosterList title={controlledAbbr} players={preview.controlled_roster} />
+        <RosterList title={preview.opponent_abbr} players={preview.opponent_roster} />
+      </div>
+    </div>
+  );
+}
+
+function RosterList({ title, players }: { title: string; players: NextGamePreview["controlled_roster"] }) {
+  return (
+    <div className="myleague-next-roster">
+      <h4>{title} rotation</h4>
+      <table>
+        <tbody>
+          {players.map((p) => (
+            <tr key={p.player_id} className={p.is_starter ? "starter" : ""}>
+              <td className="pos">{p.position}</td>
+              <td className="name">{p.name}</td>
+              <td className="mpg">{p.mpg.toFixed(1)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }

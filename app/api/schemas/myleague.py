@@ -78,6 +78,34 @@ class UpcomingGameRow(BaseModel):
     away_team: str
 
 
+class PreviewRosterPlayer(BaseModel):
+    """One player in a NextGameCard rotation preview — top-8 by MPG."""
+    player_id: int
+    name: str
+    position: str
+    mpg: float
+    is_starter: bool
+
+
+class NextGamePreview(BaseModel):
+    """Full pre-game context for the controlled team's next game (M-2).
+
+    Populated only when there's an unsimulated game ahead for the
+    controlled team. Series counts reflect only games between the two
+    teams that have ALREADY been simulated in this run.
+    """
+    game_id: str
+    game_date: date
+    is_home: bool                           # controlled team is home
+    opponent_abbr: str
+    matchup_index: int                      # Nth meeting this season (1-based)
+    matchup_total: int                      # total meetings scheduled
+    series_wins_controlled: int             # games won so far in this series
+    series_wins_opponent: int
+    controlled_roster: list[PreviewRosterPlayer]
+    opponent_roster: list[PreviewRosterPlayer]
+
+
 class MyLeagueSummaryResponse(BaseModel):
     """GET /myleague/{id} — full hydration for the front-page dashboard.
 
@@ -90,3 +118,4 @@ class MyLeagueSummaryResponse(BaseModel):
     standings: list[StandingsRow]
     recent_games: list[RecentGameRow]
     upcoming_games: list[UpcomingGameRow]
+    next_game_preview: Optional[NextGamePreview] = None

@@ -15,7 +15,6 @@ import {
   cancelSimulation,
   createLeagueSimulation,
   getLeagueTeamGames,
-  getSeasonGame,
   getSeasons,
   getSimulation,
   getStandings,
@@ -25,23 +24,17 @@ import {
 import type {
   SeasonCoverage,
   SimulatedGameSummary,
-  SimulateGameResponse,
   SimulationStatus,
   SimulationSummary,
   StandingsResponse,
   StandingsRow,
 } from "../types";
-import LineScore from "./LineScore";
-import BoxScore from "./BoxScore";
-import PlayByPlay from "./PlayByPlay";
 import TeamLogo from "./TeamLogo";
-import GameContextHeader from "./GameContextHeader";
 import TeamStandingsBlock from "./TeamStandingsBlock";
-import PlayerModal from "./PlayerModal";
+import GameDetailView from "./GameDetailView";
 import { conferenceOf } from "../data/conferences";
 import { franchiseFor } from "../data/franchises";
 import { computeStandings, extendRow } from "../lib/teamStandings";
-import type { PlayerLine } from "../types";
 
 type View =
   | { kind: "picker" }
@@ -602,9 +595,8 @@ function LeagueTeamGames({
 }
 
 
-// ---------------------------------------------------------------------------
-// Game detail: reuse existing components
-// ---------------------------------------------------------------------------
+// LeagueGameDetail is now a thin wrapper around the shared GameDetailView.
+// Kept in-file to preserve the existing view-router usage below.
 
 interface LeagueGameDetailProps {
   simId: number;
@@ -614,52 +606,13 @@ interface LeagueGameDetailProps {
 }
 
 function LeagueGameDetail({ simId, gameId, onBack, onError }: LeagueGameDetailProps) {
-  const [game, setGame] = useState<SimulateGameResponse | null>(null);
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerLine | null>(null);
-
-  useEffect(() => {
-    getSeasonGame(simId, gameId)
-      .then(setGame)
-      .catch((e) => onError(String(e)));
-  }, [simId, gameId, onError]);
-
-  if (!game) return <div>Loading game…</div>;
-
   return (
-    <div className="league-game-detail">
-      <button className="back-btn" onClick={onBack}>← Back to team games</button>
-      <GameContextHeader game={game} />
-      <LineScore game={game} />
-      <div className="boxes">
-        <BoxScore
-          title={game.away_team}
-          players={game.away_box}
-          abbr={game.away_team}
-          season={game.season}
-          sideLabel="Away"
-          onSelectPlayer={setSelectedPlayer}
-        />
-        <BoxScore
-          title={game.home_team}
-          players={game.home_box}
-          abbr={game.home_team}
-          season={game.season}
-          sideLabel="Home"
-          onSelectPlayer={setSelectedPlayer}
-        />
-      </div>
-      {game.events && game.events.length > 0 && (
-        <PlayByPlay game={game} />
-      )}
-      {selectedPlayer && (
-        <PlayerModal
-          key={selectedPlayer.player_id}
-          line={selectedPlayer}
-          season={game.season}
-          events={game.events ?? []}
-          onClose={() => setSelectedPlayer(null)}
-        />
-      )}
-    </div>
+    <GameDetailView
+      simId={simId}
+      gameId={gameId}
+      onBack={onBack}
+      onError={onError}
+      backLabel="← Back to team games"
+    />
   );
 }

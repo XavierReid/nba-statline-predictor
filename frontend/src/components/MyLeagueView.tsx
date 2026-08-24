@@ -29,12 +29,14 @@ import type {
   Team,
 } from "../types";
 import TeamLogo from "./TeamLogo";
+import GameDetailView from "./GameDetailView";
 import { franchiseFor } from "../data/franchises";
 import { conferenceOf } from "../data/conferences";
 
 type View =
   | { kind: "picker" }
-  | { kind: "dashboard"; simId: number };
+  | { kind: "dashboard"; simId: number }
+  | { kind: "game"; simId: number; gameId: string };
 
 export default function MyLeagueView() {
   const [view, setView] = useState<View>({ kind: "picker" });
@@ -54,6 +56,16 @@ export default function MyLeagueView() {
           simId={view.simId}
           onError={setError}
           onExit={() => setView({ kind: "picker" })}
+          onOpenGame={(gameId) => { setError(null); setView({ kind: "game", simId: view.simId, gameId }); }}
+        />
+      )}
+      {view.kind === "game" && (
+        <GameDetailView
+          simId={view.simId}
+          gameId={view.gameId}
+          onBack={() => setView({ kind: "dashboard", simId: view.simId })}
+          onError={setError}
+          backLabel="← Back to dashboard"
         />
       )}
     </div>
@@ -231,9 +243,10 @@ interface DashboardProps {
   simId: number;
   onError: (msg: string) => void;
   onExit: () => void;
+  onOpenGame: (gameId: string) => void;
 }
 
-function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
+function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProps) {
   const [summary, setSummary] = useState<MyLeagueSummary | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [lastAdvance, setLastAdvance] = useState<string | null>(null);
@@ -360,7 +373,8 @@ function MyLeagueDashboard({ simId, onError, onExit }: DashboardProps) {
                 {recent_games.map((g) => (
                   <tr
                     key={g.game_id}
-                    className={isControlledGame(g.home_team, g.away_team) ? "controlled" : ""}
+                    className={`clickable ${isControlledGame(g.home_team, g.away_team) ? "controlled" : ""}`.trim()}
+                    onClick={() => onOpenGame(g.game_id)}
                   >
                     <td className="col-date">{g.game_date}</td>
                     <td className="col-matchup">

@@ -1291,6 +1291,8 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .myleague-recent-table tr:last-child td { border-bottom: none; }
 .myleague-recent-table td.col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.myleague-recent-table tr.clickable { cursor: pointer; transition: background 0.12s ease; }
+.myleague-recent-table tr.clickable:hover { background: var(--panel-2); }
 
 /* Controlled-team row highlight — neutral variant that works for dark
    team primaries (DEN #0E2240, BKN #000000) where color-mix on the

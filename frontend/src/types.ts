@@ -199,6 +199,7 @@ export interface StandingsRow {
   losses: number;
   pct: number;
   gb: number;
+  streak: string;   // "W3", "L2", or "-" if no games
 }
 export interface StandingsResponse {
   sim_id: number;

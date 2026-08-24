@@ -267,6 +267,7 @@ class StandingsRow(BaseModel):
     losses: int
     pct: float                   # W / (W + L), 3 decimals
     gb: float                    # (leader_wins - team_wins + team_losses - leader_losses) / 2; 0.0 for leader
+    streak: str = "-"            # trailing streak: "W3", "L2", "-" if no games
 
 
 class StandingsResponse(BaseModel):

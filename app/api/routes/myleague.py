@@ -206,6 +206,7 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
     state = _base_state(db, sim_id)
 
     # Standings: derived from persisted games; reuses league_simulator helper.
+    # Chronological order so compute_standings can derive per-team streaks.
     game_rows = db.execute(
         select(
             SimulatedGame.game_id, Game.home_team_id, Game.away_team_id,
@@ -213,6 +214,7 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
         )
         .join(Game, SimulatedGame.game_id == Game.id)
         .where(SimulatedGame.simulation_id == sim_id)
+        .order_by(Game.game_date.asc(), SimulatedGame.game_id.asc())
     ).all()
     team_ids: set[int] = set()
     for _, hid, aid, _, _ in game_rows:
@@ -231,6 +233,7 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
         StandingsRow(
             rank=s.rank, team_id=s.team_id, team_abbr=s.team_abbr,
             wins=s.wins, losses=s.losses, pct=s.pct, gb=s.gb,
+            streak=s.streak,
         )
         for s in computed
     ]

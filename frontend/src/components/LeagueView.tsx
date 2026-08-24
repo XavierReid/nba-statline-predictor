@@ -462,6 +462,7 @@ function ConferenceTable({
             <th className="col-num">L</th>
             <th className="col-num">PCT</th>
             <th className="col-num">GB</th>
+            <th className="col-num">STRK</th>
           </tr>
         </thead>
         <tbody>
@@ -491,6 +492,7 @@ function ConferenceTable({
                 <td className="col-num">{row.losses}</td>
                 <td className="col-num">{row.pct.toFixed(3)}</td>
                 <td className="col-num">{row.gb === 0 ? "—" : row.gb.toFixed(1)}</td>
+                <td className={`col-num streak-${row.streak.charAt(0).toLowerCase()}`}>{row.streak}</td>
               </tr>
             );
           })}

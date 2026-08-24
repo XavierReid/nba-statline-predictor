@@ -427,6 +427,8 @@ def get_standings(sim_id: int, db: Session = Depends(get_db)):
         )
 
     # Pull all persisted games for the sim in one shot; join to Game for team ids.
+    # Ordered chronologically (game_id is monotonic in NBA numbering) so
+    # compute_standings can derive per-team W/L streaks from the sequence.
     rows = db.execute(
         select(
             SimulatedGame.game_id, Game.home_team_id, Game.away_team_id,
@@ -434,6 +436,7 @@ def get_standings(sim_id: int, db: Session = Depends(get_db)):
         )
         .join(Game, SimulatedGame.game_id == Game.id)
         .where(SimulatedGame.simulation_id == sim_id)
+        .order_by(Game.game_date.asc(), SimulatedGame.game_id.asc())
     ).all()
 
     # Team abbreviations in one query (30 teams max in a league sim).
@@ -465,6 +468,7 @@ def get_standings(sim_id: int, db: Session = Depends(get_db)):
             StandingsRow(
                 rank=s.rank, team_id=s.team_id, team_abbr=s.team_abbr,
                 wins=s.wins, losses=s.losses, pct=s.pct, gb=s.gb,
+                streak=s.streak,
             )
             for s in computed
         ],

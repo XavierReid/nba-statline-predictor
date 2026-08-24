@@ -90,3 +90,39 @@ def test_pct_and_gb_for_partial_season():
     assert by_id[3].pct == 0.0
     # GB(3) = ((2-0) + (2-0)) / 2 = 2.0
     assert by_id[3].gb == 2.0
+
+
+def test_streak_empty_and_single_game():
+    """Empty input → no rows; single game → W1 for winner, L1 for loser."""
+    rows = compute_standings([_game("g1", 1, 2, 110, 100, "AAA", "BBB")])
+    by_id = {r.team_id: r for r in rows}
+    assert by_id[1].streak == "W1"
+    assert by_id[2].streak == "L1"
+
+
+def test_streak_current_run_only():
+    """After WWLW the current streak is W1 (only the trailing run counts)."""
+    games = [
+        # team 1: W, W, L, W  vs team 2..5
+        _game("g1", 1, 2, 110, 100, "AAA", "BBB"),
+        _game("g2", 1, 3, 110, 100, "AAA", "CCC"),
+        _game("g3", 4, 1, 110, 100, "DDD", "AAA"),
+        _game("g4", 1, 5, 110, 100, "AAA", "EEE"),
+    ]
+    rows = compute_standings(games)
+    by_id = {r.team_id: r for r in rows}
+    assert by_id[1].streak == "W1"
+
+
+def test_streak_multi_length_run():
+    """Sequence WLLL for team 1 → L3."""
+    games = [
+        _game("g1", 1, 2, 110, 100, "AAA", "BBB"),   # W
+        _game("g2", 3, 1, 110, 100, "CCC", "AAA"),   # L
+        _game("g3", 4, 1, 110, 100, "DDD", "AAA"),   # L
+        _game("g4", 5, 1, 110, 100, "EEE", "AAA"),   # L
+    ]
+    rows = compute_standings(games)
+    by_id = {r.team_id: r for r in rows}
+    assert by_id[1].streak == "L3"
+    assert by_id[1].wins == 1 and by_id[1].losses == 3

@@ -150,31 +150,40 @@ class TeamStanding:
     losses: int
     pct: float
     gb: float
+    streak: str  # e.g. "W3", "L2", "-" if no games
 
 
 def compute_standings(
-    game_rows: List[Tuple[str, int, int, int, int, str]],
+    game_rows: List[Tuple[str, int, int, int, int, str, str]],
 ) -> List[TeamStanding]:
     """Compute standings from a list of finalized game tuples.
 
-    Each row: (game_id, home_team_id, away_team_id, home_score, away_score,
-    home_team_abbr) — plus the away abbr is passed as the 7th element (see
-    caller). Actually we pass all needed fields as a dict to keep this simple.
+    Row shape: (game_id, home_team_id, away_team_id, home_score, away_score,
+    home_team_abbr, away_team_abbr). Rows should be sorted in chronological
+    order — the streak computation reads them in the order given (game_id
+    is chronological in NBA numbering, so callers ordering by game_id are
+    safe).
 
     Callers should use compute_standings_from_sim below; this pure function
     is designed for the synthetic-standings test.
     """
-    # Aggregate wins/losses per team.
-    stats: dict = {}  # team_id -> {"abbr": str, "wins": int, "losses": int}
+    # Aggregate wins/losses per team AND record the W/L sequence (per team,
+    # in the given order) for streak computation.
+    stats: dict = {}  # team_id -> {"abbr": str, "wins": int, "losses": int, "results": list[str]}
     for game_id, home_id, away_id, home_score, away_score, home_abbr, away_abbr in game_rows:
-        stats.setdefault(home_id, {"abbr": home_abbr, "wins": 0, "losses": 0})
-        stats.setdefault(away_id, {"abbr": away_abbr, "wins": 0, "losses": 0})
-        if home_score > away_score:
+        stats.setdefault(home_id, {"abbr": home_abbr, "wins": 0, "losses": 0, "results": []})
+        stats.setdefault(away_id, {"abbr": away_abbr, "wins": 0, "losses": 0, "results": []})
+        home_won = home_score > away_score
+        if home_won:
             stats[home_id]["wins"] += 1
+            stats[home_id]["results"].append("W")
             stats[away_id]["losses"] += 1
+            stats[away_id]["results"].append("L")
         else:
             stats[home_id]["losses"] += 1
+            stats[home_id]["results"].append("L")
             stats[away_id]["wins"] += 1
+            stats[away_id]["results"].append("W")
 
     # Sort with tie-breakers: W desc, L asc, team_id asc.
     entries = sorted(
@@ -199,8 +208,27 @@ def compute_standings(
             rank=rank_idx, team_id=team_id, team_abbr=s["abbr"],
             wins=s["wins"], losses=s["losses"],
             pct=pct, gb=gb,
+            streak=_current_streak(s["results"]),
         ))
     return rows
+
+
+def _current_streak(results: List[str]) -> str:
+    """Trailing streak from a chronologically-ordered W/L list.
+
+    Empty → "-". Otherwise counts consecutive same-letter results from
+    the end and returns "W3" / "L2" style.
+    """
+    if not results:
+        return "-"
+    last = results[-1]
+    n = 0
+    for r in reversed(results):
+        if r == last:
+            n += 1
+        else:
+            break
+    return f"{last}{n}"
 
 
 # ---------------------------------------------------------------------------

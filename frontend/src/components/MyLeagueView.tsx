@@ -513,6 +513,7 @@ function MiniConferenceTable({
             <th className="col-num">W</th>
             <th className="col-num">L</th>
             <th className="col-num">PCT</th>
+            <th className="col-num">STRK</th>
           </tr>
         </thead>
         <tbody>
@@ -533,6 +534,7 @@ function MiniConferenceTable({
                 <td className="col-num">{row.wins}</td>
                 <td className="col-num">{row.losses}</td>
                 <td className="col-num">{row.pct.toFixed(3)}</td>
+                <td className={`col-num streak-${row.streak.charAt(0).toLowerCase()}`}>{row.streak}</td>
               </tr>
             );
           })}

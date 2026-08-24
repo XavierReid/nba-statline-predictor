@@ -1408,6 +1408,12 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   font-variant-numeric: tabular-nums; width: 44px;
 }
 
+/* W/L streak column tint — subtle color so it reads at a glance without
+   dominating the row. "-" (no games) stays default muted. */
+.standings-row td.streak-w { color: var(--win); font-weight: 700; }
+.standings-row td.streak-l { color: #f87171; font-weight: 700; }
+.standings-row td.streak--  { color: var(--muted); }
+
 /* Season complete banner */
 .myleague-season-complete {
   padding: 12px 16px;

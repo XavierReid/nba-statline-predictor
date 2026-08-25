@@ -299,6 +299,7 @@ class SimulationStatusResponse(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime]
     games: Optional[list[SimulatedGameSummary]] = None
+    failure_reason: Optional[str] = None   # populated when status='failed'
 
 
 class PlayerAveragesRow(BaseModel):

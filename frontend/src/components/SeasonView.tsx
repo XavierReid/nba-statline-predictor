@@ -537,7 +537,11 @@ export default function SeasonView() {
           setMode("browse");
           refreshRuns().catch(() => {});
         } else if (s.status === "failed") {
-          setError("Simulation failed. Try again.");
+          setError(
+            s.failure_reason
+              ? `Simulation failed: ${s.failure_reason}`
+              : "Simulation failed. Try again."
+          );
           setMode("form");
           refreshRuns().catch(() => {});
         }

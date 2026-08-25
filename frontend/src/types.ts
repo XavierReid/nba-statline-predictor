@@ -172,6 +172,7 @@ export interface SimulationStatus {
   created_at: string;
   completed_at: string | null;
   games: SimulatedGameSummary[] | null;
+  failure_reason: string | null;
 }
 
 // GET /simulations/ list-response entry (subset of SimulationStatus)
@@ -188,7 +189,7 @@ export interface SimulationSummary {
   losses: number | null;
   created_at: string;
   completed_at: string | null;
-  controlled_team_abbr: string | null;   // myleague scope only
+  controlled_team_abbr?: string | null;  // myleague scope only
 }
 
 // GET /simulations/{id}/standings response

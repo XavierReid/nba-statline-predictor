@@ -329,6 +329,9 @@ function LeagueRunning({ simId, onComplete, onCancel, onError }: LeagueRunningPr
         {status.status === "failed" && (
           <div className="league-running-done">
             <p>Simulation failed.</p>
+            {status.failure_reason && (
+              <p className="league-error-detail">{status.failure_reason}</p>
+            )}
             <button className="back-btn" onClick={onCancel}>← Back</button>
           </div>
         )}

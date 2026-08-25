@@ -193,7 +193,10 @@ def _mark_failed(db: Session, sim: Optional[SimulationRun], reason: str) -> None
         db.execute(
             update(SimulationRun)
             .where(SimulationRun.id == sim.id)
-            .values(status="failed")
+            .values(
+                status="failed",
+                parameters={**(sim.parameters or {}), "failure_reason": reason},
+            )
         )
         db.commit()
     log.error("SimulationRun marked failed: %s", reason)

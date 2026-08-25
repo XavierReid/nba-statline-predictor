@@ -41,11 +41,12 @@ from app.api.schemas.simulations import StandingsRow, resolve_config
 from app.database import get_db
 from app.models.game import Game
 from app.models.myleague import MyLeagueEvent, MyLeagueState
+from app.models.player_season_stats import PlayerSeasonStats
 from app.models.simulation import SimulatedGame, SimulationRun
 from app.models.team import Team
 from sqlalchemy import func
 
-from app.services.league_simulator import compute_standings, season_bounds
+from app.services.league_simulator import compute_standings, season_bounds, validate_season_schedule
 from app.services.myleague_engine import (
     MonotonicTimeError,
     MyLeagueError,
@@ -55,6 +56,22 @@ from app.services.myleague_engine import (
     create_run,
     load_state,
 )
+
+
+def _supported_seasons(db: Session) -> list[str]:
+    """Seasons with a schedule that passes the integrity gate.
+
+    Used to enrich MyLeague-create failure messages so users can see which
+    seasons are actually usable. Runs one integrity validation per ingested
+    season; only called on the error path, so cost is fine.
+    """
+    seasons = [
+        s for (s,) in db.execute(
+            select(PlayerSeasonStats.season).distinct().order_by(PlayerSeasonStats.season.desc())
+        ).all()
+        if s
+    ]
+    return [s for s in seasons if validate_season_schedule(db, s).ok]
 from app.services.sim_config import SimConfig
 
 
@@ -77,7 +94,12 @@ def _base_state(db: Session, simulation_id: int) -> MyLeagueStateResponse:
     team_abbr = None
     if st.controlled_team_id is not None:
         team = db.get(Team, st.controlled_team_id)
-        team_abbr = team.abbreviation if team else None
+        if team:
+            # Season-accurate identity — SEA/Sonics for 2007-08 not OKC/Thunder.
+            from app.services.franchise import team_identity
+            _, _, team_abbr = team_identity(
+                team.id, st.season, (team.city, team.nickname, team.abbreviation)
+            )
     total_games = db.execute(
         select(func.count(Game.id))
         .where(Game.game_date.between(*season_bounds(st.season)))
@@ -121,7 +143,9 @@ def create_myleague(req: CreateMyLeagueRequest, db: Session = Depends(get_db)):
             config=config,
         )
     except MyLeagueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        supported = _supported_seasons(db)
+        hint = f" Supported seasons right now: {', '.join(supported)}." if supported else ""
+        raise HTTPException(status_code=422, detail=f"{e}{hint}")
 
     return _base_state(db, sim.id)
 
@@ -403,13 +427,32 @@ def _build_next_game_preview(db, sim_id, upcoming_rows, abbr_by_id) -> NextGameP
     opponent_avail = filter_available_players(opponent_roster_full, opponent_id, unavailable)
     def _top8(players):
         return sorted(players, key=lambda p: p.get("mpg", p.get("minutes", 0)), reverse=True)[:8]
+
+    # Bulk-load real-season averages for both top-8s so the card can show
+    # ppg/rpg/apg alongside mpg. Explicitly labeled "Real" in the UI — the
+    # MyLeague running-averages replacement is a separate design session.
+    top_players = _top8(controlled_avail) + _top8(opponent_avail)
+    pss_by_pid = {
+        row.player_id: row
+        for row in db.execute(
+            select(PlayerSeasonStats)
+            .where(PlayerSeasonStats.season == st.season)
+            .where(PlayerSeasonStats.player_id.in_([p["id"] for p in top_players]))
+        ).scalars()
+    }
+    def _rd(v):
+        return round(float(v), 1) if v is not None else None
     def _to_preview(p):
+        pss = pss_by_pid.get(p["id"])
         return PreviewRosterPlayer(
             player_id=p["id"],
             name=p["name"],
             position=p.get("position", "F"),
             mpg=round(float(p.get("mpg", p.get("minutes", 0))), 1),
             is_starter=bool(p.get("is_starter", False)),
+            ppg=_rd(pss.points) if pss else None,
+            rpg=_rd(pss.rebounds) if pss else None,
+            apg=_rd(pss.assists) if pss else None,
         )
 
     return NextGamePreview(

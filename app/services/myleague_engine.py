@@ -73,7 +73,8 @@ def create_run(
     integrity = validate_season_schedule(db, season)
     if not integrity.ok:
         raise MyLeagueError(
-            f"season {season!r} failed schedule integrity gate: {integrity.summary}"
+            f"season {season!r} failed schedule integrity gate: "
+            f"{'; '.join(integrity.failures)}"
         )
 
     params = {"sim_config": config.__dict__} if config else {}

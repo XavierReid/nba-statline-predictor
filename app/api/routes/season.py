@@ -283,6 +283,7 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         created_at=sim.created_at,
         completed_at=sim.completed_at,
         games=games_summary,
+        failure_reason=(sim.parameters or {}).get("failure_reason"),
     )
 
 
@@ -388,7 +389,11 @@ def list_simulations(db: Session = Depends(get_db)):
             ctid = myleague_controlled_by_sim.get(sim.id)
             if ctid is not None:
                 ct = team_by_id.get(ctid)
-                controlled_abbr = ct.abbreviation if ct else None
+                if ct:
+                    from app.services.franchise import team_identity
+                    _, _, controlled_abbr = team_identity(
+                        ct.id, sim.season, (ct.city, ct.nickname, ct.abbreviation)
+                    )
         summaries.append(SimulationSummary(
             id=sim.id,
             team=team.abbreviation if team else None,

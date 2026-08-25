@@ -115,6 +115,81 @@ class NextGamePreview(BaseModel):
     opponent_roster: list[PreviewRosterPlayer]
 
 
+class PlayerMyLeagueStatsBlock(BaseModel):
+    """Per-team split for a MyLeague player.
+
+    Sim aggregate is `PlayerMyLeagueStats` — this is one team's slice.
+    Rate stats derived from that team's totals (totals-first, never
+    average-of-averages).
+    """
+    team_abbr: str
+    gp: int
+    mpg: float
+    ppg: float
+    rpg: float
+    apg: float
+    spg: float
+    bpg: float
+    topg: float
+    fg_pct: Optional[float] = None      # None on zero attempts
+    fg3_pct: Optional[float] = None
+    ft_pct: Optional[float] = None
+
+
+class PlayerMyLeagueSim(BaseModel):
+    """Sim-side block for GET /myleague/{sim_id}/player/{player_id}.
+
+    Derived from SimulatedPlayerLine rows at request time — no cache,
+    fully replayable. `by_team` preserves per-team splits so a future
+    "career-in-MyLeague split view" is a UI change, not a backend
+    rewrite. Aggregate rates are computed totals-first, never as an
+    average of team-level averages.
+    """
+    gp: int                             # distinct games this player appeared in
+    team_gp: int                        # games played by teams this player was rostered on
+    mpg: float
+    ppg: float
+    rpg: float
+    apg: float
+    spg: float
+    bpg: float
+    topg: float
+    fg_pct: Optional[float] = None
+    fg3_pct: Optional[float] = None
+    ft_pct: Optional[float] = None
+    by_team: list[PlayerMyLeagueStatsBlock]
+
+
+class PlayerMyLeagueReal(BaseModel):
+    """Real-season reference — same season as the MyLeague, no substitution."""
+    gp: int
+    mpg: float
+    ppg: float
+    rpg: float
+    apg: float
+    spg: float
+    bpg: float
+    topg: float
+    fg_pct: Optional[float] = None
+    fg3_pct: Optional[float] = None
+    ft_pct: Optional[float] = None
+
+
+class PlayerMyLeagueStatsResponse(BaseModel):
+    """Response for GET /myleague/{sim_id}/player/{player_id}.
+
+    Sim is the primary reality; real is reference/context. Never blended
+    — the UI decides ordering/emphasis but the data contract keeps them
+    separate. `real` is null when the player has no PlayerSeasonStats
+    row for the MyLeague's season (rookies, retired, un-ingested).
+    """
+    player_id: int
+    name: str
+    season: str
+    sim: PlayerMyLeagueSim
+    real: Optional[PlayerMyLeagueReal] = None
+
+
 class MyLeagueSummaryResponse(BaseModel):
     """GET /myleague/{id} — full hydration for the front-page dashboard.
 

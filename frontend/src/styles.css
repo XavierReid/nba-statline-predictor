@@ -1040,6 +1040,7 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
 }
 .league-runs-table button:hover { background: var(--line); }
+.rp-franchise { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
 
 .league-running { padding: 24px 0; }
 .league-running-card {
@@ -1247,18 +1248,23 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 .myleague-meta .record { font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 .myleague-meta .dot { opacity: 0.5; }
 
-.myleague-advance {
-  display: flex; justify-content: flex-end; align-items: center; gap: 12px;
-  padding: 4px 0;
+.myleague-hero-right {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 12px;
 }
-.myleague-advance button {
+.myleague-hero-right button {
   padding: 10px 20px;
   font-size: 14px;
+  white-space: nowrap;
 }
 .myleague-advance-toast {
   color: var(--muted);
   font-size: 12px;
   font-style: italic;
+}
+@media (max-width: 640px) {
+  .myleague-hero { flex-wrap: wrap; }
+  .myleague-hero-right { margin-left: 0; width: 100%; justify-content: flex-end; }
 }
 
 .myleague-columns {
@@ -1409,6 +1415,16 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   text-align: right; color: var(--muted);
   font-variant-numeric: tabular-nums; width: 44px;
 }
+.myleague-next-roster th.stat {
+  text-align: right; color: var(--muted);
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 2px 6px; font-weight: 600;
+}
+.myleague-next-roster td.stat {
+  text-align: right; color: var(--muted);
+  font-variant-numeric: tabular-nums; width: 40px;
+}
+.myleague-next-roster tr.starter td.stat { color: var(--text); }
 
 /* W/L streak column tint — subtle color so it reads at a glance without
    dominating the row. "-" (no games) stays default muted. */

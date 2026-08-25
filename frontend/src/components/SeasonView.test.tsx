@@ -111,6 +111,7 @@ describe("SeasonView state machine", () => {
       id: 7, team: TEAM, scope: "team", season: SEASON, seed: 42, status: "running",
       games_completed: 10, total_games: 82, wins: null, losses: null,
       created_at: "2026-08-11T12:00:00Z", completed_at: null,
+      controlled_team_abbr: null,
     };
     const activeStatus: SimulationStatus = {
       ...activeSummary, seed: 42, games: null,
@@ -130,6 +131,7 @@ describe("SeasonView state machine", () => {
       id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete",
       games_completed: 1, total_games: 1, wins: 1, losses: 0,
       created_at: "2026-08-10T00:00:00Z", completed_at: "2026-08-10T00:00:07Z",
+      controlled_team_abbr: null,
     };
     vi.mocked(api.listSimulations).mockResolvedValue([listRow]);
     vi.mocked(api.getSimulation).mockResolvedValue(status);
@@ -147,8 +149,8 @@ describe("SeasonView state machine", () => {
     const games = [summary({ game_id: "g1", home_team: TEAM, home_score: 111, away_score: 105, win: true })];
     const status = runStatus(games);
     const rows: SimulationSummary[] = [
-      { id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: "2026-08-10T00:00:07Z" },
-      { id: 2, team: "OKC", scope: "team", season: SEASON, seed: 27, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: "2026-08-09T00:00:07Z" },
+      { id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: "2026-08-10T00:00:07Z", controlled_team_abbr: null },
+      { id: 2, team: "OKC", scope: "team", season: SEASON, seed: 27, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: "2026-08-09T00:00:07Z", controlled_team_abbr: null },
     ];
     vi.mocked(api.listSimulations).mockResolvedValue(rows);
     vi.mocked(api.getSimulation).mockResolvedValue(status);
@@ -166,8 +168,8 @@ describe("SeasonView state machine", () => {
     const games = [summary({ game_id: "g1", home_team: TEAM, home_score: 111, away_score: 105, win: true })];
     const status = runStatus(games);
     const rows: SimulationSummary[] = [
-      { id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: null },
-      { id: 2, team: "OKC", scope: "team", season: SEASON, seed: 27, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: null },
+      { id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete", games_completed: 82, total_games: 82, wins: 1, losses: 0, created_at: "2026-08-10T00:00:00Z", completed_at: null, controlled_team_abbr: null },
+      { id: 2, team: "OKC", scope: "team", season: SEASON, seed: 27, status: "complete", games_completed: 82, total_games: 82, wins: 55, losses: 27, created_at: "2026-08-09T00:00:00Z", completed_at: null, controlled_team_abbr: null },
     ];
     vi.mocked(api.listSimulations).mockResolvedValueOnce(rows).mockResolvedValueOnce([rows[0]]);
     vi.mocked(api.getSimulation).mockResolvedValue(status);
@@ -191,6 +193,7 @@ describe("SeasonView state machine", () => {
       id: 1, team: TEAM, scope: "team", season: SEASON, seed: 26, status: "complete",
       games_completed: 1, total_games: 1, wins: 1, losses: 0,
       created_at: "2026-08-10T00:00:00Z", completed_at: null,
+      controlled_team_abbr: null,
     };
     vi.mocked(api.listSimulations).mockResolvedValue([listRow]);
     vi.mocked(api.getSimulation).mockResolvedValue(status);

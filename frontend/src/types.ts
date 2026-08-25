@@ -188,6 +188,7 @@ export interface SimulationSummary {
   losses: number | null;
   created_at: string;
   completed_at: string | null;
+  controlled_team_abbr: string | null;   // myleague scope only
 }
 
 // GET /simulations/{id}/standings response
@@ -304,6 +305,9 @@ export interface PreviewRosterPlayer {
   position: string;
   mpg: number;
   is_starter: boolean;
+  ppg?: number | null;
+  rpg?: number | null;
+  apg?: number | null;
 }
 
 export interface NextGamePreview {

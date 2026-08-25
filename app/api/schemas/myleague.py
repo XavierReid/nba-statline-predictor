@@ -79,12 +79,21 @@ class UpcomingGameRow(BaseModel):
 
 
 class PreviewRosterPlayer(BaseModel):
-    """One player in a NextGameCard rotation preview — top-8 by MPG."""
+    """One player in a NextGameCard rotation preview — top-8 by MPG.
+
+    ppg/rpg/apg populated from PlayerSeasonStats when available; None for
+    players with no real-season row (rookies etc.). These are real-season
+    reference stats; the MyLeague running-averages story is deferred to a
+    dedicated design session.
+    """
     player_id: int
     name: str
     position: str
     mpg: float
     is_starter: bool
+    ppg: Optional[float] = None
+    rpg: Optional[float] = None
+    apg: Optional[float] = None
 
 
 class NextGamePreview(BaseModel):

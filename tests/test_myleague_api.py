@@ -371,3 +371,80 @@ def test_game_drill_in_works_on_running_myleague():
         assert body["home_score"] > 0 or body["away_score"] > 0
     finally:
         _cleanup(sim_id)
+
+
+def _season_schedule_count() -> int:
+    from datetime import date as _date
+    db = SessionLocal()
+    try:
+        return db.execute(
+            select(Game).where(Game.game_date.between(_date(2024, 10, 1), _date(2025, 6, 30)))
+        ).scalars().all().__len__()
+    finally:
+        db.close()
+
+
+def test_myleague_progress_denominator_matches_league_schedule():
+    """MyLeague scope must NOT fall back to a hard-coded 82; the denominator
+    should equal the actual league-wide schedule size (~1230 for modern).
+    Regression for '42/82' misleading display."""
+    ml = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 1, "controlled_team_id": _lal_id()},
+    ).json()
+    sim_id = ml["simulation_id"]
+    try:
+        # MyLeague's own endpoint already reported correct total; the bug was
+        # in /simulations/{id}.
+        resp = client.get(f"/simulations/{sim_id}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        expected = _season_schedule_count()
+        assert body["total_games"] == expected, (
+            f"myleague total_games={body['total_games']} (expected {expected}, not 82)"
+        )
+        assert body["total_games"] != 82
+        # And in list_simulations (past-runs table source).
+        listed = client.get("/simulations/").json()
+        row = next(r for r in listed if r["id"] == sim_id)
+        assert row["total_games"] == expected
+    finally:
+        _cleanup(sim_id)
+
+
+def test_list_simulations_populates_controlled_team_abbr_for_myleague():
+    """Past-runs table needs the controlled franchise for myleague rows.
+    Batch scopes stay None."""
+    lal_id = _lal_id()
+    ml = client.post(
+        "/myleague/",
+        json={"season": SEASON, "seed": 3, "controlled_team_id": lal_id},
+    ).json()
+    ml_id = ml["simulation_id"]
+    # A team-scope sim in the same list should have controlled_team_abbr=None.
+    team_resp = client.post("/simulations/", json={"team": "BOS", "season": SEASON, "seed": 8})
+    team_id = team_resp.json()["id"]
+    try:
+        rows = client.get("/simulations/").json()
+        ml_row = next(r for r in rows if r["id"] == ml_id)
+        team_row = next(r for r in rows if r["id"] == team_id)
+        assert ml_row["controlled_team_abbr"] == "LAL"
+        assert team_row["controlled_team_abbr"] is None
+    finally:
+        _cleanup(team_id)
+        _cleanup(ml_id)
+
+
+def test_team_sim_progress_denominator_is_82():
+    """Team scope keeps 82 as the canonical denominator."""
+    resp = client.post(
+        "/simulations/",
+        json={"team": "BOS", "season": SEASON, "seed": 7},
+    )
+    assert resp.status_code == 201, resp.text
+    sim_id = resp.json()["id"]
+    try:
+        body = client.get(f"/simulations/{sim_id}").json()
+        assert body["total_games"] == 82
+    finally:
+        _cleanup(sim_id)

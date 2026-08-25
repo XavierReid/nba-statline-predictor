@@ -204,6 +204,7 @@ function MyLeaguePicker({ onOpened, onError }: PickerProps) {
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Franchise</th>
                 <th>Season</th>
                 <th>Seed</th>
                 <th>Status</th>
@@ -216,6 +217,16 @@ function MyLeaguePicker({ onOpened, onError }: PickerProps) {
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td>{r.id}</td>
+                  <td>
+                    {r.controlled_team_abbr ? (
+                      <span className="rp-franchise">
+                        <TeamLogo abbr={r.controlled_team_abbr} size="sm" season={r.season} />
+                        <span>{r.controlled_team_abbr}</span>
+                      </span>
+                    ) : (
+                      <span style={{ opacity: 0.5 }}>—</span>
+                    )}
+                  </td>
                   <td>{r.season}</td>
                   <td>{r.seed}</td>
                   <td>{r.status}</td>
@@ -329,6 +340,16 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProp
               </div>
             </div>
           )}
+          {!seasonComplete && (
+            <div className="myleague-hero-right">
+              {lastAdvance && !advancing && (
+                <span className="myleague-advance-toast">{lastAdvance}</span>
+              )}
+              <button className="new-sim-btn" onClick={advanceOneDay} disabled={advancing}>
+                {advancing ? "Advancing…" : "Advance one day →"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -336,17 +357,6 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProp
         <div className="myleague-season-complete">
           🏆 Season complete — {state.games_completed} games played.
           Final standings below.
-        </div>
-      )}
-
-      {!seasonComplete && (
-        <div className="myleague-advance">
-          {lastAdvance && !advancing && (
-            <span className="myleague-advance-toast">{lastAdvance}</span>
-          )}
-          <button className="new-sim-btn" onClick={advanceOneDay} disabled={advancing}>
-            {advancing ? "Advancing…" : "Advance one day →"}
-          </button>
         </div>
       )}
 
@@ -631,16 +641,30 @@ function NextGameCard({
 }
 
 function RosterList({ title, players }: { title: string; players: NextGamePreview["controlled_roster"] }) {
+  const fmt = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
   return (
     <div className="myleague-next-roster">
       <h4>{title} rotation</h4>
       <table>
+        <thead>
+          <tr>
+            <th className="pos"></th>
+            <th className="name"></th>
+            <th className="stat" title="Minutes per game (scheduled)">MPG</th>
+            <th className="stat" title="Points per game (real-season reference)">PPG</th>
+            <th className="stat" title="Rebounds per game (real-season reference)">RPG</th>
+            <th className="stat" title="Assists per game (real-season reference)">APG</th>
+          </tr>
+        </thead>
         <tbody>
           {players.map((p) => (
             <tr key={p.player_id} className={p.is_starter ? "starter" : ""}>
               <td className="pos">{p.position}</td>
               <td className="name">{p.name}</td>
-              <td className="mpg">{p.mpg.toFixed(1)}</td>
+              <td className="stat">{p.mpg.toFixed(1)}</td>
+              <td className="stat">{fmt(p.ppg)}</td>
+              <td className="stat">{fmt(p.rpg)}</td>
+              <td className="stat">{fmt(p.apg)}</td>
             </tr>
           ))}
         </tbody>

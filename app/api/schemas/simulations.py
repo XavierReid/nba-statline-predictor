@@ -340,3 +340,4 @@ class SimulationSummary(BaseModel):
     losses: Optional[int] = None
     created_at: datetime
     completed_at: Optional[datetime]
+    controlled_team_abbr: Optional[str] = None  # myleague scope only

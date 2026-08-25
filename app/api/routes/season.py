@@ -3,7 +3,7 @@ import random
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -39,6 +39,26 @@ from app.models.player_season_stats import PlayerSeasonStats
 from app.models.team_season_stats import TeamSeasonStats
 
 season_router = APIRouter()
+
+
+def _total_games_for(sim: SimulationRun, db: Session) -> int:
+    """Progress denominator matched to the sim's actual scope.
+
+    Batch sims (team, league) persist `parameters["total_games"]` at start
+    so this is a plain lookup. MyLeague never stored one and previously fell
+    through to a hard-coded 82 — wrong for league-wide MyLeague runs. Derive
+    from the season's actual schedule for league/myleague; keep 82 as the
+    team-scope canonical fallback.
+    """
+    stored = (sim.parameters or {}).get("total_games")
+    if stored:
+        return stored
+    if sim.scope in ("league", "myleague"):
+        start, end = season_bounds(sim.season)
+        return db.execute(
+            select(func.count(Game.id)).where(Game.game_date.between(start, end))
+        ).scalar() or 0
+    return 82
 
 
 @season_router.post("/", response_model=SimulationCreatedResponse, status_code=201)
@@ -217,8 +237,7 @@ def get_simulation(sim_id: int, db: Session = Depends(get_db)):
         .order_by(Game.game_date)
     ).scalars().all()
 
-    default_total = 1230 if sim.scope == "league" else 82
-    total_games = (sim.parameters or {}).get("total_games", default_total)
+    total_games = _total_games_for(sim, db)
 
     wins = losses = None
     games_summary = None
@@ -306,8 +325,22 @@ def list_simulations(db: Session = Depends(get_db)):
         select(SimulationRun).order_by(SimulationRun.created_at.desc())
     ).scalars().all()
 
-    # Bulk-load teams referenced by any sim (usually all 30).
+    # Bulk-load controlled_team_id for MyLeague sims so we can render the
+    # franchise column in the past-runs table without a per-row lookup.
+    from app.models.myleague import MyLeagueState
+    myleague_sim_ids = [sim.id for sim in runs if sim.scope == "myleague"]
+    myleague_controlled_by_sim: dict[int, Optional[int]] = {}
+    if myleague_sim_ids:
+        for sid, tid in db.execute(
+            select(MyLeagueState.simulation_id, MyLeagueState.controlled_team_id)
+            .where(MyLeagueState.simulation_id.in_(myleague_sim_ids))
+        ).all():
+            myleague_controlled_by_sim[sid] = tid
+
+    # Bulk-load teams referenced by any sim (usually all 30) — union of
+    # batch-sim team_ids and MyLeague controlled_team_ids.
     team_ids = {sim.team_id for sim in runs if sim.team_id is not None}
+    team_ids.update(tid for tid in myleague_controlled_by_sim.values() if tid is not None)
     team_by_id = (
         {t.id: t for t in db.execute(select(Team).where(Team.id.in_(team_ids))).scalars()}
         if team_ids else {}
@@ -340,8 +373,7 @@ def list_simulations(db: Session = Depends(get_db)):
     summaries = []
     for sim in runs:
         team = team_by_id.get(sim.team_id) if sim.team_id else None
-        default_total = 1230 if sim.scope == "league" else 82
-        total_games = (sim.parameters or {}).get("total_games", default_total)
+        total_games = _total_games_for(sim, db)
         wins = losses = None
         if sim.status == "complete" and sim.scope == "team":
             sim_games = sim_games_by_sim.get(sim.id, [])
@@ -351,6 +383,12 @@ def list_simulations(db: Session = Depends(get_db)):
                 if (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score):
                     wins += 1
             losses = len(sim_games) - wins
+        controlled_abbr = None
+        if sim.scope == "myleague":
+            ctid = myleague_controlled_by_sim.get(sim.id)
+            if ctid is not None:
+                ct = team_by_id.get(ctid)
+                controlled_abbr = ct.abbreviation if ct else None
         summaries.append(SimulationSummary(
             id=sim.id,
             team=team.abbreviation if team else None,
@@ -364,6 +402,7 @@ def list_simulations(db: Session = Depends(get_db)):
             losses=losses,
             created_at=sim.created_at,
             completed_at=sim.completed_at,
+            controlled_team_abbr=controlled_abbr,
         ))
     return summaries
 
@@ -469,7 +508,7 @@ def get_standings(sim_id: int, db: Session = Depends(get_db)):
     ]
     computed = compute_standings(tuples)
 
-    total_games = (sim.parameters or {}).get("total_games", 1230)
+    total_games = _total_games_for(sim, db)
     return StandingsResponse(
         sim_id=sim.id,
         season=sim.season,

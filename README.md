@@ -100,7 +100,7 @@ Returns a single dict describing what happened. Everything downstream reads that
 
 ### `app/services/possession_events.py` — the event translator
 
-Takes the flat outcome dict from `resolve_possession` and expands it into a stream of granular typed events (SHOT / FOUL / FT / REB / TOV / STL / BLK / AST). Real NBA play-by-play is granular: a made three with an assist is TWO events (SHOT + AST), a foul-drawn miss is a FOUL + N FTs with NO shot event. The translator handles all these compositions and also renders the descriptions used for PBP display.
+Takes the flat outcome dict from `resolve_possession` and expands it into a stream of granular typed events (SHOT / FOUL / FT / REB / TOV / STL / BLK / AST / SUBSTITUTION). Real NBA play-by-play is granular: a made three with an assist is TWO events (SHOT + AST), a foul-drawn miss is a FOUL + N FTs with NO shot event. The translator handles all these compositions and also renders the descriptions used for PBP display. SUBSTITUTION events fire at every rotation transition so the typed event stream is internally sufficient to reconstruct on-court state at any point in the game.
 
 ### `app/services/box_score.py` — the accounting sink
 
@@ -132,6 +132,18 @@ The engine consumes these dicts and never touches the database. The database-to-
 ### `app/services/modifiers/` — game-state modifiers
 
 Each modifier is a class that reads the current game state and returns `ModifierAdjustments` (probability deltas). Examples: momentum from runs, fatigue from heavy minutes, foul_trouble softening defense, clutch amplification in tight endgames. Modifiers never write back to player attributes and never persist across games — they just tilt probabilities.
+
+### Above the engine: season-scale simulation
+
+Three execution modes layer over the same game engine — they all call `simulate_game()`, they just differ in what they do with the results.
+
+- **`app/services/season_simulator.py` — team-season batch.** Runs one team's 82 games in a background task. Persists a `SimulationRun` + `SimulatedGame` rows for browse-later.
+- **`app/services/league_simulator.py` — full-league batch (C-1).** Runs the entire 1230-game season across all 30 teams in one background task. Schedule integrity gate up front (1230/30/82), per-game deterministic seeding via `_game_seed(root_seed, game_id)` so pause-and-resume produces byte-identical results, standings computed on-demand from persisted games. Full 2016-17 season simulates in ~19 seconds.
+- **`app/services/myleague_engine.py` + `myleague_state.py` — stateful franchise mode (M-1).** The MyLeague loop: `SeasonState` is the authoritative object, event-sourced availability, `advance_to(target_date)` folds one or more games in and mutates state. Gates: reproducibility across pause boundaries, monotonic time, retroactive-event rejection, no mutation of already-simulated games. C-1's batch mode is preserved as a separate scope; MyLeague is a new layer, not a rewrite.
+
+### Frontend
+
+A React + Vite + TypeScript SPA at `frontend/`. Three top-level tabs: **Single Game** (pick two rosters, sim, see full boxscore + PBP with substitutions), **Season Sim** (team or full-league batch → progress → standings → drill in), **MyLeague** (pick a franchise → advance-day loop → next-game preview with rotations → click any played game for the full boxscore). Shared components: `TeamStandingsBlock` (7-cell record grid), `GameDetailView` (line score + boxscore + PBP + PlayerModal), `NextGameCard` (pre-game preview with matchup + series context + top-8 rotations).
 
 ### How they connect
 
@@ -191,9 +203,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies to 
 
 ## Where it's headed
 
-**Done:** real-data ingestion · data-grounded player ratings · a possession-based game engine with clock, rotations, overtime, and late-game strategy · full-season simulation · a REST API · and a calibration suite that holds the whole thing to real NBA numbers.
+**Done:** real-data ingestion · data-grounded player ratings · possession-based game engine with clock, rotations, overtime, late-game strategy · granular event-sourced PBP (SHOT/FOUL/FT/REB/TOV/STL/BLK/AST/SUBSTITUTION) with lineup-reconstruction correctness gate · team-season and full-league batch simulation · MyLeague franchise mode (create → advance day → next-game preview → drill-in) · React SPA over all of it · calibration suite holding the engine to real NBA numbers.
 
-**Next:** finishing a clean, readable engine architecture (so new basketball systems slot in easily), then richer realism — team offensive identity, coaching tendencies, and eventually multi-season play with player development.
+**Currently in flight:** MyLeague between-games surface. The foundation is live end-to-end; the next layers are user-facing mutations (mark player OUT for a game), then injuries, trades, and eventually CPU-managed roster moves for the other 29 teams. Product intent is locked: simulated stats are the primary reality of the user's league; real-life stats are reference/context only.
+
+**On deck after MyLeague:** league-realism validation (measurement session — do full-league sims produce plausible standings shapes across many seeds?), then team-level coaching/scheme modifiers once that data is in hand.
 
 Deeper docs for the curious: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how it works) · [`RUNBOOK.md`](RUNBOOK.md) (commands & tools) · [`SIMULATION_GAPS.md`](SIMULATION_GAPS.md) (the calibration detective work).
 

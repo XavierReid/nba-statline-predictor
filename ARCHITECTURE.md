@@ -116,9 +116,60 @@ quarters and OT are the same code with different initial conditions (720s vs
    (probability deltas), toggled via `SimConfig`, never persisting across games
 7. `resolve_possession` → `possession_events.possession_to_events` translates the possession
    result into a stream of granular typed events (SHOT / FOUL / FT / REB / TOV / STL / BLK /
-   AST) → `box_score.apply_typed_event` folds each into the live box (or
+   AST / SUBSTITUTION) → `box_score.apply_typed_event` folds each into the live box (or
    `derive_box_score(events, roster_ids)` reproduces the same box from the stream after the
-   fact — same result; guarded by the 90-game byte-identical fence)
+   fact — same result; guarded by the 90-game byte-identical fence). SUBSTITUTION events
+   emit at every rotation transition; `apply_typed_event` treats them as a stat no-op so
+   they don't disturb the box fence, but they carry the lineup deltas needed to reconstruct
+   who was on the floor at any point (guarded by
+   `tests/test_lineup_reconstruction.py`).
+
+## Layer 4a — Season-scale execution
+
+Three modes layer over `simulate_game` — all call the same engine, differ in what they do
+with the results.
+
+- **`app/services/season_simulator.py` — team-season batch (B-arc).** One team's 82 games in
+  a background task. Persists a `SimulationRun` + per-game `SimulatedGame` +
+  `SimulatedPlayerLine` rows. Deterministic per-game seeding via `_game_seed(root_seed, game_id)`
+  so drill-in re-simulation matches the batch run exactly.
+- **`app/services/league_simulator.py` — full-league batch (C-1 arc).** All 30 teams'
+  1230 games in one background task. Schedule integrity gate up front (per-era: 1230/30/82
+  for modern, 725 lockout, 971 COVID, etc.). Reproducibility gate: pause/resume yields
+  byte-identical persisted games because per-game seeds are pure functions of `(root_seed,
+  game_id)`. Standings computed on-demand from persisted games (never cached). Full
+  2016-17 season sims in ~19 seconds.
+- **`app/services/myleague_engine.py` + `myleague_state.py` — stateful franchise mode
+  (M-1 arc).** `SeasonState` is the authoritative object: `simulation_id`, `season`,
+  `root_seed`, `controlled_team_id` (nullable — God-mode door open), `current_calendar_date`,
+  and an event-sourced availability layer. `advance_to(state, target_date, db)` folds one or
+  more games in, mutates cursor + games_completed, respects future `MyLeagueEvent` records
+  when loading rosters. Invariants: monotonic time, idempotent advance, retroactive-event
+  rejection (no mutation of already-simulated games), C-1 batch mode preserved unchanged.
+  See `tests/test_myleague_engine.py` for the correctness gate.
+
+`SimulationRun.scope` disambiguates all three: `'team'`, `'league'`, `'myleague'`. CHECK
+constraint enforces `team_id` is set for team scope only. MyLeague adds a sibling
+`myleague_state` table (1:1 with SimulationRun) and an append-only `myleague_events` log.
+
+## Layer 4b — Frontend surface
+
+React + Vite + TypeScript SPA at `frontend/`. Three top-level tabs:
+
+- **Single Game** — pick two rosters, sim inline, browse full boxscore + PBP with
+  filters + STARTERS row + substitutions.
+- **Season Sim** — Team or Full League scope toggle. Batch execution with progress bar
+  and cancellation. Team drill-in reuses `TeamStandingsBlock`; game drill-in reuses
+  `GameDetailView`.
+- **MyLeague** — pick a franchise → dashboard (hero + advance-day + recent games +
+  upcoming games + E/W standings with W/L streaks). NextGameCard shows opponent identity,
+  matchup + series context, and top-8 rotations. Recent Results rows are clickable →
+  same `GameDetailView` drill-in.
+
+Shared components (`frontend/src/components/`): `LineScore`, `BoxScore`, `PlayByPlay`,
+`PlayerModal`, `TeamStandingsBlock`, `GameDetailView`, `GameContextHeader`, `NextGameCard`,
+`TeamLogo`. Shared helpers (`frontend/src/lib/`): `teamStandings.ts` (extendRow,
+computeStandings, TeamStandings — used by both Season Sim and MyLeague drill-ins).
 
 ## Layer 5 — Configuration (`app/services/sim_config.py`)
 
@@ -151,7 +202,7 @@ Analysis tools consume this (details in RUNBOOK.md):
 
 ```bash
 docker compose up -d
-# run the test suite (~220 tests)
+# run the test suite (~400 tests)
 docker compose run --rm api sh -c "pip install pytest httpx pytest-asyncio -q && python -m pytest tests/"
 
 # simulate one game via the API

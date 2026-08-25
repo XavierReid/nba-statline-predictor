@@ -2518,3 +2518,102 @@ Measurement bar for that session's report:
 - [[project-garbage-rotation-inversion]] — diagnosis + failed isolated-fix attempt
 - [[project-star-mpg-probe]] — the ordering context
 - [[project-season-sim-roster-availability]] — new memo for the follow-up session
+
+---
+
+# C-arc + M-arc summary (2026-08 addendum)
+
+Two arcs shipped after the rotation-realism work above closed. This section
+is a summary; individual design locks live in memory (`project-session-c1-shipped`,
+`project-session-c2-shipped`, `project-next-session-focus`) rather than in
+new RFC sections since the design questions were smaller-scoped.
+
+## C — full-league simulation
+
+**C-1 (`522d0f8`) — backend + gates.**
+Added `SimulationRun.scope` enum (`team` / `league`) with a CHECK constraint
+ensuring `team_id` is set only for team scope. `run_league_simulation` walks
+the season schedule per date, sims each game via the existing `simulate_game`,
+persists SimulatedGame + SimulatedPlayerLine rows. Per-game deterministic seed
+via `_game_seed(root_seed, game_id)` = SHA256-derived, so pause/resume
+produces byte-identical persisted games (reproducibility gate: 10-game slice
+byte-identical across two seed-fixed runs). Schedule integrity validator up
+front — refuses 2024-25 / 2025-26 seasons until the modern schedule ingestion
+bug (fixed later at `064e318`) is resolved. Full 2016-17 season sims in
+~19 seconds — sim engine turned out to be ~350× faster than pre-session
+estimate.
+
+**C-2 (`6a79cc8`) — standings UI + team drill-in.**
+`compute_standings` pure function over persisted games (chronological order
+required, since W/L streak was later added — see below). Two GET endpoints:
+`/simulations/{id}/standings` returns 30-row response with tie-breakers
+(W desc, L asc, team_id asc) + GB formula, `/simulations/{id}/team/{abbr}/games`
+returns the team's 82 games. Frontend: new League top-level tab (pragmatic
+deviation from the design lock's "extend RunPicker" — retrofitting SeasonView
+was disproportionate to the C-2 scope; folded later into the unified Simulate
+tab).
+
+**Ingestion fix (`064e318`) — modern schedule.**
+2024-25 and 2025-26 were 1225 games instead of 1230. Root cause was NOT the
+memo's original hypothesis (`len(rows) != 2` filter). The matchup-string
+parser assumed exactly one row per game used `vs.` — neutral-site games
+(NBA Cup semifinals, Paris games) show both team rows as `X @ Y` with no
+`vs.` variant. Fix: parse the matchup string once, match rows by
+`TEAM_ABBREVIATION` instead of relying on `vs.` vs `@` per-row.
+
+## M — MyLeague franchise mode
+
+**M-1a (`5ccbe96`) — engine foundation.**
+`SeasonState` is the authoritative object; event-sourced availability
+(`SET_UNAVAILABLE` / `SET_AVAILABLE`). `advance_to(state, target_date, db)`
+folds one or more games in; state at time T = `fold(events with
+applied_at_date <= T, base_state)`. Sibling table `myleague_state` (1:1 with
+SimulationRun) + append-only `myleague_events` log. Invariants — first-class
+tests, all pass:
+- Reproducibility across pause boundaries (batch-vs-day-by-day byte-identical)
+- Monotonic time (refuse target < cursor)
+- Idempotent advance (calling twice = calling once)
+- Off-day cursor semantics (advance-with-no-games commits cursor forward)
+- Retroactive-event rejection (no mutation of already-simulated games)
+- Same-day event determinism
+- C-1 batch mode untouched (regression fence green)
+
+**M-1b (`739d294`) — HTTP endpoints.**
+Four endpoints wrapping the engine: `POST /myleague/`, `POST
+/myleague/{id}/advance`, `POST /myleague/{id}/events`, `GET /myleague/{id}`.
+Error mapping: MyLeagueError/MonotonicTimeError/RetroactiveEventError → 422,
+missing/wrong-scope → 404. GET returns state + standings + last 10 games
+in one round-trip.
+
+**M-1c (`30912b6` + follow-ups) — minimal UI.**
+New MyLeague top-level tab, picker → dashboard, Advance Day button. Post-UAT
+polish: cursor init from actual first-game date (not season-window start),
+season-complete detection + banner, E/W standings split, controlled-team
+highlight, past-runs + Delete, delete-unblock for MyLeague scope, upcoming
+games panel.
+
+**M-2 (`df56ae9`) — NextGameCard.**
+Rich pre-game preview for the controlled team's next game: opponent identity,
+matchup context (Nth of M meetings, series wins so far), top-8 rotations for
+both sides. Roster respects future `SET_UNAVAILABLE` events already (folds
+availability at the game's date, not the cursor's date) — future
+availability-toggle UI (M-4) flows through with zero backend changes.
+
+**M-1 status-semantics bug family (`9a30ac9` delete-unblock, `c3875ed` create
++ drill-in guards).** MyLeague runs sit at `status='running'` indefinitely
+(no background task — user drives via Advance clicks). Any endpoint that
+gates on status must consider scope: delete, create-simulation ("another sim
+running?"), and game-detail drill-in ("only completed runs browseable?") all
+needed scope-aware bypasses. Documented as a design lesson in
+`project-next-session-focus`.
+
+## Locked product intent — MyLeague statistics contract
+
+Xavier 2026-08-24: the simulated season IS the primary statistical reality
+of a MyLeague run. Once enough sim games exist, per-player averages come
+from the sim, not from real-life season stats. Real-life stats stay as
+reference/context only, visually distinct. Design-lock session upcoming to
+pin down sample-size threshold, below-threshold UI, and scope of application
+(PlayerModal in MyLeague context, NextGameCard rotations, future roster
+inspection). Anti-pattern to avoid: silently substituting real-life averages
+when a player has a partial-season sim record.

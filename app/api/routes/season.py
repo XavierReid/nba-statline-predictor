@@ -889,3 +889,42 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
 
     home_ids = {p["id"] for p in home_players}
     return flatten_and_enrich(result["chunk_events"], home_ids)
+
+
+# ---------------------------------------------------------------------------
+# GET /simulations/{sim_id}/player/{player_id}
+# Scope-agnostic running-averages: works for team, league, and myleague sims.
+# Delegates to app.services.player_stats (same core the MyLeague route uses).
+# ---------------------------------------------------------------------------
+
+from app.api.schemas.myleague import PlayerMyLeagueStatsResponse as _PlayerStatsResponse
+
+
+@season_router.get(
+    "/{sim_id}/player/{player_id}",
+    response_model=_PlayerStatsResponse,
+)
+def get_simulation_player_stats(
+    sim_id: int, player_id: int, db: Session = Depends(get_db),
+):
+    """Sim vs. real running averages for one player in any-scope sim.
+
+    Team / league / MyLeague all persist to SimulatedPlayerLine, so the
+    derivation is scope-agnostic. Accepts any scope's sim_id; returns
+    the same { sim: {...}, real: {...} } shape as the MyLeague route.
+
+    See project-myleague-stats-contract for the locked contract.
+    """
+    from app.services.player_stats import derive_player_stats
+
+    sim = db.get(SimulationRun, sim_id)
+    if not sim:
+        raise HTTPException(
+            status_code=404, detail=f"Simulation {sim_id} not found."
+        )
+    player = db.get(Player, player_id)
+    if not player:
+        raise HTTPException(
+            status_code=404, detail=f"Player {player_id} not found."
+        )
+    return derive_player_stats(db, sim, player)

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getMyLeaguePlayerStats, getPlayerProfile } from "../api";
+import { getSimulationPlayerStats, getPlayerProfile } from "../api";
 import type {
   MyLeaguePlayerStats,
   PlayerLine,
@@ -124,13 +124,21 @@ interface Props {
   season: string;
   events: PossessionEvent[];
   onClose: () => void;
-  /** MyLeague context — when set, fetches sim-vs-real running averages
-   * for this sim and renders them in place of the real-only baseline
-   * "Season averages" section. Sim is primary, real is reference. */
-  myleagueSimId?: number;
+  /** Any-scope sim id (team / league / myleague). When set, fetches
+   * sim-vs-real running averages for this sim and renders them in place
+   * of the real-only "Season averages" section. Sim is primary, real is
+   * reference. */
+  runningStatsSimId?: number;
+  /** Label prefix for the sim block. Defaults to "Sim" — MyLeagueView
+   * passes "MyLeague" so the copy matches the design-locked contract
+   * inside that context. */
+  runningStatsLabel?: string;
 }
 
-export default function PlayerModal({ line, season, events, onClose, myleagueSimId }: Props) {
+export default function PlayerModal({
+  line, season, events, onClose,
+  runningStatsSimId, runningStatsLabel = "Sim",
+}: Props) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mlStats, setMlStats] = useState<MyLeaguePlayerStats | null>(null);
@@ -147,11 +155,11 @@ export default function PlayerModal({ line, season, events, onClose, myleagueSim
   useEffect(() => {
     setMlStats(null);
     setMlError(null);
-    if (myleagueSimId == null) return;
-    getMyLeaguePlayerStats(myleagueSimId, line.player_id)
+    if (runningStatsSimId == null) return;
+    getSimulationPlayerStats(runningStatsSimId, line.player_id)
       .then(setMlStats)
       .catch((e) => setMlError(String(e)));
-  }, [myleagueSimId, line.player_id]);
+  }, [runningStatsSimId, line.player_id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -337,12 +345,13 @@ export default function PlayerModal({ line, season, events, onClose, myleagueSim
           )}
         </Section>
 
-        {myleagueSimId != null ? (
+        {runningStatsSimId != null ? (
           <MyLeagueStatsSection
             stats={mlStats}
             error={mlError}
             season={season}
             profileAverages={a}
+            simLabel={runningStatsLabel}
           />
         ) : (
           <Section title="Season averages">
@@ -382,20 +391,21 @@ export default function PlayerModal({ line, season, events, onClose, myleagueSim
  */
 function MyLeagueStatsSection({
   stats, error, season,
-  profileAverages,
+  profileAverages, simLabel,
 }: {
   stats: MyLeaguePlayerStats | null;
   error: string | null;
   season: string;
   profileAverages: PlayerProfile["season_averages"] | undefined;
+  simLabel: string;
 }) {
   return (
-    <Section title="MyLeague statistics">
+    <Section title="Simulation statistics">
       {error && <p className="pm-empty">{error}</p>}
       {!error && !stats && <p className="pm-empty">Loading…</p>}
       {stats && (
         <div className="pm-ml-stats">
-          <SimBlock sim={stats.sim} />
+          <SimBlock sim={stats.sim} label={simLabel} />
           <RealBlock real={stats.real} season={season} fallback={profileAverages} />
         </div>
       )}
@@ -403,16 +413,16 @@ function MyLeagueStatsSection({
   );
 }
 
-function SimBlock({ sim }: { sim: MyLeaguePlayerStats["sim"] }) {
+function SimBlock({ sim, label }: { sim: MyLeaguePlayerStats["sim"]; label: string }) {
   // Three distinct 0-GP states + normal render. Copy is intentionally verbose
   // — never leaves the user wondering "which world are these numbers from?".
   if (sim.gp === 0) {
-    const label = sim.team_gp === 0
+    const trailingLabel = sim.team_gp === 0
       ? "0 GP yet"
       : `0 GP (unavailable through ${sim.team_gp} team ${sim.team_gp === 1 ? "game" : "games"})`;
     return (
       <div className="pm-ml-block">
-        <div className="pm-ml-label">MyLeague — {label}</div>
+        <div className="pm-ml-label">{label} — {trailingLabel}</div>
       </div>
     );
   }
@@ -420,7 +430,7 @@ function SimBlock({ sim }: { sim: MyLeaguePlayerStats["sim"] }) {
   return (
     <div className="pm-ml-block pm-ml-primary">
       <div className="pm-ml-label">
-        MyLeague — {sim.gp} GP
+        {label} — {sim.gp} GP
         {smallSample && <span className="pm-ml-tag"> (small sample)</span>}
       </div>
       <div className="pm-inline-stats">

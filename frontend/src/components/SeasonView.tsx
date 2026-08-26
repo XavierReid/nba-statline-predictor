@@ -754,6 +754,7 @@ export default function SeasonView() {
                 season={gameDetail.season}
                 events={gameDetail.events ?? []}
                 onClose={() => setSelectedPlayer(null)}
+                runningStatsSimId={sim.id}
               />
             )}
           </>

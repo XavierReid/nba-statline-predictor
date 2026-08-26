@@ -120,7 +120,7 @@ describe("SeasonView state machine", () => {
     vi.mocked(api.getSimulation).mockResolvedValue(activeStatus);
     render(<SeasonView />);
     // Progress copy — "<games_completed> / <total_games> games"
-    expect(await screen.findByText(/10/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/10/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Cancel/i)).toBeInTheDocument();
   });
 

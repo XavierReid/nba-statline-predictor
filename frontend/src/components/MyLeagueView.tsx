@@ -66,7 +66,8 @@ export default function MyLeagueView() {
           onBack={() => setView({ kind: "dashboard", simId: view.simId })}
           onError={setError}
           backLabel="← Back to dashboard"
-          myleagueSimId={view.simId}
+          runningStatsSimId={view.simId}
+          runningStatsLabel="MyLeague"
         />
       )}
     </div>

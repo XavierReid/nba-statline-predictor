@@ -152,11 +152,13 @@ export async function appendMyLeagueEvent(id: number, body: import("./types").Ap
   return post<import("./types").MyLeagueEventDTO>(`/myleague/${id}/events`, body);
 }
 
-export async function getMyLeaguePlayerStats(
+export async function getSimulationPlayerStats(
   simId: number, playerId: number,
 ): Promise<import("./types").MyLeaguePlayerStats> {
+  // Scope-agnostic — works for team, league, and MyLeague sims. The /myleague
+  // route is retained as a thin backwards-compat wrapper on the backend.
   return get<import("./types").MyLeaguePlayerStats>(
-    `/myleague/${simId}/player/${playerId}`
+    `/simulations/${simId}/player/${playerId}`
   );
 }
 

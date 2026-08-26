@@ -104,6 +104,7 @@ export default function LeagueView() {
           }
           onError={setError}
           backLabel="← Back to team games"
+          runningStatsSimId={view.simId}
         />
       )}
     </div>

@@ -21,14 +21,17 @@ interface GameDetailViewProps {
   onBack: () => void;
   onError: (msg: string) => void;
   backLabel?: string;
-  /** When set, PlayerModal fetches MyLeague running averages for this sim
-   * and shows the sim-vs-real split. Omitted for Season Sim / League Sim
-   * drill-ins where the baseline profile-endpoint view is correct. */
-  myleagueSimId?: number;
+  /** When set, PlayerModal fetches running averages for this sim (any
+   * scope: team / league / myleague) and shows the sim-vs-real split. */
+  runningStatsSimId?: number;
+  /** Label prefix passed through to PlayerModal — "MyLeague" from a
+   * MyLeague drill-in, "Sim" default from batch drill-ins. */
+  runningStatsLabel?: string;
 }
 
 export default function GameDetailView({
-  simId, gameId, onBack, onError, backLabel = "← Back", myleagueSimId,
+  simId, gameId, onBack, onError, backLabel = "← Back",
+  runningStatsSimId, runningStatsLabel,
 }: GameDetailViewProps) {
   const [game, setGame] = useState<SimulateGameResponse | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerLine | null>(null);
@@ -74,7 +77,8 @@ export default function GameDetailView({
           season={game.season}
           events={game.events ?? []}
           onClose={() => setSelectedPlayer(null)}
-          myleagueSimId={myleagueSimId}
+          runningStatsSimId={runningStatsSimId}
+          runningStatsLabel={runningStatsLabel}
         />
       )}
     </div>

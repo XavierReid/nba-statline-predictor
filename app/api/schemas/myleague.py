@@ -190,6 +190,58 @@ class PlayerMyLeagueStatsResponse(BaseModel):
     real: Optional[PlayerMyLeagueReal] = None
 
 
+class TeamDrillInRecord(BaseModel):
+    """Team record + splits derived from the sim's persisted games."""
+    wins: int
+    losses: int
+    pct: float
+    streak: str          # "W3", "L2", "-" if no games
+    home_wins: int
+    home_losses: int
+    away_wins: int
+    away_losses: int
+    ppg_scored: float
+    ppg_allowed: float
+
+
+class TeamDrillInRosterPlayer(BaseModel):
+    """One row in the M-3 team roster panel.
+
+    Per the statistics contract lock: MyLeague stats are primary when
+    meaningful sim history exists; real reference is used when the
+    player has no sim GP yet. The UI reads `sim` and `real` and picks
+    which world to render per row (never blends silently).
+
+    Availability is folded from the MyLeague event log as of the sim's
+    current_calendar_date. M-4 turns it into an interactive control.
+    """
+    player_id: int
+    name: str
+    position: str
+    is_starter: bool           # derived from real-season MPG rank (top 5)
+    availability: str          # "AVAILABLE" | "OUT"
+    sim: Optional[PlayerMyLeagueSim] = None
+    real: Optional[PlayerMyLeagueReal] = None
+
+
+class TeamDrillInResponse(BaseModel):
+    """GET /myleague/{sim_id}/team/{team_abbr} — the M-3 read-only surface.
+
+    Roster is centerpiece; record + recent_games provide framing.
+    Roster-at-date semantics: as_of_date = the sim's current cursor;
+    when M-6 trades ship, the underlying roster resolution will filter
+    by trade-event dates. MVP is time-invariant (no trades).
+    """
+    team_id: int
+    team_abbr: str
+    team_city: str
+    team_nickname: str
+    as_of_date: date
+    record: TeamDrillInRecord
+    roster: list[TeamDrillInRosterPlayer]
+    recent_games: list[RecentGameRow]
+
+
 class MyLeagueSummaryResponse(BaseModel):
     """GET /myleague/{id} — full hydration for the front-page dashboard.
 

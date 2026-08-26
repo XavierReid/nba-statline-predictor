@@ -31,6 +31,9 @@ from app.api.schemas.myleague import (
     PlayerMyLeagueStatsResponse,
     PreviewRosterPlayer,
     RecentGameRow,
+    TeamDrillInRecord,
+    TeamDrillInResponse,
+    TeamDrillInRosterPlayer,
     UpcomingGameRow,
 )
 from app.models.player import Player
@@ -508,3 +511,170 @@ def get_myleague_player_stats(
         )
     from app.services.player_stats import derive_player_stats
     return derive_player_stats(db, sim, player)
+
+
+# ---------------------------------------------------------------------------
+# GET /myleague/{sim_id}/team/{team_abbr}  — M-3 read-only team drill-in
+# ---------------------------------------------------------------------------
+
+@myleague_router.get(
+    "/{sim_id}/team/{team_abbr}", response_model=TeamDrillInResponse,
+)
+def get_myleague_team(
+    sim_id: int, team_abbr: str, db: Session = Depends(get_db),
+):
+    """Read-only team drill-in for the MyLeague roster inspection surface.
+
+    Returns team identity + record + roster (with per-player sim/real
+    blocks) + recent games — all derived from THIS sim's persisted
+    state. Roster-at-date shape (as_of_date + resolution via
+    resolve_team_roster_at_date) lets M-6 slot in trade-period roster
+    filtering without a contract change.
+
+    See project-next-session-focus M-3 for the locked design.
+    """
+    sim = db.get(SimulationRun, sim_id)
+    if not sim or sim.scope != "myleague":
+        raise HTTPException(
+            status_code=404, detail=f"MyLeague simulation {sim_id} not found."
+        )
+    state_row = db.execute(
+        select(MyLeagueState).where(MyLeagueState.simulation_id == sim_id)
+    ).scalar_one_or_none()
+    if state_row is None:
+        raise HTTPException(
+            status_code=404, detail=f"MyLeague state {sim_id} missing."
+        )
+
+    # Team lookup — resolve era-accurate abbr via team_identity so
+    # 07-08 SEA / 04-08 CHA-Bobcats work.
+    from app.services.franchise import team_identity
+    all_teams = db.execute(select(Team)).scalars().all()
+    match = None
+    for t in all_teams:
+        _, _, era_abbr = team_identity(t.id, sim.season, (t.city, t.nickname, t.abbreviation))
+        if era_abbr.upper() == team_abbr.upper():
+            match = t
+            era_city, era_nick, era_abbr_val = team_identity(
+                t.id, sim.season, (t.city, t.nickname, t.abbreviation)
+            )
+            break
+    if match is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Team '{team_abbr}' not found for season {sim.season!r}.",
+        )
+
+    # --- roster @ as_of_date
+    from app.services.roster_at_date import resolve_team_roster_at_date, sort_roster_depth_chart
+    from app.services.player_stats import derive_bulk_player_stats
+    as_of = state_row.current_calendar_date
+    members = resolve_team_roster_at_date(
+        db, sim_id=sim_id, team_id=match.id, season=sim.season, as_of_date=as_of,
+    )
+    members = sort_roster_depth_chart(members)
+    stats = derive_bulk_player_stats(
+        db, sim, player_ids=[m.player_id for m in members],
+    )
+    roster = [
+        TeamDrillInRosterPlayer(
+            player_id=m.player_id,
+            name=m.name,
+            position=m.position,
+            is_starter=m.is_starter,
+            availability="AVAILABLE" if m.is_available else "OUT",
+            sim=stats.get(m.player_id, (None, None))[0],
+            real=stats.get(m.player_id, (None, None))[1],
+        )
+        for m in members
+    ]
+
+    # --- record derived from THIS sim's persisted games.
+    #
+    # Chronological over the sim's game rows so streak computation works.
+    sim_games = db.execute(
+        select(SimulatedGame, Game.home_team_id, Game.away_team_id, Game.game_date)
+        .join(Game, Game.id == SimulatedGame.game_id)
+        .where(SimulatedGame.simulation_id == sim_id)
+        .where((Game.home_team_id == match.id) | (Game.away_team_id == match.id))
+        .order_by(Game.game_date.asc(), SimulatedGame.game_id.asc())
+    ).all()
+    wins = losses = home_wins = home_losses = away_wins = away_losses = 0
+    pts_for_total = pts_against_total = 0
+    streak_letter = "-"
+    streak_len = 0
+    last_result: Optional[str] = None
+    for sg, home_id, away_id, _gd in sim_games:
+        is_home = home_id == match.id
+        pts_for = sg.home_score if is_home else sg.away_score
+        pts_against = sg.away_score if is_home else sg.home_score
+        pts_for_total += pts_for
+        pts_against_total += pts_against
+        win = pts_for > pts_against
+        if win:
+            wins += 1
+            if is_home:
+                home_wins += 1
+            else:
+                away_wins += 1
+        else:
+            losses += 1
+            if is_home:
+                home_losses += 1
+            else:
+                away_losses += 1
+        result = "W" if win else "L"
+        if last_result == result:
+            streak_len += 1
+        else:
+            streak_len = 1
+        last_result = result
+    total_games = wins + losses
+    pct = round(wins / total_games, 3) if total_games else 0.0
+    streak = f"{last_result}{streak_len}" if last_result else "-"
+    record = TeamDrillInRecord(
+        wins=wins,
+        losses=losses,
+        pct=pct,
+        streak=streak,
+        home_wins=home_wins,
+        home_losses=home_losses,
+        away_wins=away_wins,
+        away_losses=away_losses,
+        ppg_scored=round(pts_for_total / total_games, 1) if total_games else 0.0,
+        ppg_allowed=round(pts_against_total / total_games, 1) if total_games else 0.0,
+    )
+
+    # --- recent games (last 10 for this team)
+    recent_rows = list(sim_games)[-10:][::-1]  # newest first
+    recent = []
+    for sg, home_id, away_id, gd in recent_rows:
+        home_abbr = _era_abbr(db, home_id, sim.season)
+        away_abbr = _era_abbr(db, away_id, sim.season)
+        recent.append(RecentGameRow(
+            game_id=sg.game_id, game_date=gd,
+            home_team=home_abbr, away_team=away_abbr,
+            home_score=sg.home_score, away_score=sg.away_score,
+            went_to_ot=sg.went_to_ot,
+        ))
+
+    return TeamDrillInResponse(
+        team_id=match.id,
+        team_abbr=era_abbr_val,
+        team_city=era_city,
+        team_nickname=era_nick,
+        as_of_date=as_of,
+        record=record,
+        roster=roster,
+        recent_games=recent,
+    )
+
+
+def _era_abbr(db: Session, team_id: int, season: str) -> str:
+    """Season-accurate abbreviation for a team_id — SEA in 2007-08 not OKC."""
+    from app.services.franchise import team_identity
+    t = db.get(Team, team_id)
+    if not t:
+        return "?"
+    _, _, abbr = team_identity(t.id, season, (t.city, t.nickname, t.abbreviation))
+    return abbr

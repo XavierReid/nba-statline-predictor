@@ -1,6 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getPlayerProfile } from "../api";
-import type { PlayerLine, PlayerProfile, PossessionEvent } from "../types";
+import { getMyLeaguePlayerStats, getPlayerProfile } from "../api";
+import type {
+  MyLeaguePlayerStats,
+  PlayerLine,
+  PlayerProfile,
+  PossessionEvent,
+} from "../types";
 import PlayerHeadshot from "./PlayerHeadshot";
 import TeamLogo from "./TeamLogo";
 import { franchiseFor } from "../data/franchises";
@@ -119,11 +124,17 @@ interface Props {
   season: string;
   events: PossessionEvent[];
   onClose: () => void;
+  /** MyLeague context — when set, fetches sim-vs-real running averages
+   * for this sim and renders them in place of the real-only baseline
+   * "Season averages" section. Sim is primary, real is reference. */
+  myleagueSimId?: number;
 }
 
-export default function PlayerModal({ line, season, events, onClose }: Props) {
+export default function PlayerModal({ line, season, events, onClose, myleagueSimId }: Props) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mlStats, setMlStats] = useState<MyLeaguePlayerStats | null>(null);
+  const [mlError, setMlError] = useState<string | null>(null);
 
   useEffect(() => {
     setProfile(null);
@@ -132,6 +143,15 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
       .then(setProfile)
       .catch((e) => setError(String(e)));
   }, [line.player_id, season]);
+
+  useEffect(() => {
+    setMlStats(null);
+    setMlError(null);
+    if (myleagueSimId == null) return;
+    getMyLeaguePlayerStats(myleagueSimId, line.player_id)
+      .then(setMlStats)
+      .catch((e) => setMlError(String(e)));
+  }, [myleagueSimId, line.player_id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -317,24 +337,158 @@ export default function PlayerModal({ line, season, events, onClose }: Props) {
           )}
         </Section>
 
-        <Section title="Season averages">
-          {error && <p className="pm-empty">{error}</p>}
-          {!error && !profile && <p className="pm-empty">Loading…</p>}
-          {a && (
-            // Supplementary stats only — PTS/REB/AST/FG% already appear as
-            // headline tiles in the hero, so this section shows the rest.
-            <div className="pm-inline-stats">
-              <span><b>GP</b> {a.gp}</span>
-              <span><b>MPG</b> {a.min.toFixed(1)}</span>
-              <span><b>STL</b> {a.stl.toFixed(1)}</span>
-              <span><b>BLK</b> {a.blk.toFixed(1)}</span>
-              <span><b>TOV</b> {a.tov.toFixed(1)}</span>
-              <span><b>3P%</b> {pct(a.fg3_pct)}</span>
-              <span><b>FT%</b> {pct(a.ft_pct)}</span>
-            </div>
-          )}
-        </Section>
+        {myleagueSimId != null ? (
+          <MyLeagueStatsSection
+            stats={mlStats}
+            error={mlError}
+            season={season}
+            profileAverages={a}
+          />
+        ) : (
+          <Section title="Season averages">
+            {error && <p className="pm-empty">{error}</p>}
+            {!error && !profile && <p className="pm-empty">Loading…</p>}
+            {a && (
+              // Supplementary stats only — PTS/REB/AST/FG% already appear as
+              // headline tiles in the hero, so this section shows the rest.
+              <div className="pm-inline-stats">
+                <span><b>GP</b> {a.gp}</span>
+                <span><b>MPG</b> {a.min.toFixed(1)}</span>
+                <span><b>STL</b> {a.stl.toFixed(1)}</span>
+                <span><b>BLK</b> {a.blk.toFixed(1)}</span>
+                <span><b>TOV</b> {a.tov.toFixed(1)}</span>
+                <span><b>3P%</b> {pct(a.fg3_pct)}</span>
+                <span><b>FT%</b> {pct(a.ft_pct)}</span>
+              </div>
+            )}
+          </Section>
+        )}
 
+      </div>
+    </div>
+  );
+}
+
+/** MyLeague running-averages section — implements the design-locked contract
+ * (project-myleague-stats-contract). Sim is primary reality; real is
+ * reference/context. Never blend — both blocks stacked, sim always on top,
+ * GP disclosed alongside averages so users can gauge sample size.
+ *
+ * Semantics for sample-size and 0-GP cases:
+ *   ≥ 10 sim GP → sim primary, no tag
+ *   1–9 sim GP → "(small sample)" tag after GP
+ *   0 GP, team_gp==0 → "0 GP yet" (season fresh)
+ *   0 GP, team_gp>0 → "0 GP (unavailable through N team games)"
+ */
+function MyLeagueStatsSection({
+  stats, error, season,
+  profileAverages,
+}: {
+  stats: MyLeaguePlayerStats | null;
+  error: string | null;
+  season: string;
+  profileAverages: PlayerProfile["season_averages"] | undefined;
+}) {
+  return (
+    <Section title="MyLeague statistics">
+      {error && <p className="pm-empty">{error}</p>}
+      {!error && !stats && <p className="pm-empty">Loading…</p>}
+      {stats && (
+        <div className="pm-ml-stats">
+          <SimBlock sim={stats.sim} />
+          <RealBlock real={stats.real} season={season} fallback={profileAverages} />
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function SimBlock({ sim }: { sim: MyLeaguePlayerStats["sim"] }) {
+  // Three distinct 0-GP states + normal render. Copy is intentionally verbose
+  // — never leaves the user wondering "which world are these numbers from?".
+  if (sim.gp === 0) {
+    const label = sim.team_gp === 0
+      ? "0 GP yet"
+      : `0 GP (unavailable through ${sim.team_gp} team ${sim.team_gp === 1 ? "game" : "games"})`;
+    return (
+      <div className="pm-ml-block">
+        <div className="pm-ml-label">MyLeague — {label}</div>
+      </div>
+    );
+  }
+  const smallSample = sim.gp < 10;
+  return (
+    <div className="pm-ml-block pm-ml-primary">
+      <div className="pm-ml-label">
+        MyLeague — {sim.gp} GP
+        {smallSample && <span className="pm-ml-tag"> (small sample)</span>}
+      </div>
+      <div className="pm-inline-stats">
+        <span><b>PPG</b> {sim.ppg.toFixed(1)}</span>
+        <span><b>RPG</b> {sim.rpg.toFixed(1)}</span>
+        <span><b>APG</b> {sim.apg.toFixed(1)}</span>
+        <span><b>MPG</b> {sim.mpg.toFixed(1)}</span>
+        <span><b>SPG</b> {sim.spg.toFixed(1)}</span>
+        <span><b>BPG</b> {sim.bpg.toFixed(1)}</span>
+        <span><b>TOV</b> {sim.topg.toFixed(1)}</span>
+        <span><b>FG%</b> {pct(sim.fg_pct)}</span>
+        <span><b>3P%</b> {pct(sim.fg3_pct)}</span>
+        <span><b>FT%</b> {pct(sim.ft_pct)}</span>
+      </div>
+    </div>
+  );
+}
+
+function RealBlock({
+  real, season, fallback,
+}: {
+  real: MyLeaguePlayerStats["real"];
+  season: string;
+  fallback: PlayerProfile["season_averages"] | undefined;
+}) {
+  // real: null when the player has no PlayerSeasonStats row for the
+  // MyLeague's season — rookies, retired, or un-ingested. Explicit copy
+  // in place of a blank block.
+  if (!real) {
+    // Rarely, the profile endpoint has averages but the running-stats
+    // endpoint returned null (e.g. divergent PSS filters). Fall back so
+    // reference numbers still render.
+    if (fallback && fallback.gp > 0) {
+      return (
+        <div className="pm-ml-block pm-ml-reference">
+          <div className="pm-ml-label">{season} Real — {fallback.gp} GP <span className="pm-ml-tag">(reference)</span></div>
+          <div className="pm-inline-stats">
+            <span><b>PPG</b> {fallback.pts.toFixed(1)}</span>
+            <span><b>RPG</b> {fallback.reb.toFixed(1)}</span>
+            <span><b>APG</b> {fallback.ast.toFixed(1)}</span>
+            <span><b>MPG</b> {fallback.min.toFixed(1)}</span>
+            <span><b>FG%</b> {pct(fallback.fg_pct)}</span>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="pm-ml-block pm-ml-reference">
+        <div className="pm-ml-label pm-ml-empty">No {season} real-life reference</div>
+      </div>
+    );
+  }
+  return (
+    <div className="pm-ml-block pm-ml-reference">
+      <div className="pm-ml-label">
+        {season} Real — {real.gp} GP <span className="pm-ml-tag">(reference)</span>
+      </div>
+      <div className="pm-inline-stats">
+        <span><b>PPG</b> {real.ppg.toFixed(1)}</span>
+        <span><b>RPG</b> {real.rpg.toFixed(1)}</span>
+        <span><b>APG</b> {real.apg.toFixed(1)}</span>
+        <span><b>MPG</b> {real.mpg.toFixed(1)}</span>
+        <span><b>SPG</b> {real.spg.toFixed(1)}</span>
+        <span><b>BPG</b> {real.bpg.toFixed(1)}</span>
+        <span><b>TOV</b> {real.topg.toFixed(1)}</span>
+        <span><b>FG%</b> {pct(real.fg_pct)}</span>
+        <span><b>3P%</b> {pct(real.fg3_pct)}</span>
+        <span><b>FT%</b> {pct(real.ft_pct)}</span>
       </div>
     </div>
   );

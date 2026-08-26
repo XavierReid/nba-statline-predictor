@@ -959,6 +959,23 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--text);
 }
 .pm-inline-stats span { white-space: nowrap; }
+
+/* MyLeague running-averages section: sim on top (primary), real below
+ * (reference). Distinct backgrounds signal "different worlds" so the
+ * user never mistakes one for the other. */
+.pm-ml-stats { display: flex; flex-direction: column; gap: 10px; }
+.pm-ml-block {
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.pm-ml-primary { background: color-mix(in srgb, var(--team-primary, var(--accent)) 8%, transparent); }
+.pm-ml-reference { background: var(--panel); opacity: 0.85; }
+.pm-ml-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--muted); margin-bottom: 6px; font-weight: 700;
+}
+.pm-ml-tag { font-weight: 400; text-transform: none; letter-spacing: 0; font-style: italic; }
+.pm-ml-empty { font-style: italic; opacity: 0.7; }
 .pm-inline-stats b {
   color: var(--muted); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.6px;

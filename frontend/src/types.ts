@@ -269,6 +269,51 @@ export interface SimulateGameResponse {
   away_game_no?: number | null;
 }
 
+// --- MyLeague player stats (design-locked contract) -----------------------
+//
+// GET /myleague/{sim_id}/player/{player_id} — sim vs real block. Sim is the
+// primary reality; real is reference/context. Never blend the two silently.
+// gp is first-class so the UI can decide small-sample presentation without
+// changing the data contract. See project-myleague-stats-contract memo.
+
+export interface MyLeaguePlayerStatsBlock {
+  team_abbr: string;
+  gp: number;
+  mpg: number; ppg: number; rpg: number; apg: number;
+  spg: number; bpg: number; topg: number;
+  fg_pct: number | null;
+  fg3_pct: number | null;
+  ft_pct: number | null;
+}
+
+export interface MyLeaguePlayerSim {
+  gp: number;
+  team_gp: number;
+  mpg: number; ppg: number; rpg: number; apg: number;
+  spg: number; bpg: number; topg: number;
+  fg_pct: number | null;
+  fg3_pct: number | null;
+  ft_pct: number | null;
+  by_team: MyLeaguePlayerStatsBlock[];
+}
+
+export interface MyLeaguePlayerReal {
+  gp: number;
+  mpg: number; ppg: number; rpg: number; apg: number;
+  spg: number; bpg: number; topg: number;
+  fg_pct: number | null;
+  fg3_pct: number | null;
+  ft_pct: number | null;
+}
+
+export interface MyLeaguePlayerStats {
+  player_id: number;
+  name: string;
+  season: string;
+  sim: MyLeaguePlayerSim;
+  real: MyLeaguePlayerReal | null;
+}
+
 // --- MyLeague (M-1c) -------------------------------------------------------
 
 export interface MyLeagueStateDTO {

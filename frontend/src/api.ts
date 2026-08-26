@@ -152,6 +152,14 @@ export async function appendMyLeagueEvent(id: number, body: import("./types").Ap
   return post<import("./types").MyLeagueEventDTO>(`/myleague/${id}/events`, body);
 }
 
+export async function getMyLeaguePlayerStats(
+  simId: number, playerId: number,
+): Promise<import("./types").MyLeaguePlayerStats> {
+  return get<import("./types").MyLeaguePlayerStats>(
+    `/myleague/${simId}/player/${playerId}`
+  );
+}
+
 export async function getMyLeague(id: number): Promise<import("./types").MyLeagueSummary> {
   return get<import("./types").MyLeagueSummary>(`/myleague/${id}`);
 }

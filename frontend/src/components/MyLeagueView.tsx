@@ -30,13 +30,16 @@ import type {
 } from "../types";
 import TeamLogo from "./TeamLogo";
 import GameDetailView from "./GameDetailView";
+import TeamDrillInView from "./TeamDrillInView";
+import PlayerModal from "./PlayerModal";
 import { franchiseFor } from "../data/franchises";
 import { conferenceOf } from "../data/conferences";
 
 type View =
   | { kind: "picker" }
   | { kind: "dashboard"; simId: number }
-  | { kind: "game"; simId: number; gameId: string };
+  | { kind: "team"; simId: number; teamAbbr: string; season: string }
+  | { kind: "game"; simId: number; gameId: string; fromTeam?: string; fromTeamSeason?: string };
 
 export default function MyLeagueView() {
   const [view, setView] = useState<View>({ kind: "picker" });
@@ -57,15 +60,47 @@ export default function MyLeagueView() {
           onError={setError}
           onExit={() => setView({ kind: "picker" })}
           onOpenGame={(gameId) => { setError(null); setView({ kind: "game", simId: view.simId, gameId }); }}
+          onOpenTeam={(teamAbbr, season) => {
+            setError(null);
+            setView({ kind: "team", simId: view.simId, teamAbbr, season });
+          }}
+        />
+      )}
+      {view.kind === "team" && (
+        <TeamDrillInView
+          simId={view.simId}
+          teamAbbr={view.teamAbbr}
+          season={view.season}
+          onBack={() => setView({ kind: "dashboard", simId: view.simId })}
+          onOpenGame={(gameId) => {
+            setError(null);
+            setView({
+              kind: "game", simId: view.simId, gameId,
+              fromTeam: view.teamAbbr, fromTeamSeason: view.season,
+            });
+          }}
+          onError={setError}
+          backLabel="← Back to dashboard"
         />
       )}
       {view.kind === "game" && (
         <GameDetailView
           simId={view.simId}
           gameId={view.gameId}
-          onBack={() => setView({ kind: "dashboard", simId: view.simId })}
+          onBack={() => {
+            if (view.fromTeam && view.fromTeamSeason) {
+              setView({
+                kind: "team", simId: view.simId,
+                teamAbbr: view.fromTeam, season: view.fromTeamSeason,
+              });
+            } else {
+              setView({ kind: "dashboard", simId: view.simId });
+            }
+          }}
           onError={setError}
-          backLabel="← Back to dashboard"
+          backLabel={
+            view.fromTeam ? `← Back to ${view.fromTeam} roster` : "← Back to dashboard"
+          }
           runningStatsSimId={view.simId}
           runningStatsLabel="MyLeague"
         />
@@ -257,9 +292,10 @@ interface DashboardProps {
   onError: (msg: string) => void;
   onExit: () => void;
   onOpenGame: (gameId: string) => void;
+  onOpenTeam: (teamAbbr: string, season: string) => void;
 }
 
-function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProps) {
+function MyLeagueDashboard({ simId, onError, onExit, onOpenGame, onOpenTeam }: DashboardProps) {
   const [summary, setSummary] = useState<MyLeagueSummary | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [lastAdvance, setLastAdvance] = useState<string | null>(null);
@@ -363,7 +399,14 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProp
       )}
 
       {!seasonComplete && next_game_preview && (
-        <NextGameCard preview={next_game_preview} controlledAbbr={controlledAbbr!} season={state.season} cursor={state.current_calendar_date} />
+        <NextGameCard
+          preview={next_game_preview}
+          controlledAbbr={controlledAbbr!}
+          season={state.season}
+          cursor={state.current_calendar_date}
+          onOpenTeam={(abbr) => onOpenTeam(abbr, state.season)}
+          simId={simId}
+        />
       )}
 
       <div className="myleague-columns">
@@ -466,6 +509,7 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProp
               standings={standings}
               season={state.season}
               controlledTeamId={state.controlled_team_id}
+              onOpenTeam={(abbr) => onOpenTeam(abbr, state.season)}
             />
           )}
         </section>
@@ -479,11 +523,12 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame }: DashboardProp
 // ---------------------------------------------------------------------------
 
 function SplitStandings({
-  standings, season, controlledTeamId,
+  standings, season, controlledTeamId, onOpenTeam,
 }: {
   standings: StandingsRow[];
   season: string;
   controlledTeamId: number | null;
+  onOpenTeam: (teamAbbr: string) => void;
 }) {
   const east: StandingsRow[] = [];
   const west: StandingsRow[] = [];
@@ -509,11 +554,11 @@ function SplitStandings({
   };
   return (
     <div className="myleague-standings-conferences">
-      <MiniConferenceTable title="East" rows={rerank(east)} season={season} controlledTeamId={controlledTeamId} />
-      <MiniConferenceTable title="West" rows={rerank(west)} season={season} controlledTeamId={controlledTeamId} />
+      <MiniConferenceTable title="East" rows={rerank(east)} season={season} controlledTeamId={controlledTeamId} onOpenTeam={onOpenTeam} />
+      <MiniConferenceTable title="West" rows={rerank(west)} season={season} controlledTeamId={controlledTeamId} onOpenTeam={onOpenTeam} />
       {other.length > 0 && (
         <MiniConferenceTable
-          title="Other" rows={rerank(other)} season={season} controlledTeamId={controlledTeamId}
+          title="Other" rows={rerank(other)} season={season} controlledTeamId={controlledTeamId} onOpenTeam={onOpenTeam}
         />
       )}
     </div>
@@ -521,12 +566,13 @@ function SplitStandings({
 }
 
 function MiniConferenceTable({
-  title, rows, season, controlledTeamId,
+  title, rows, season, controlledTeamId, onOpenTeam,
 }: {
   title: string;
   rows: StandingsRow[];
   season: string;
   controlledTeamId: number | null;
+  onOpenTeam: (teamAbbr: string) => void;
 }) {
   return (
     <div className="mini-conf">
@@ -548,7 +594,8 @@ function MiniConferenceTable({
             return (
               <tr
                 key={row.team_id}
-                className={`standings-row ${i % 2 === 0 ? "even" : "odd"} ${isControlled ? "controlled-neutral" : ""}`}
+                className={`standings-row clickable ${i % 2 === 0 ? "even" : "odd"} ${isControlled ? "controlled-neutral" : ""}`}
+                onClick={() => onOpenTeam(row.team_abbr)}
               >
                 <td className="col-rank">{row.rank}</td>
                 <td className="col-team">
@@ -588,13 +635,18 @@ function daysBetween(fromIso: string, toIso: string): number {
 // ---------------------------------------------------------------------------
 
 function NextGameCard({
-  preview, controlledAbbr, season, cursor,
+  preview, controlledAbbr, season, cursor, onOpenTeam, simId,
 }: {
   preview: NextGamePreview;
   controlledAbbr: string;
   season: string;
   cursor: string;
+  onOpenTeam: (teamAbbr: string) => void;
+  simId: number;
 }) {
+  const [selectedPlayer, setSelectedPlayer] = useState<{
+    player_id: number; name: string;
+  } | null>(null);
   const days = daysBetween(cursor, preview.game_date);
   const relative =
     days === 0 ? "today"
@@ -613,16 +665,20 @@ function NextGameCard({
         <span className="myleague-next-eyebrow">Next game · {relative}</span>
         <div className="myleague-next-matchup">
           <span
-            className="myleague-next-team"
+            className="myleague-next-team clickable"
+            title="View team roster"
             style={ctrlFr ? ({ ["--team-accent" as string]: ctrlFr.primaryColor } as React.CSSProperties) : undefined}
+            onClick={() => onOpenTeam(controlledAbbr)}
           >
             <TeamLogo abbr={controlledAbbr} size="lg" season={season} />
             <span className="myleague-next-team-name">{ctrlFr?.fullName || controlledAbbr}</span>
           </span>
           <span className="myleague-next-vs">{location}</span>
           <span
-            className="myleague-next-team"
+            className="myleague-next-team clickable"
+            title="View team roster"
             style={oppFr ? ({ ["--team-accent" as string]: oppFr.primaryColor } as React.CSSProperties) : undefined}
+            onClick={() => onOpenTeam(preview.opponent_abbr)}
           >
             <TeamLogo abbr={preview.opponent_abbr} size="lg" season={season} />
             <span className="myleague-next-team-name">{oppFr?.fullName || preview.opponent_abbr}</span>
@@ -635,32 +691,74 @@ function NextGameCard({
         </div>
       </div>
       <div className="myleague-next-rosters">
-        <RosterList title={controlledAbbr} players={preview.controlled_roster} />
-        <RosterList title={preview.opponent_abbr} players={preview.opponent_roster} />
+        <RosterList
+          title={controlledAbbr}
+          players={preview.controlled_roster}
+          onSelect={setSelectedPlayer}
+        />
+        <RosterList
+          title={preview.opponent_abbr}
+          players={preview.opponent_roster}
+          onSelect={setSelectedPlayer}
+        />
       </div>
+      {selectedPlayer && (
+        <PlayerModal
+          key={selectedPlayer.player_id}
+          line={{
+            player_id: selectedPlayer.player_id,
+            name: selectedPlayer.name,
+            minutes: 0, points: 0, rebounds: 0, assists: 0,
+            steals: 0, blocks: 0, turnovers: 0, personal_fouls: 0,
+            plus_minus: 0, fgm: 0, fga: 0, fg3m: 0, fg3a: 0,
+            ftm: 0, fta: 0, fouled_out: false,
+          }}
+          season={season}
+          events={[]}
+          onClose={() => setSelectedPlayer(null)}
+          runningStatsSimId={simId}
+          runningStatsLabel="MyLeague"
+        />
+      )}
     </div>
   );
 }
 
-function RosterList({ title, players }: { title: string; players: NextGamePreview["controlled_roster"] }) {
+function RosterList({
+  title, players, onSelect,
+}: {
+  title: string;
+  players: NextGamePreview["controlled_roster"];
+  onSelect: (p: { player_id: number; name: string }) => void;
+}) {
   const fmt = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
   return (
     <div className="myleague-next-roster">
-      <h4>{title} rotation</h4>
+      <h4>
+        {title} rotation
+        <span className="next-roster-ref-tag" title="These stats are real-season averages, shown as pre-game reference. MyLeague running averages are visible in each player's modal.">
+          real reference
+        </span>
+      </h4>
       <table>
         <thead>
           <tr>
             <th className="pos"></th>
             <th className="name"></th>
             <th className="stat" title="Minutes per game (scheduled)">MPG</th>
-            <th className="stat" title="Points per game (real-season reference)">PPG</th>
-            <th className="stat" title="Rebounds per game (real-season reference)">RPG</th>
-            <th className="stat" title="Assists per game (real-season reference)">APG</th>
+            <th className="stat" title="Points per game — real-season reference (click a player for MyLeague averages)">PPG</th>
+            <th className="stat" title="Rebounds per game — real-season reference">RPG</th>
+            <th className="stat" title="Assists per game — real-season reference">APG</th>
           </tr>
         </thead>
         <tbody>
           {players.map((p) => (
-            <tr key={p.player_id} className={p.is_starter ? "starter" : ""}>
+            <tr
+              key={p.player_id}
+              className={`clickable ${p.is_starter ? "starter" : ""}`}
+              onClick={() => onSelect({ player_id: p.player_id, name: p.name })}
+              title="Click for MyLeague averages"
+            >
               <td className="pos">{p.position}</td>
               <td className="name">{p.name}</td>
               <td className="stat">{p.mpg.toFixed(1)}</td>

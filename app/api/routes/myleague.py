@@ -249,11 +249,18 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
     team_ids: set[int] = set()
     for _, hid, aid, _, _ in game_rows:
         team_ids.add(hid); team_ids.add(aid)
-    abbr_by_id = {
-        t.id: t.abbreviation for t in db.execute(
-            select(Team).where(Team.id.in_(team_ids))
-        ).scalars().all()
-    } if team_ids else {}
+    # Era-accurate abbreviations — SEA for 2007-08 Sonics, not modern OKC.
+    # Every place that renders an abbreviation to the UI (standings / recent /
+    # upcoming / NextGameCard) reads from this map, so all four surfaces stay
+    # consistent with the season's actual identity.
+    from app.services.franchise import team_identity as _team_identity
+    abbr_by_id: dict[int, str] = {}
+    if team_ids:
+        for t in db.execute(select(Team).where(Team.id.in_(team_ids))).scalars().all():
+            _, _, era_abbr = _team_identity(
+                t.id, sim.season, (t.city, t.nickname, t.abbreviation)
+            )
+            abbr_by_id[t.id] = era_abbr
     tuples = [
         (gid, hid, aid, hs, ascore, abbr_by_id.get(hid, "?"), abbr_by_id.get(aid, "?"))
         for gid, hid, aid, hs, ascore in game_rows
@@ -320,7 +327,10 @@ def get_myleague(sim_id: int, db: Session = Depends(get_db)):
         missing_ids -= set(abbr_by_id.keys())
         if missing_ids:
             for t in db.execute(select(Team).where(Team.id.in_(missing_ids))).scalars().all():
-                abbr_by_id[t.id] = t.abbreviation
+                _, _, era_abbr = _team_identity(
+                    t.id, sim.season, (t.city, t.nickname, t.abbreviation)
+                )
+                abbr_by_id[t.id] = era_abbr
         upcoming_games = [
             UpcomingGameRow(
                 game_id=gid,
@@ -547,17 +557,21 @@ def get_myleague_team(
         )
 
     # Team lookup — resolve era-accurate abbr via team_identity so
-    # 07-08 SEA / 04-08 CHA-Bobcats work.
+    # 07-08 SEA / 04-08 CHA-Bobcats work. Also accepts the modern abbr as
+    # a fallback so an old bookmark or a stale UI reference (e.g. "OKC"
+    # while browsing 2007-08) still resolves to the right team.
     from app.services.franchise import team_identity
     all_teams = db.execute(select(Team)).scalars().all()
     match = None
+    era_city = era_nick = era_abbr_val = None
+    normalized = team_abbr.upper()
     for t in all_teams:
-        _, _, era_abbr = team_identity(t.id, sim.season, (t.city, t.nickname, t.abbreviation))
-        if era_abbr.upper() == team_abbr.upper():
+        era_c, era_n, era_a = team_identity(
+            t.id, sim.season, (t.city, t.nickname, t.abbreviation)
+        )
+        if era_a.upper() == normalized or t.abbreviation.upper() == normalized:
             match = t
-            era_city, era_nick, era_abbr_val = team_identity(
-                t.id, sim.season, (t.city, t.nickname, t.abbreviation)
-            )
+            era_city, era_nick, era_abbr_val = era_c, era_n, era_a
             break
     if match is None:
         raise HTTPException(

@@ -1146,6 +1146,97 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .standings-row.odd  { background: rgba(255, 255, 255, 0.015); }
 .standings-row:hover { background: var(--panel-2); }
+.standings-row.clickable { cursor: pointer; }
+
+/* --- M-3 Team drill-in --------------------------------------------------- */
+.team-drill-in { display: flex; flex-direction: column; gap: 16px; }
+.team-drill-context {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  padding: 10px 14px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.tdc-cell { display: flex; flex-direction: column; gap: 2px; }
+.tdc-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--muted); font-weight: 600;
+}
+.tdc-value { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.team-drill-roster { display: flex; flex-direction: column; gap: 6px; }
+.team-drill-roster h3 { margin: 0; }
+.tdr-note {
+  margin: 0 0 6px; color: var(--muted); font-size: 12px; font-style: italic;
+}
+.team-drill-roster-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.team-drill-roster-table th {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line);
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.6px; font-weight: 600;
+}
+.team-drill-roster-table th.rp-num,
+.team-drill-roster-table th.rp-gp { text-align: right; }
+.team-drill-roster-table td {
+  padding: 8px; border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.team-drill-roster-table td.rp-num,
+.team-drill-roster-table td.rp-gp { text-align: right; }
+.team-drill-roster-table tr.rp-row.clickable { cursor: pointer; }
+.team-drill-roster-table tr.rp-row:hover { background: var(--panel-2); }
+.team-drill-roster-table tr.rp-row.starter { font-weight: 600; }
+.rp-name-text { }
+.rp-starter-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 5px;
+  font-size: 9px; font-weight: 700; border-radius: 3px;
+  background: var(--team-accent, var(--accent)); color: white;
+  vertical-align: middle;
+}
+.rp-status-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.rp-status-available { background: rgba(52,211,153,0.15); color: #34d399; }
+.rp-status-out { background: rgba(248,113,113,0.15); color: #f87171; }
+.rp-src-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;
+  font-weight: 700;
+}
+.rp-src-tag.sim {
+  background: color-mix(in srgb, var(--team-accent, var(--accent)) 15%, transparent);
+  color: var(--team-accent, var(--accent));
+}
+.rp-src-tag.real { background: rgba(200,200,200,0.1); color: var(--muted); }
+.rp-src-hint {
+  font-size: 10px; color: var(--muted); font-style: italic; margin-top: 2px;
+}
+.team-drill-recent h3 { margin: 0 0 6px; }
+.streak.streak-w { color: #34d399; font-weight: 700; }
+.streak.streak-l { color: #f87171; font-weight: 700; }
+.streak.streak-n { color: var(--muted); }
+.myleague-next-team.clickable { cursor: pointer; }
+.myleague-next-team.clickable:hover { text-decoration: underline; }
+.myleague-next-roster tr.clickable { cursor: pointer; }
+.myleague-next-roster tr.clickable:hover { background: var(--panel-2); }
+.next-roster-ref-tag {
+  display: inline-block; margin-left: 8px;
+  padding: 1px 6px; border-radius: 4px;
+  background: rgba(200,200,200,0.1); color: var(--muted);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;
+  font-weight: 600; vertical-align: middle;
+}
+.tdr-count {
+  display: inline-block; margin-left: 8px;
+  padding: 1px 8px; border-radius: 10px;
+  background: var(--panel-2); color: var(--muted);
+  font-size: 12px; font-weight: 700; vertical-align: middle;
+}
+.rp-src-hint-inline {
+  display: inline-block; margin-left: 8px;
+  font-size: 10px; color: var(--muted); font-style: italic;
+}
 .standings-row td {
   padding: 8px; border-bottom: 1px solid var(--line);
   text-align: right; font-variant-numeric: tabular-nums;

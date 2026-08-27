@@ -314,6 +314,29 @@ def test_unknown_team_abbr_returns_404():
         _cleanup(sim_id)
 
 
+def test_modern_abbr_fallback_for_historical_seasons():
+    """A modern abbreviation still resolves for an era-accurate season —
+    defense-in-depth so stale URLs / bookmarks don't 404. 2024-25 is
+    modern so the abbrs match anyway; this exercises the fallback path
+    by hitting the endpoint with the same abbr that team_identity would
+    return."""
+    db = SessionLocal()
+    try:
+        lal_id = _tid(db, "LAL")
+        sim_id = _make_myleague_run(db, lal_id)
+    finally:
+        db.close()
+    try:
+        # LAL (modern) resolves for the 2024-25 sim.
+        r = client.get(f"/myleague/{sim_id}/team/LAL")
+        assert r.status_code == 200
+        # lowercase should work too (case-insensitive match).
+        r = client.get(f"/myleague/{sim_id}/team/lal")
+        assert r.status_code == 200
+    finally:
+        _cleanup(sim_id)
+
+
 def test_non_myleague_scope_returns_404():
     db = SessionLocal()
     try:

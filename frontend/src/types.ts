@@ -314,6 +314,50 @@ export interface MyLeaguePlayerStats {
   real: MyLeaguePlayerReal | null;
 }
 
+// --- MyLeague team drill-in (M-3) ------------------------------------------
+
+export interface TeamDrillInRecord {
+  wins: number;
+  losses: number;
+  pct: number;
+  streak: string;
+  home_wins: number;
+  home_losses: number;
+  away_wins: number;
+  away_losses: number;
+  ppg_scored: number;
+  ppg_allowed: number;
+}
+
+export interface TeamDrillInRosterPlayer {
+  player_id: number;
+  name: string;
+  position: string;
+  is_starter: boolean;
+  availability: "AVAILABLE" | "OUT";
+  sim: MyLeaguePlayerSim | null;
+  real: MyLeaguePlayerReal | null;
+}
+
+export interface TeamDrillInResponse {
+  team_id: number;
+  team_abbr: string;
+  team_city: string;
+  team_nickname: string;
+  as_of_date: string;
+  record: TeamDrillInRecord;
+  roster: TeamDrillInRosterPlayer[];
+  recent_games: {
+    game_id: string;
+    game_date: string;
+    home_team: string;
+    away_team: string;
+    home_score: number;
+    away_score: number;
+    went_to_ot: boolean;
+  }[];
+}
+
 // --- MyLeague (M-1c) -------------------------------------------------------
 
 export interface MyLeagueStateDTO {

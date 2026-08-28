@@ -580,9 +580,21 @@ def get_myleague_team(
         )
 
     # --- roster @ as_of_date
+    #
+    # M-4 fold-consistency fix: fold events at cursor+1 (the earliest
+    # date at which a new event can legally apply, per the M-1a
+    # retroactive-mutation rule). Without this, the drill-in chip would
+    # show a freshly-toggled player as still Available (fold at cursor
+    # doesn't include the cursor+1 event) while NextGameCard folds at
+    # the next game date and correctly shows OUT — the two surfaces
+    # disagreed. Fold effective-date now matches the write's
+    # applied_at_date semantics: the chip reflects "from tomorrow
+    # forward, what will this player's status be."
     from app.services.roster_at_date import resolve_team_roster_at_date, sort_roster_depth_chart
     from app.services.player_stats import derive_bulk_player_stats
-    as_of = state_row.current_calendar_date
+    from datetime import timedelta
+    cursor_date = state_row.current_calendar_date
+    as_of = cursor_date + timedelta(days=1)
     members = resolve_team_roster_at_date(
         db, sim_id=sim_id, team_id=match.id, season=sim.season, as_of_date=as_of,
     )

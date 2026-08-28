@@ -41,6 +41,64 @@ from app.models.team_season_stats import TeamSeasonStats
 season_router = APIRouter()
 
 
+def _myleague_unavailable_pairs_at(db: Session, sim_id: int, at_date) -> set:
+    """(team_id, player_id) OUT pairs in a MyLeague run as of `at_date`."""
+    from app.models.myleague import MyLeagueEvent, MyLeagueState
+    from app.services.myleague_state import MyLeagueEventPayload, apply_events
+    state_row = db.execute(
+        select(MyLeagueState).where(MyLeagueState.simulation_id == sim_id)
+    ).scalar_one_or_none()
+    if state_row is None:
+        return set()
+    event_rows = db.execute(
+        select(MyLeagueEvent)
+        .where(MyLeagueEvent.myleague_state_id == state_row.id)
+        .order_by(MyLeagueEvent.applied_at_date.asc(), MyLeagueEvent.id.asc())
+    ).scalars().all()
+    payloads = [
+        MyLeagueEventPayload(
+            event_type=e.event_type,
+            applied_at_date=e.applied_at_date,
+            payload=e.payload_json or {},
+        )
+        for e in event_rows
+    ]
+    return set(apply_events(payloads, at_date))
+
+
+def _myleague_unavailable_at(db: Session, sim_id: int, at_date) -> set[int]:
+    """Player ids marked OUT in a MyLeague run as of `at_date`.
+
+    Used by drill-in re-simulation paths so they reproduce the same
+    availability state advance_to used when the game was originally
+    persisted. Empty set for non-MyLeague sims (or when the run has no
+    events). See M-4 UAT: without this, the drill-in re-sim shows OUT
+    players playing — contradicting the persisted boxscore/record.
+    """
+    from app.models.myleague import MyLeagueEvent, MyLeagueState
+    from app.services.myleague_state import MyLeagueEventPayload, apply_events
+    state_row = db.execute(
+        select(MyLeagueState).where(MyLeagueState.simulation_id == sim_id)
+    ).scalar_one_or_none()
+    if state_row is None:
+        return set()
+    event_rows = db.execute(
+        select(MyLeagueEvent)
+        .where(MyLeagueEvent.myleague_state_id == state_row.id)
+        .order_by(MyLeagueEvent.applied_at_date.asc(), MyLeagueEvent.id.asc())
+    ).scalars().all()
+    payloads = [
+        MyLeagueEventPayload(
+            event_type=e.event_type,
+            applied_at_date=e.applied_at_date,
+            payload=e.payload_json or {},
+        )
+        for e in event_rows
+    ]
+    unavailable_pairs = apply_events(payloads, at_date)
+    return {pid for (_tid, pid) in unavailable_pairs}
+
+
 def _total_games_for(sim: SimulationRun, db: Session) -> int:
     """Progress denominator matched to the sim's actual scope.
 
@@ -775,14 +833,31 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
     # the drill-in silently used load_roster's defaults (depth=10, pre_negation=
     # False) and skipped the availability reload -- producing a completely
     # different game than the persisted season-sim result.
+    # Backfill by OUT count so re-simulation matches advance_to's
+    # depth-adjusted load (M-4: promote bench when a starter is OUT).
+    _pre_out_home = _pre_out_away = 0
+    if sim.scope == "myleague":
+        _pre_pairs = _myleague_unavailable_pairs_at(db, sim_id, real_game.game_date)
+        _pre_out_home = sum(1 for (t, _p) in _pre_pairs if t == real_game.home_team_id)
+        _pre_out_away = sum(1 for (t, _p) in _pre_pairs if t == real_game.away_team_id)
     home_players = load_roster(
         db, real_game.home_team_id, sim.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth + _pre_out_home,
+        pre_negation=cfg.use_pre_negation_probs,
     )
     away_players = load_roster(
         db, real_game.away_team_id, sim.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth + _pre_out_away,
+        pre_negation=cfg.use_pre_negation_probs,
     )
+
+    # M-4 fix: MyLeague drill-in must fold events at this game's date so
+    # OUT players don't sneak back in via re-simulation.
+    unavailable_ids: set = set()
+    if sim.scope == "myleague":
+        unavailable_ids = _myleague_unavailable_at(db, sim_id, real_game.game_date)
+        home_players = [p for p in home_players if p["id"] not in unavailable_ids]
+        away_players = [p for p in away_players if p["id"] not in unavailable_ids]
 
     seed = _game_seed(sim.seed, game_id)
     result = simulate_game(
@@ -792,6 +867,7 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
         config=cfg, db=db,
         home_team_id=real_game.home_team_id,
         away_team_id=real_game.away_team_id,
+        unavailable_player_ids=unavailable_ids or None,
     )
 
     home_ids = {p["id"] for p in home_players}
@@ -868,14 +944,31 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
     # the drill-in silently used load_roster's defaults (depth=10, pre_negation=
     # False) and skipped the availability reload -- producing a completely
     # different game than the persisted season-sim result.
+    # Backfill by OUT count so re-simulation matches advance_to's
+    # depth-adjusted load (M-4: promote bench when a starter is OUT).
+    _pre_out_home = _pre_out_away = 0
+    if sim.scope == "myleague":
+        _pre_pairs = _myleague_unavailable_pairs_at(db, sim_id, real_game.game_date)
+        _pre_out_home = sum(1 for (t, _p) in _pre_pairs if t == real_game.home_team_id)
+        _pre_out_away = sum(1 for (t, _p) in _pre_pairs if t == real_game.away_team_id)
     home_players = load_roster(
         db, real_game.home_team_id, sim.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth + _pre_out_home,
+        pre_negation=cfg.use_pre_negation_probs,
     )
     away_players = load_roster(
         db, real_game.away_team_id, sim.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth + _pre_out_away,
+        pre_negation=cfg.use_pre_negation_probs,
     )
+
+    # M-4 fix: same events-fold as the game-detail endpoint above so PBP
+    # re-simulation stays consistent with persisted state.
+    unavailable_ids: set = set()
+    if sim.scope == "myleague":
+        unavailable_ids = _myleague_unavailable_at(db, sim_id, real_game.game_date)
+        home_players = [p for p in home_players if p["id"] not in unavailable_ids]
+        away_players = [p for p in away_players if p["id"] not in unavailable_ids]
 
     seed = _game_seed(sim.seed, game_id)
     result = simulate_game(
@@ -885,6 +978,7 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
         config=cfg, db=db,
         home_team_id=real_game.home_team_id,
         away_team_id=real_game.away_team_id,
+        unavailable_player_ids=unavailable_ids or None,
     )
 
     home_ids = {p["id"] for p in home_players}

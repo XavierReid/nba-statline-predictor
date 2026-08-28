@@ -198,6 +198,51 @@ def append_event(
             f"{min(offending)}"
         )
 
+    # --- M-4 availability event constraints -----------------------------
+    #
+    # Availability events (SET_UNAVAILABLE / SET_AVAILABLE) are the first
+    # user-driven MyLeague mutation. Enforce franchise-manager rules here
+    # so guarantees hold regardless of caller (route, tests, future
+    # features):
+    #   (a) team_id + player_id required in the payload
+    #   (b) team_id must match controlled_team_id when the run HAS one
+    #       (no opponent-team mutation); None = God-mode, any team OK
+    #   (c) the player must be rostered on that team for the sim's
+    #       season (no phantom-player events)
+    # Runs after the retroactive-mutation guard so time-invariance takes
+    # precedence over payload validation.
+    from app.services.myleague_state import EVENT_SET_AVAILABLE, EVENT_SET_UNAVAILABLE
+    if event_type in (EVENT_SET_UNAVAILABLE, EVENT_SET_AVAILABLE):
+        team_id = payload.get("team_id")
+        player_id = payload.get("player_id")
+        if team_id is None or player_id is None:
+            raise MyLeagueError(
+                f"availability event payload requires team_id + player_id "
+                f"(got {payload!r})"
+            )
+        if (
+            state_row.controlled_team_id is not None
+            and team_id != state_row.controlled_team_id
+        ):
+            raise MyLeagueError(
+                f"team_id={team_id} does not match controlled_team_id="
+                f"{state_row.controlled_team_id}; opponent-team availability "
+                f"mutation is not supported"
+            )
+        from app.models.player_season_stats import PlayerSeasonStats
+        rostered = db.execute(
+            select(PlayerSeasonStats.player_id)
+            .where(PlayerSeasonStats.player_id == player_id)
+            .where(PlayerSeasonStats.team_id == team_id)
+            .where(PlayerSeasonStats.season == sim.season)
+            .limit(1)
+        ).scalar_one_or_none()
+        if rostered is None:
+            raise MyLeagueError(
+                f"player_id={player_id} is not rostered on team_id={team_id} "
+                f"for season {sim.season!r}"
+            )
+
     ev = MyLeagueEvent(
         myleague_state_id=state_row.id,
         event_type=event_type,
@@ -272,28 +317,34 @@ def advance_to(
         db, sim.season, state_row.current_calendar_date, target_date, completed_ids,
     )
 
-    # Cache rosters per (team_id, availability-fingerprint) — a team's
-    # base roster is stable, availability changes between games only when
-    # events fire on the boundary date.
-    base_roster_cache: dict[int, list] = {}
-    def _base_roster(team_id: int) -> list:
-        if team_id not in base_roster_cache:
-            base_roster_cache[team_id] = load_roster(
+    # Roster loader with M-4 backfill: if events mark N players OUT on
+    # a team, load N extra players from the pool so the sim still gets
+    # `config.roster_depth` active guys — matches how real coaches
+    # promote bench players when starters are out. Cache is keyed by
+    # (team_id, out_count) since different games may have different
+    # OUT counts (e.g. later in the season after more events).
+    base_roster_cache: dict = {}
+    def _base_roster(team_id: int, out_count: int = 0) -> list:
+        key = (team_id, out_count)
+        if key not in base_roster_cache:
+            base_roster_cache[key] = load_roster(
                 db, team_id, sim.season,
-                depth=config.roster_depth,
+                depth=config.roster_depth + out_count,
                 pre_negation=config.use_pre_negation_probs,
             )
-        return base_roster_cache[team_id]
+        return base_roster_cache[key]
 
     completed_this_advance = 0
     for game in games:
         # Availability at THIS game's date (deterministic per game).
         unavailable = apply_events(events, game.game_date)
+        home_out = sum(1 for (t, _p) in unavailable if t == game.home_team_id)
+        away_out = sum(1 for (t, _p) in unavailable if t == game.away_team_id)
         home_players = filter_available_players(
-            _base_roster(game.home_team_id), game.home_team_id, unavailable,
+            _base_roster(game.home_team_id, home_out), game.home_team_id, unavailable,
         )
         away_players = filter_available_players(
-            _base_roster(game.away_team_id), game.away_team_id, unavailable,
+            _base_roster(game.away_team_id, away_out), game.away_team_id, unavailable,
         )
         if len(home_players) < 5 or len(away_players) < 5:
             # Not enough eligible players — skip (surfaces later as a
@@ -302,10 +353,17 @@ def advance_to(
             continue
 
         seed = _game_seed(sim.seed, game.id)
+        # Pass unavailable player ids so simulate_game's inner reload
+        # (triggered when use_availability is on and the passed roster
+        # is shorter than depth) doesn't silently re-include players
+        # who are OUT per MyLeague events. Without this, marking a
+        # player OUT had no effect on games where reload triggered.
+        unavailable_ids = {pid for (_tid, pid) in unavailable}
         result = simulate_game(
             home_players, away_players, seed=seed, season=sim.season,
             config=config, db=db,
             home_team_id=game.home_team_id, away_team_id=game.away_team_id,
+            unavailable_player_ids=unavailable_ids,
         )
         _persist_game(db, simulation_id, game, result, home_players, away_players)
         completed_this_advance += 1

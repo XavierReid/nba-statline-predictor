@@ -75,6 +75,7 @@ def simulate_game(
     home_team_id: Optional[int] = None,
     away_team_id: Optional[int] = None,
     db: Optional[object] = None,
+    unavailable_player_ids: Optional[set] = None,
 ) -> dict:
     """Simulate one full game including any overtime periods.
 
@@ -107,6 +108,15 @@ def simulate_game(
                 home_pool = hp
             if ap:
                 away_pool = ap
+        # M-4 bug fix: the reload above pulls the FULL team roster from
+        # PSS/Player and would silently re-include players who are OUT
+        # per MyLeague events. When the caller (e.g. advance_to) passes
+        # an unavailable set, apply it to the reloaded pool so events
+        # actually gate who can play. Without this, availability events
+        # took no effect on games where reload triggered.
+        if unavailable_player_ids:
+            home_pool = [p for p in home_pool if p["id"] not in unavailable_player_ids]
+            away_pool = [p for p in away_pool if p["id"] not in unavailable_player_ids]
     # gap 3.4g: annotate each pool's full-strength creation reference BEFORE availability copies
     # the active subset (select_active_roster does dict(p), so the ref propagates to the copies).
     if cfg.use_lineup_creation and db is not None and season:

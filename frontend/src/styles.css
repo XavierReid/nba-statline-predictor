@@ -1199,6 +1199,13 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .rp-status-available { background: rgba(52,211,153,0.15); color: #34d399; }
 .rp-status-out { background: rgba(248,113,113,0.15); color: #f87171; }
+.rp-toggle {
+  border: 1px solid transparent; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+.rp-toggle:hover { border-color: currentColor; }
+.rp-toggle:disabled { opacity: 0.5; cursor: wait; }
 .rp-src-tag {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;

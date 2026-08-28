@@ -275,7 +275,10 @@ def test_gate7_record_only_from_this_sim():
 
 # --- as_of_date is the sim's cursor + returned shape checks ---------------
 
-def test_as_of_date_is_sim_cursor():
+def test_as_of_date_is_cursor_plus_one():
+    """M-4 fold-consistency fix: as_of_date is cursor+1 (the earliest
+    date a new event can legally apply). Matches the write's
+    applied_at_date semantics so chip + NextGameCard agree."""
     db = SessionLocal()
     try:
         lal_id = _tid(db, "LAL")
@@ -285,7 +288,7 @@ def test_as_of_date_is_sim_cursor():
         db.close()
     try:
         body = client.get(f"/myleague/{sim_id}/team/LAL").json()
-        assert body["as_of_date"] == "2024-12-25"
+        assert body["as_of_date"] == "2024-12-26"
         assert body["team_abbr"] == "LAL"
         assert body["team_city"]
         assert body["team_nickname"]

@@ -12,15 +12,21 @@
  *   - Sim block used when the player has sim history
  *   - Real block ("real reference") when sim GP == 0
  *   - Small-sample tag when 1 ≤ sim GP < 10
- *   - "OUT so far" hint when the team has played but the player hasn't
- *   - Availability chip is read-only in M-3; M-4 turns it into a control
+ *
+ * M-4 availability toggle:
+ *   The Avail/OUT chip is interactive when this is the controlled team.
+ *   Click → confirm → POST SET_UNAVAILABLE|SET_AVAILABLE event at the
+ *   sim's current_calendar_date → refetch. Server enforces:
+ *     - team_id === controlled_team_id (opponent mutation rejected)
+ *     - player rostered on team for the sim's season
+ *     - retroactive-mutation guard (already in the engine)
  *
  * Player rows are clickable → PlayerModal with runningStatsSimId,
  * runningStatsLabel="MyLeague" (matches the design-lock inside a
  * MyLeague context).
  */
 import { useEffect, useState } from "react";
-import { getMyLeagueTeam } from "../api";
+import { appendMyLeagueEvent, getMyLeagueTeam } from "../api";
 import type {
   PlayerLine,
   TeamDrillInResponse,
@@ -34,6 +40,15 @@ interface TeamDrillInViewProps {
   simId: number;
   teamAbbr: string;
   season: string;
+  /** From MyLeague state — decides whether the availability chip is
+   * interactive on this drill-in. Only rows on the controlled team
+   * can be toggled (rest are read-only, matches the franchise-manager
+   * mental model). */
+  controlledTeamId: number | null;
+  /** From MyLeague state — event's applied_at_date. Matches the "act
+   * at the cursor" model; the engine's retroactive-mutation guard
+   * enforces this can only affect games AFTER the current cursor. */
+  currentCalendarDate: string;
   onBack: () => void;
   onOpenGame: (gameId: string) => void;
   onError: (msg: string) => void;
@@ -41,18 +56,54 @@ interface TeamDrillInViewProps {
 }
 
 export default function TeamDrillInView({
-  simId, teamAbbr, season, onBack, onOpenGame, onError,
+  simId, teamAbbr, season, controlledTeamId, currentCalendarDate,
+  onBack, onOpenGame, onError,
   backLabel = "← Back",
 }: TeamDrillInViewProps) {
   const [data, setData] = useState<TeamDrillInResponse | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<TeamDrillInRosterPlayer | null>(null);
+  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     setData(null);
     getMyLeagueTeam(simId, teamAbbr)
       .then(setData)
       .catch((e) => onError(String(e)));
-  }, [simId, teamAbbr, onError]);
+  }, [simId, teamAbbr, onError, reloadTick]);
+
+  const canToggle = data != null && controlledTeamId != null && data.team_id === controlledTeamId;
+
+  async function onToggleAvailability(p: TeamDrillInRosterPlayer) {
+    if (!canToggle || !data) return;
+    const goingOut = p.availability === "AVAILABLE";
+    const verb = goingOut ? "OUT" : "available";
+    // Apply from the day AFTER the current cursor so the M-1a
+    // retroactive-mutation guard doesn't fire on same-day games that
+    // have already been simulated. This is a hard invariant per the
+    // engine's "history is what the fold at completion time produced"
+    // rule.
+    const effective = nextDayIso(currentCalendarDate);
+    const confirmed = window.confirm(
+      `Mark ${p.name} ${verb} starting ${effective}? `
+      + `This affects games from that date forward. Games already `
+      + `simulated in this MyLeague are not changed.`
+    );
+    if (!confirmed) return;
+    setPendingPlayerId(p.player_id);
+    try {
+      await appendMyLeagueEvent(simId, {
+        event_type: goingOut ? "SET_UNAVAILABLE" : "SET_AVAILABLE",
+        applied_at_date: effective,
+        payload: { team_id: data.team_id, player_id: p.player_id },
+      });
+      setReloadTick((t) => t + 1);   // refetch — server is authoritative
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setPendingPlayerId(null);
+    }
+  }
 
   if (!data) return <div className="empty-hint">Loading team…</div>;
 
@@ -113,6 +164,9 @@ export default function TeamDrillInView({
       <RosterSections
         roster={data.roster}
         onSelect={setSelectedPlayer}
+        canToggle={canToggle}
+        pendingPlayerId={pendingPlayerId}
+        onToggleAvailability={onToggleAvailability}
       />
 
       {/* Recent games */}
@@ -175,6 +229,13 @@ export default function TeamDrillInView({
   );
 }
 
+function nextDayIso(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const next = new Date(y, m - 1, d);
+  next.setDate(next.getDate() + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+}
+
 /** Splits the roster into two sections per Xavier's design lock:
  *   - "MyLeague — Played": players with sim GP > 0
  *   - "MyLeague — No games yet": players with sim GP = 0 (still on roster,
@@ -185,10 +246,13 @@ export default function TeamDrillInView({
  * mixed table hard to read.
  */
 function RosterSections({
-  roster, onSelect,
+  roster, onSelect, canToggle, pendingPlayerId, onToggleAvailability,
 }: {
   roster: TeamDrillInRosterPlayer[];
   onSelect: (p: TeamDrillInRosterPlayer) => void;
+  canToggle: boolean;
+  pendingPlayerId: number | null;
+  onToggleAvailability: (p: TeamDrillInRosterPlayer) => void;
 }) {
   const played: TeamDrillInRosterPlayer[] = [];
   const notYet: TeamDrillInRosterPlayer[] = [];
@@ -210,7 +274,11 @@ function RosterSections({
         {played.length === 0 ? (
           <p className="empty-hint">No players have appeared in this MyLeague yet.</p>
         ) : (
-          <RosterTable rows={played} source="sim" onSelect={onSelect} />
+          <RosterTable
+            rows={played} source="sim" onSelect={onSelect}
+            canToggle={canToggle} pendingPlayerId={pendingPlayerId}
+            onToggleAvailability={onToggleAvailability}
+          />
         )}
       </section>
       {notYet.length > 0 && (
@@ -224,7 +292,11 @@ function RosterSections({
             MyLeague appearance yet. Numbers below are their real-season
             reference stats.
           </p>
-          <RosterTable rows={notYet} source="real" onSelect={onSelect} />
+          <RosterTable
+            rows={notYet} source="real" onSelect={onSelect}
+            canToggle={canToggle} pendingPlayerId={pendingPlayerId}
+            onToggleAvailability={onToggleAvailability}
+          />
         </section>
       )}
     </>
@@ -233,10 +305,14 @@ function RosterSections({
 
 function RosterTable({
   rows, source, onSelect,
+  canToggle, pendingPlayerId, onToggleAvailability,
 }: {
   rows: TeamDrillInRosterPlayer[];
   source: "sim" | "real";
   onSelect: (p: TeamDrillInRosterPlayer) => void;
+  canToggle: boolean;
+  pendingPlayerId: number | null;
+  onToggleAvailability: (p: TeamDrillInRosterPlayer) => void;
 }) {
   return (
     <table className="team-drill-roster-table">
@@ -256,7 +332,10 @@ function RosterTable({
         {rows.map((p) => (
           <RosterRow
             key={p.player_id} p={p} source={source}
+            canToggle={canToggle}
+            pending={pendingPlayerId === p.player_id}
             onClick={() => onSelect(p)}
+            onToggleAvailability={() => onToggleAvailability(p)}
           />
         ))}
       </tbody>
@@ -265,11 +344,14 @@ function RosterTable({
 }
 
 function RosterRow({
-  p, source, onClick,
+  p, source, canToggle, pending, onClick, onToggleAvailability,
 }: {
   p: TeamDrillInRosterPlayer;
   source: "sim" | "real";
+  canToggle: boolean;
+  pending: boolean;
   onClick: () => void;
+  onToggleAvailability: () => void;
 }) {
   const s = p.sim;
   const r = p.real;
@@ -281,6 +363,12 @@ function RosterRow({
   const rpg = useSim ? s!.rpg.toFixed(1) : (r ? r.rpg.toFixed(1) : dash);
   const apg = useSim ? s!.apg.toFixed(1) : (r ? r.apg.toFixed(1) : dash);
   const smallSample = useSim && s!.gp < 10;
+  const chipLabel = pending ? "…" : (p.availability === "AVAILABLE" ? "Avail." : "OUT");
+  const chipTitle = canToggle
+    ? (p.availability === "AVAILABLE"
+        ? `Mark ${p.name} unavailable`
+        : `Mark ${p.name} available`)
+    : `Availability read-only for this team`;
 
   return (
     <tr className={`rp-row ${p.is_starter ? "starter" : ""} clickable`} onClick={onClick}>
@@ -291,9 +379,27 @@ function RosterRow({
         {smallSample && <span className="rp-src-hint-inline">small sample</span>}
       </td>
       <td className="rp-status">
-        <span className={`rp-status-chip rp-status-${p.availability.toLowerCase()}`}>
-          {p.availability === "AVAILABLE" ? "Avail." : "OUT"}
-        </span>
+        {canToggle ? (
+          <button
+            type="button"
+            className={`rp-status-chip rp-status-${p.availability.toLowerCase()} rp-toggle`}
+            disabled={pending}
+            title={chipTitle}
+            onClick={(ev) => {
+              ev.stopPropagation();       // don't open the modal
+              onToggleAvailability();
+            }}
+          >
+            {chipLabel}
+          </button>
+        ) : (
+          <span
+            className={`rp-status-chip rp-status-${p.availability.toLowerCase()}`}
+            title={chipTitle}
+          >
+            {chipLabel}
+          </span>
+        )}
       </td>
       <td className="rp-gp">{gp}</td>
       <td className="rp-num">{mpg}</td>

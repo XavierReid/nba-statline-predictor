@@ -38,8 +38,15 @@ import { conferenceOf } from "../data/conferences";
 type View =
   | { kind: "picker" }
   | { kind: "dashboard"; simId: number }
-  | { kind: "team"; simId: number; teamAbbr: string; season: string }
-  | { kind: "game"; simId: number; gameId: string; fromTeam?: string; fromTeamSeason?: string };
+  | {
+      kind: "team"; simId: number; teamAbbr: string; season: string;
+      controlledTeamId: number | null; currentCalendarDate: string;
+    }
+  | {
+      kind: "game"; simId: number; gameId: string;
+      fromTeam?: string; fromTeamSeason?: string;
+      fromTeamControlledId?: number | null; fromTeamCursor?: string;
+    };
 
 export default function MyLeagueView() {
   const [view, setView] = useState<View>({ kind: "picker" });
@@ -60,9 +67,12 @@ export default function MyLeagueView() {
           onError={setError}
           onExit={() => setView({ kind: "picker" })}
           onOpenGame={(gameId) => { setError(null); setView({ kind: "game", simId: view.simId, gameId }); }}
-          onOpenTeam={(teamAbbr, season) => {
+          onOpenTeam={(teamAbbr, season, controlledTeamId, currentCalendarDate) => {
             setError(null);
-            setView({ kind: "team", simId: view.simId, teamAbbr, season });
+            setView({
+              kind: "team", simId: view.simId, teamAbbr, season,
+              controlledTeamId, currentCalendarDate,
+            });
           }}
         />
       )}
@@ -71,12 +81,16 @@ export default function MyLeagueView() {
           simId={view.simId}
           teamAbbr={view.teamAbbr}
           season={view.season}
+          controlledTeamId={view.controlledTeamId}
+          currentCalendarDate={view.currentCalendarDate}
           onBack={() => setView({ kind: "dashboard", simId: view.simId })}
           onOpenGame={(gameId) => {
             setError(null);
             setView({
               kind: "game", simId: view.simId, gameId,
               fromTeam: view.teamAbbr, fromTeamSeason: view.season,
+              fromTeamControlledId: view.controlledTeamId,
+              fromTeamCursor: view.currentCalendarDate,
             });
           }}
           onError={setError}
@@ -88,10 +102,15 @@ export default function MyLeagueView() {
           simId={view.simId}
           gameId={view.gameId}
           onBack={() => {
-            if (view.fromTeam && view.fromTeamSeason) {
+            if (
+              view.fromTeam && view.fromTeamSeason &&
+              view.fromTeamCursor
+            ) {
               setView({
                 kind: "team", simId: view.simId,
                 teamAbbr: view.fromTeam, season: view.fromTeamSeason,
+                controlledTeamId: view.fromTeamControlledId ?? null,
+                currentCalendarDate: view.fromTeamCursor,
               });
             } else {
               setView({ kind: "dashboard", simId: view.simId });
@@ -292,7 +311,10 @@ interface DashboardProps {
   onError: (msg: string) => void;
   onExit: () => void;
   onOpenGame: (gameId: string) => void;
-  onOpenTeam: (teamAbbr: string, season: string) => void;
+  onOpenTeam: (
+    teamAbbr: string, season: string,
+    controlledTeamId: number | null, currentCalendarDate: string,
+  ) => void;
 }
 
 function MyLeagueDashboard({ simId, onError, onExit, onOpenGame, onOpenTeam }: DashboardProps) {
@@ -404,7 +426,10 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame, onOpenTeam }: D
           controlledAbbr={controlledAbbr!}
           season={state.season}
           cursor={state.current_calendar_date}
-          onOpenTeam={(abbr) => onOpenTeam(abbr, state.season)}
+          onOpenTeam={(abbr) => onOpenTeam(
+              abbr, state.season,
+              state.controlled_team_id, state.current_calendar_date,
+            )}
           simId={simId}
         />
       )}
@@ -509,7 +534,10 @@ function MyLeagueDashboard({ simId, onError, onExit, onOpenGame, onOpenTeam }: D
               standings={standings}
               season={state.season}
               controlledTeamId={state.controlled_team_id}
-              onOpenTeam={(abbr) => onOpenTeam(abbr, state.season)}
+              onOpenTeam={(abbr) => onOpenTeam(
+              abbr, state.season,
+              state.controlled_team_id, state.current_calendar_date,
+            )}
             />
           )}
         </section>

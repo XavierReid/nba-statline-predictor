@@ -71,8 +71,21 @@ def apply_events(
 
     Later events supersede earlier ones for the same (team_id, player_id).
     Returns the set of (team_id, player_id) pairs currently OUT.
+
+    M-5a reason-aware override semantics:
+      - Every event carries an optional `reason` in its payload
+        (default 'user' for legacy events). Auto-generated events
+        carry 'injury' (paired with 'recovered').
+      - A `reason='recovered'` SET_AVAILABLE only clears an OUT state
+        that was set by `reason='injury'`. If the current OUT is user-
+        driven (or any non-injury reason), the recovery is a no-op —
+        so the auto-recovery event scheduled at injury time never
+        unexpectedly overrides a user's manual OUT that landed
+        between the injury and the scheduled return.
+      - All other SET_AVAILABLE events unconditionally clear OUT.
     """
-    out: Set[Tuple[int, int]] = set()
+    # (team_id, player_id) → reason-of-current-OUT (str). Absence = AVAILABLE.
+    out_reason: dict = {}
     for ev in sorted(events, key=lambda e: e.applied_at_date):
         if ev.applied_at_date > at_date:
             break
@@ -86,11 +99,20 @@ def apply_events(
         if team_id is None or player_id is None:
             continue
         key = (team_id, player_id)
+        reason = ev.payload.get("reason", "user")
         if ev.event_type == EVENT_SET_UNAVAILABLE:
-            out.add(key)
+            out_reason[key] = reason
         elif ev.event_type == EVENT_SET_AVAILABLE:
-            out.discard(key)
-    return frozenset(out)
+            if reason == "recovered":
+                # Only clear if the current OUT was set by injury —
+                # a user-driven OUT (or any non-injury reason) that
+                # landed between the injury and the scheduled recovery
+                # takes precedence.
+                if out_reason.get(key) == "injury":
+                    out_reason.pop(key, None)
+            else:
+                out_reason.pop(key, None)
+    return frozenset(out_reason.keys())
 
 
 def build_state(

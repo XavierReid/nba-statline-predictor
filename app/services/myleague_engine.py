@@ -15,6 +15,7 @@ project-next-session-focus memo.
 """
 from __future__ import annotations
 
+import random
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -367,6 +368,47 @@ def advance_to(
         )
         _persist_game(db, simulation_id, game, result, home_players, away_players)
         completed_this_advance += 1
+
+        # --- M-5a: post-game injury draws.
+        #
+        # Rolls a per-player injury probability against the players who
+        # actually appeared in this game (minutes > 0). Ships with
+        # rate=0.0 default — no live injuries. M-5b turns rate on and
+        # calibrates against the multi-season validator.
+        # Uses the game's RNG (fresh seed per game) so injuries are
+        # deterministic + reproducible from the same event log.
+        from app.services.injuries import (
+            InjuryConfig, generate_injuries_for_game, write_injury_events,
+        )
+        stored_injury = (sim.parameters or {}).get("injury_config") or {}
+        icfg = InjuryConfig(
+            rate=float(stored_injury.get("rate", 0.0)),
+        )
+        if icfg.rate > 0.0:
+            box = result.get("box_score", {})
+            home_appeared = [
+                p["id"] for p in home_players
+                if box.get(p["id"], {}).get("min", 0) > 0
+            ]
+            away_appeared = [
+                p["id"] for p in away_players
+                if box.get(p["id"], {}).get("min", 0) > 0
+            ]
+            injury_rng = random.Random(seed ^ 0xA11B10CC)  # derived, deterministic
+            new_injuries = generate_injuries_for_game(
+                injury_rng, icfg, db, sim.season, game.game_date,
+                game.home_team_id, game.away_team_id,
+                home_appeared, away_appeared,
+            )
+            for inj in new_injuries:
+                write_injury_events(db, state_row.id, inj)
+            if new_injuries:
+                db.commit()
+                # Reload events so the NEXT game in this advance sees
+                # the fresh injury OUT events. Without this, injuries
+                # from game N wouldn't affect games N+1 in the same
+                # advance batch.
+                events = _load_events(db, state_row.id)
 
     # Update cursor + audit timestamp even on a zero-game advance.
     db.execute(

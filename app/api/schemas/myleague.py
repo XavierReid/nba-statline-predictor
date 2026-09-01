@@ -220,6 +220,11 @@ class TeamDrillInRosterPlayer(BaseModel):
     position: str
     is_starter: bool           # derived from real-season MPG rank (top 5)
     availability: str          # "AVAILABLE" | "OUT"
+    # M-5b: reason + return date when player is OUT (nulls otherwise).
+    # `out_reason` = 'injury' / 'user'; `out_return_date` populated only
+    # for injury OUTs (from the paired recovery event's date).
+    out_reason: Optional[str] = None
+    out_return_date: Optional[date] = None
     sim: Optional[PlayerMyLeagueSim] = None
     real: Optional[PlayerMyLeagueReal] = None
 

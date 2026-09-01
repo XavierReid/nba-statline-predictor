@@ -400,6 +400,14 @@ function RosterRow({
             {chipLabel}
           </span>
         )}
+        {/* M-5b: injury subtitle. Only shown when the OUT event has a
+            paired recovery date, i.e. reason='injury'. User-driven
+            OUTs stay as a plain OUT chip with no subtitle. */}
+        {p.availability === "OUT" && p.out_reason === "injury" && (
+          <div className="rp-status-sub" title="Automated injury with paired recovery event">
+            injury{p.out_return_date && ` · returns ${p.out_return_date}`}
+          </div>
+        )}
       </td>
       <td className="rp-gp">{gp}</td>
       <td className="rp-num">{mpg}</td>

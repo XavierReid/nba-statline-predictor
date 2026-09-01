@@ -1206,6 +1206,11 @@ button.sim:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .rp-toggle:hover { border-color: currentColor; }
 .rp-toggle:disabled { opacity: 0.5; cursor: wait; }
+.rp-status-sub {
+  margin-top: 3px;
+  font-size: 10px; color: var(--muted); font-style: italic;
+  font-variant-numeric: tabular-nums;
+}
 .rp-src-tag {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;

@@ -34,6 +34,8 @@ class RosterMember:
     real_mpg: float       # for depth-chart ordering
     is_starter: bool      # top-5 by real MPG (roster tier baseline)
     is_available: bool    # folded from events at as_of_date
+    out_reason: Optional[str] = None      # M-5b: 'injury' / 'user' / None when available
+    out_return_date: Optional[date] = None  # M-5b: from injury event payload
 
 
 def resolve_team_roster_at_date(
@@ -82,6 +84,10 @@ def resolve_team_roster_at_date(
         select(MyLeagueState).where(MyLeagueState.simulation_id == sim_id)
     ).scalar_one_or_none()
     unavailable: frozenset = frozenset()
+    # (team_id, player_id) → (reason, return_date_str_or_None). Populated
+    # from the LATEST OUT event <= as_of_date, so the M-5b chip subtitle
+    # can show "OUT (injury) · returns 11/03" without a separate lookup.
+    out_meta: dict = {}
     if state_row is not None:
         event_rows = db.execute(
             select(MyLeagueEvent)
@@ -97,6 +103,35 @@ def resolve_team_roster_at_date(
             for e in event_rows
         ]
         unavailable = apply_events(payloads, as_of_date)
+        # Walk events in order; for each OUT that survives the fold,
+        # keep the most-recent OUT event's reason + return_date.
+        # SET_AVAILABLE events clear the tracked meta.
+        from app.services.myleague_state import EVENT_SET_AVAILABLE, EVENT_SET_UNAVAILABLE
+        for e in event_rows:
+            if e.applied_at_date > as_of_date:
+                break
+            p = e.payload_json or {}
+            tid = p.get("team_id")
+            pid = p.get("player_id")
+            if tid is None or pid is None:
+                continue
+            key = (tid, pid)
+            if e.event_type == EVENT_SET_UNAVAILABLE:
+                out_meta[key] = (
+                    p.get("reason", "user"),
+                    p.get("return_date"),
+                )
+            elif e.event_type == EVENT_SET_AVAILABLE:
+                # Only clear meta if this AVAILABLE event actually
+                # cleared the OUT — mirrors apply_events' reason-aware
+                # semantics (recovered-noop for user OUT).
+                reason = p.get("reason", "user")
+                current = out_meta.get(key)
+                if reason == "recovered":
+                    if current and current[0] == "injury":
+                        out_meta.pop(key, None)
+                else:
+                    out_meta.pop(key, None)
 
     members: List[RosterMember] = []
     seen: set = set()
@@ -107,6 +142,14 @@ def resolve_team_roster_at_date(
         if r.player_id in seen:
             continue
         seen.add(r.player_id)
+        meta = out_meta.get((team_id, r.player_id))
+        out_reason = meta[0] if meta else None
+        out_return = None
+        if meta and meta[1]:
+            try:
+                out_return = date.fromisoformat(meta[1])
+            except (ValueError, TypeError):
+                out_return = None
         members.append(RosterMember(
             player_id=r.player_id,
             name=r.full_name or f"Player {r.player_id}",
@@ -115,6 +158,8 @@ def resolve_team_roster_at_date(
             real_mpg=float(r.minutes_per_game or 0.0),
             is_starter=r.player_id in starter_ids,
             is_available=(team_id, r.player_id) not in unavailable,
+            out_reason=out_reason,
+            out_return_date=out_return,
         ))
     return members
 

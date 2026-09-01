@@ -266,8 +266,9 @@ def test_fold_legacy_events_without_reason_still_work():
 # --- Advance path: zero-rate is byte-identical to no-injury -------------
 
 def test_advance_with_rate_zero_produces_no_injury_events():
-    """M-5a MVP integration: advance a MyLeague with default rate=0 —
-    no injury events land in the log, downstream behavior unchanged."""
+    """Explicit rate=0 config still produces no injuries. MyLeague
+    creation now defaults to rate=0.018 (M-5b calibration); tests
+    that assert 'zero injuries' must override to rate=0 explicitly."""
     r = client.post(
         "/myleague/",
         json={
@@ -278,6 +279,18 @@ def test_advance_with_rate_zero_produces_no_injury_events():
     )
     sim_id = r.json()["simulation_id"]
     try:
+        # Override the M-5b default (rate=0.018) with rate=0 for this test.
+        db = SessionLocal()
+        try:
+            from sqlalchemy import update
+            sim = db.execute(select(SimulationRun).where(SimulationRun.id == sim_id)).scalar_one()
+            params = dict(sim.parameters or {})
+            params["injury_config"] = {"rate": 0.0}
+            db.execute(update(SimulationRun).where(SimulationRun.id == sim_id).values(parameters=params))
+            db.commit()
+        finally:
+            db.close()
+
         cursor = client.get(f"/myleague/{sim_id}").json()["state"]["current_calendar_date"]
         y, m, d = [int(x) for x in cursor.split("-")]
         target = (date(y, m, d) + timedelta(days=14)).isoformat()

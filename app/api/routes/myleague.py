@@ -609,6 +609,8 @@ def get_myleague_team(
             position=m.position,
             is_starter=m.is_starter,
             availability="AVAILABLE" if m.is_available else "OUT",
+            out_reason=m.out_reason if not m.is_available else None,
+            out_return_date=m.out_return_date if not m.is_available else None,
             sim=stats.get(m.player_id, (None, None))[0],
             real=stats.get(m.player_id, (None, None))[1],
         )

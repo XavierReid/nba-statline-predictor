@@ -335,6 +335,9 @@ export interface TeamDrillInRosterPlayer {
   position: string;
   is_starter: boolean;
   availability: "AVAILABLE" | "OUT";
+  // M-5b: 'injury' | 'user' | null. Populated only when availability === 'OUT'.
+  out_reason: string | null;
+  out_return_date: string | null;   // ISO YYYY-MM-DD; null for user OUTs
   sim: MyLeaguePlayerSim | null;
   real: MyLeaguePlayerReal | null;
 }

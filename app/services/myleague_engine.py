@@ -78,7 +78,17 @@ def create_run(
             f"{'; '.join(integrity.failures)}"
         )
 
+    # M-5b calibrated default (2026-08-29 sweep 0.005/0.015/0.018/0.030
+    # across 3 seeds × 2024-25):
+    #   rate=0.018 → 14 injuries/team-season, 48% rotation-out rate,
+    #   20% top-3-out rate, 75 player-games lost/team, min-depth 9
+    # These fall in the plausible-NBA hypothesis band; anchors are not
+    # verified against a specific data source, so we deliberately don't
+    # tune further. Duration distribution unchanged from M-5a defaults.
+    # Callers can override by passing config["injury_config"] in the
+    # create request (not exposed on the frontend picker yet).
     params = {"sim_config": config.__dict__} if config else {}
+    params.setdefault("injury_config", {"rate": 0.018})
     sim = SimulationRun(
         season=season, scope="myleague", team_id=None,
         status="running", seed=seed, parameters=params,

@@ -29,6 +29,7 @@ from app.services.possession_events import describe_typed_event, possession_to_e
 from app.services.roster import load_roster
 from app.services.rotation import (
     GAME_MINUTES,
+    MODE_CLOSE_LATE,
     MODE_GARBAGE,
     MODE_OT_CLOSE,
     MODE_SCHEDULED,
@@ -47,6 +48,13 @@ QUARTER_SECONDS = 720
 OT_SECONDS = 300
 HOME_ADVANTAGE = 3.0
 ELIGIBLE_MISS_RATE = 0.32
+
+# Fix #3a.2 (2026-09-03, shipped): MODE_CLOSE_LATE — real coaches close a tight Q4
+# with their best five. Fires in the last 5 min of Q4 when |margin| ≤ 5. Uses the
+# projection-aware cap (see rotation.py) so already-calibrated stars don't get
+# pushed above their real MPG. Per-min efficiency inflation for a subset of stars
+# is a separate mechanism banked as a follow-up (see project-full-league-realism-audit).
+_ENABLE_CLOSE_LATE = True
 
 # team_defense_factor divides a team's def_rating by the LEAGUE average to get a
 # relative multiplier centered at 1.0. That average must be the era's, not a fixed
@@ -657,10 +665,21 @@ def simulate_game(
             # close OT with their best five regardless of margin. See
             # project-star-mpg-margin-bucket (real OT Jokić 44.83 vs sim 34.37).
             is_ot = q_idx >= 4
+            # EXPERIMENT Fix #3a (2026-09-02): Q4 close-late star concentration.
+            # Real coaches close a tight Q4 with their best five — analogous to OT_CLOSE.
+            # Trigger: q_idx == 3 (Q4) AND |margin| ≤ 5 AND clock ≤ 300s (last 5 min).
+            # Priority: OT_CLOSE > CLOSE_LATE > GARBAGE > SCHEDULED.
+            is_close_late = (
+                _ENABLE_CLOSE_LATE and q_idx == 3
+                and abs(gs.home_score - gs.away_score) <= 5
+                and quarter_clock <= 300.0
+            )
             home_mode = (MODE_OT_CLOSE if is_ot
-                         else (MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED))
+                         else (MODE_CLOSE_LATE if is_close_late
+                               else (MODE_GARBAGE if gs.home_conceded else MODE_SCHEDULED)))
             away_mode = (MODE_OT_CLOSE if is_ot
-                         else (MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED))
+                         else (MODE_CLOSE_LATE if is_close_late
+                               else (MODE_GARBAGE if gs.away_conceded else MODE_SCHEDULED)))
             home_active_ids = resolve_lineup(
                 home_rotation, current_minute, home_by_min, box,
                 home_mode,

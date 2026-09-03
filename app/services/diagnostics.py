@@ -30,6 +30,7 @@ class SimulationDiagnostics:
             "scheduled_sum": 0.0, "scheduled_n": 0,
             "garbage_sum": 0.0, "garbage_n": 0,
             "ot_close_sum": 0.0, "ot_close_n": 0,
+            "close_late_sum": 0.0, "close_late_n": 0,
             "min": 1.0, "max": 1.0,
         }
 

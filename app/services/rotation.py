@@ -71,6 +71,7 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
 MODE_SCHEDULED = "scheduled"
 MODE_GARBAGE = "garbage"
 MODE_OT_CLOSE = "ot_close"
+MODE_CLOSE_LATE = "close_late"   # Q4 last-5 close-game star concentration (Fix #3a.2)
 
 
 def resolve_lineup(
@@ -100,6 +101,33 @@ def resolve_lineup(
     """
     if mode == MODE_OT_CLOSE:
         eligible = [p["id"] for p in players_by_min if not box[p["id"]]["fouled_out"]]
+        return eligible[:5]
+    if mode == MODE_CLOSE_LATE:
+        # EXPERIMENT Fix #3a.2 (2026-09-02): projection-aware close-late cap.
+        # Trigger window is at most 5 min (last 5 of Q4). If we boost a player
+        # who's already close to real MPG, they'll exit the game ABOVE it — that
+        # inflates well-calibrated stars (SGA/Sengun regression). Instead skip
+        # any player whose projected end-of-window minutes would exceed real_mpg
+        # by more than a small tolerance. Buffer keeps the boost for genuinely
+        # under-served players (Tatum/Brunson/Mitchell) while leaving already-
+        # calibrated ones alone.
+        CLOSE_LATE_RESERVE = 4.0  # ≤ trigger window minutes
+        eligible = []
+        for p in players_by_min:
+            pid = p["id"]
+            if box[pid]["fouled_out"]:
+                continue
+            current_min = box[pid].get("min", 0.0)
+            real_mpg = p.get("mpg") or 40.0
+            if current_min + CLOSE_LATE_RESERVE <= real_mpg:
+                eligible.append(pid)
+        # Backfill from hierarchy if under 5 pass the cap.
+        if len(eligible) < 5:
+            for p in players_by_min:
+                if p["id"] not in eligible and not box[p["id"]]["fouled_out"]:
+                    eligible.append(p["id"])
+                    if len(eligible) >= 5:
+                        break
         return eligible[:5]
     if mode == MODE_SCHEDULED:
         lineup = rotation[minute]

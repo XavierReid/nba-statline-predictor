@@ -80,8 +80,9 @@ class TestPreNegationTransform:
                 assert pre < obs, f"zone {zone}: pre {pre} should be < obs {obs}"
 
     def test_constants_are_within_expected_range(self):
-        # Sanity fence on the measured constants. If the sim's foul-drawing model
-        # drifts and these need re-measurement, the test surfaces the assumption.
-        assert 0.20 <= _ZONE_FOUL_MISS_RATE["rim"] <= 0.28
+        # Sanity fence on the measured constants. Re-measured 2026-09-16 (Probe #9e) on
+        # full-league 2024-25 (1230 games, 223k shots). Ranges widened for rim + three;
+        # nonrim intentionally held at 0.19 pending the paint/mid-range split (Probe #10).
+        assert 0.30 <= _ZONE_FOUL_MISS_RATE["rim"] <= 0.40
         assert 0.15 <= _ZONE_FOUL_MISS_RATE["nonrim"] <= 0.24
-        assert 0.02 <= _ZONE_FOUL_MISS_RATE["three"] <= 0.08
+        assert 0.015 <= _ZONE_FOUL_MISS_RATE["three"] <= 0.055

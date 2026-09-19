@@ -37,19 +37,21 @@ _ZONE_SHRINK_PRIOR_ATTEMPTS = 40.0
 _ZONE_PRIOR_CACHE: dict = {}
 
 # Per-zone fraction of missed shots drawing shooting fouls in the sim.
-# Used ONLY when the pre-negation transform is enabled (SimConfig.use_pre_negation_probs);
-# default OFF means the fixture stays byte-identical. Measured 2026-07-27 via
-# scratch/interior_shot_diagnostic.py on DRAMA_M3, 50 games each on 2024-25 and 2016-17,
-# averaged across the two eras:
-#   rim (layup+dunk):     2024-25 0.226, 2016-17 0.252 -> 0.24
-#   nonrim (mid+floater): 2024-25 0.181, 2016-17 0.202 -> 0.19
-#   three (both types):   2024-25 0.038, 2016-17 0.055 -> 0.05
+# Used ONLY when the pre-negation transform is enabled (SimConfig.use_pre_negation_probs).
+# Re-measured 2026-09-16 (Probe #9e) via scratch/probe_9e_remeasure_constants.py on the
+# current shipped sim: full-league 2024-25, 1230 games, 223k shots.
+#   rim (layup+dunk):     0.3537   (was 0.24 pre-shooter_draw)
+#   nonrim (mid+floater): 0.2320 measured — LEFT AT 0.19 because the aggregate masks
+#                                 a shot-class split (floater 0.259 vs mid_range 0.230);
+#                                 raising it regresses non-elite guard mid-range FG%.
+#                                 Split banked as Probe #10.
+#   three (both types):   0.0239   (was 0.05 pre-shooter_draw)
 # These are SIM-measured rates because the transform inverts SIM's own PR#8 negation, not
 # real's. If sim foul-drawing rates drift, these constants would need re-measurement.
 _ZONE_FOUL_MISS_RATE = {
-    "rim": 0.24,
-    "nonrim": 0.19,
-    "three": 0.05,
+    "rim": 0.354,
+    "nonrim": 0.190,
+    "three": 0.024,
 }
 
 

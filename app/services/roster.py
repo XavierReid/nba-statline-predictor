@@ -50,7 +50,9 @@ _ZONE_PRIOR_CACHE: dict = {}
 # real's. If sim foul-drawing rates drift, these constants would need re-measurement.
 _ZONE_FOUL_MISS_RATE = {
     "rim": 0.354,
-    "nonrim": 0.190,
+    "nonrim": 0.190,   # aggregate, used when Probe #10 flag OFF (byte-identity path)
+    "paint": 0.259,    # measured Probe #9e (floater sub-type f_miss aggregate)
+    "midrange": 0.230, # measured Probe #9e (mid_range sub-type f_miss aggregate)
     "three": 0.024,
 }
 
@@ -111,7 +113,7 @@ class RosterProvider(ABC):
         """SQLAlchemy filter selecting this team's players for the season."""
 
     def load(self, db: Session, team_id: int, season: str, depth: int = 10,
-             pre_negation: bool = False) -> list[dict]:
+             pre_negation: bool = False, paint_mid_split: bool = False) -> list[dict]:
         """Load the top `depth` players by minutes for a team in a given season.
 
         Minutes are games-weighted (see _build_roster) so each player keeps their real
@@ -136,7 +138,8 @@ class RosterProvider(ABC):
             .order_by(PlayerSeasonStats.minutes_per_game.desc())
             .limit(depth)
         ).all()
-        roster = _build_roster(rows, _league_zone_prior(db, season), pre_negation=pre_negation)
+        roster = _build_roster(rows, _league_zone_prior(db, season),
+                               pre_negation=pre_negation, paint_mid_split=paint_mid_split)
         # Calibrate each player's per-game availability to the season's real active count
         # (game logs, when ingested). Harmless when availability is off — an unused field.
         from app.services.availability import season_active_target, calibrate_avail_prob
@@ -163,15 +166,17 @@ def roster_provider_for(season: str) -> RosterProvider:
 
 
 def load_roster(db: Session, team_id: int, season: str, depth: int = 10,
-                pre_negation: bool = False) -> list[dict]:
+                pre_negation: bool = False, paint_mid_split: bool = False) -> list[dict]:
     """Public entry point — delegates to the roster provider for the season.
 
     `pre_negation=True` applies the pre-negation transform to per-player zone FG%s.
-    Default False = current behavior. Callers who own their own load path (e.g.,
-    `simulate_schedule` in decomposition.py, calibration harness scripts) opt in
-    explicitly; `simulate_game`'s internal load passes `cfg.use_pre_negation_probs`.
+    `paint_mid_split=True` (Probe #10) also splits the aggregate `nonrim` zone into
+    per-player `paint_fg_prob` / `midrange_fg_prob` / `paint_shot_rate`, with
+    pre-negation applied to each sub-zone independently.
     """
-    return roster_provider_for(season).load(db, team_id, season, depth, pre_negation=pre_negation)
+    return roster_provider_for(season).load(db, team_id, season, depth,
+                                            pre_negation=pre_negation,
+                                            paint_mid_split=paint_mid_split)
 
 
 def _league_zone_prior(db: Session, season: str) -> dict:
@@ -194,14 +199,25 @@ def _league_zone_prior(db: Session, season: str) -> dict:
     # prior for each player's rim-vs-non-rim shot split (see _build_roster), so the
     # sim's 2pt shot mix reflects the era it is simulating instead of a 0.4 constant.
     S = lambda f: sum((getattr(r, f) or 0.0) * (r.games_played or 0) for r in rows)
-    nonrim_a = S("paint_fga") + S("mid_fga")
+    paint_a = S("paint_fga")
+    paint_m = S("paint_fgm")
+    mid_a = S("mid_fga")
+    mid_m = sum((r.mid_fga or 0.0) * (r.mid_fg_pct or 0.0) * (r.games_played or 0) for r in rows)
+    nonrim_a = paint_a + mid_a
     two_pt_a = S("ra_fga") + nonrim_a
-    nonrim_m = S("paint_fgm") + sum(
-        (r.mid_fga or 0.0) * (r.mid_fg_pct or 0.0) * (r.games_played or 0) for r in rows)
+    nonrim_m = paint_m + mid_m
     prior = {
         "rim": league_pct("ra_fga", lambda r: r.ra_fgm or 0.0),
+        # Aggregate nonrim — used when Probe #10 flag OFF (byte-identity path).
         "nonrim": nonrim_m / nonrim_a if nonrim_a else None,
         "nonrim_frac": nonrim_a / two_pt_a if two_pt_a else None,
+        # Split zones — used when Probe #10 flag ON. Independent priors so a player's
+        # sparse paint sample doesn't leak into their midrange baseline (or vice versa).
+        "paint": paint_m / paint_a if paint_a else None,
+        "midrange": mid_m / mid_a if mid_a else None,
+        # `paint_share_of_nonrim` is the league prior for `paint_shot_rate` — shrunk
+        # per-player against this to stabilize thin samples.
+        "paint_share_of_nonrim": paint_a / nonrim_a if nonrim_a else None,
         "three": league_pct("fg3a", lambda r: r.fg3m or 0.0),
     }
     _ZONE_PRIOR_CACHE[season] = prior
@@ -217,7 +233,8 @@ def _shrunk_zone_prob(fgm_pg, fga_pg, gp, prior_fg) -> Optional[float]:
                  / (att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
 
 
-def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = False) -> list[dict]:
+def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = False,
+                  paint_mid_split: bool = False) -> list[dict]:
     if not rows:
         return []
     zone_prior = zone_prior or {"rim": None, "paint": None, "mid": None}
@@ -288,22 +305,43 @@ def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = 
         # difficulty. Absent when the season has no shot-location data; _evaluate_shot
         # then falls back to the attribute-derived band.
         gp = s.games_played or 0
-        nonrim_fga = (s.paint_fga or 0.0) + (s.mid_fga or 0.0)
-        nonrim_fgm = (s.paint_fgm or 0.0) + (s.mid_fga or 0.0) * (s.mid_fg_pct or 0.0)
+        # Aggregate nonrim — always computed for byte-identity when paint_mid_split OFF.
+        paint_pg_fga, paint_pg_fgm = (s.paint_fga or 0.0), (s.paint_fgm or 0.0)
+        mid_pg_fga = (s.mid_fga or 0.0)
+        mid_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)
+        nonrim_fga = paint_pg_fga + mid_pg_fga
+        nonrim_fgm = paint_pg_fgm + mid_pg_fgm
         rim = _shrunk_zone_prob(s.ra_fgm, s.ra_fga, gp, zone_prior["rim"])
         nonrim = _shrunk_zone_prob(nonrim_fgm, nonrim_fga, gp, zone_prior["nonrim"])
         three = _shrunk_zone_prob(s.fg3m, s.fg3a, gp, zone_prior["three"])
+        # Probe #10 split — always computed (cheap; presence gated by caller reads).
+        # Independent shrinkage: paint and midrange each use their own prior + attempts,
+        # so a sparse paint sample doesn't drag midrange toward paint average.
+        paint = _shrunk_zone_prob(paint_pg_fgm, paint_pg_fga, gp, zone_prior.get("paint"))
+        midrange_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)  # rebuild for clarity
+        midrange = _shrunk_zone_prob(midrange_pg_fgm, mid_pg_fga, gp, zone_prior.get("midrange"))
         if pre_negation:
             # Invert sim's PR#8 negation once at load time so the sim treats these
             # values as raw make probs (not double-counted post-neg data). See
             # `_pre_negation_prob` doc + Session 2 causal proof.
             rim = _pre_negation_prob(rim, _ZONE_FOUL_MISS_RATE["rim"])
-            nonrim = _pre_negation_prob(nonrim, _ZONE_FOUL_MISS_RATE["nonrim"])
             three = _pre_negation_prob(three, _ZONE_FOUL_MISS_RATE["three"])
+            if paint_mid_split:
+                # Split path: each 2P sub-zone gets its own f_miss inversion.
+                paint = _pre_negation_prob(paint, _ZONE_FOUL_MISS_RATE["paint"])
+                midrange = _pre_negation_prob(midrange, _ZONE_FOUL_MISS_RATE["midrange"])
+                # nonrim is unused on the read side under the split; skip the inversion
+                # (keeps `nonrim_fg_prob` as an unused raw-shrunk value for compat).
+            else:
+                nonrim = _pre_negation_prob(nonrim, _ZONE_FOUL_MISS_RATE["nonrim"])
         if rim is not None:
             players[-1]["rim_fg_prob"] = rim
         if nonrim is not None:
             players[-1]["nonrim_fg_prob"] = nonrim
+        if paint is not None:
+            players[-1]["paint_fg_prob"] = paint
+        if midrange is not None:
+            players[-1]["midrange_fg_prob"] = midrange
         if three is not None:
             players[-1]["three_fg_prob"] = three
         # Non-rim (paint+mid) share of this player's 2pt attempts (observed) —
@@ -314,6 +352,18 @@ def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = 
             players[-1]["mid_shot_rate"] = round(
                 (nonrim_fga * gp + zone_prior["nonrim_frac"] * _ZONE_SHRINK_PRIOR_ATTEMPTS)
                 / (two_pt_att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
+        # Probe #10: per-player share of nonrim attempts that are paint (non-RA).
+        # Shrunk against league `paint_share_of_nonrim` so thin-sample players regress
+        # to the league mean. Read by `_select_sub_type` only under the split flag —
+        # positioned as the SOLE random draw for paint vs midrange within nonrim
+        # (no layered floater_rate on top).
+        paint_att = paint_pg_fga * gp
+        nonrim_att_total = nonrim_fga * gp
+        prior_share = zone_prior.get("paint_share_of_nonrim")
+        if nonrim_att_total and prior_share is not None:
+            players[-1]["paint_shot_rate"] = round(
+                (paint_att + prior_share * _ZONE_SHRINK_PRIOR_ATTEMPTS)
+                / (nonrim_att_total + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
         # Only include when real data exists — M3d sub-type selection falls back
         # to positional defaults via .get() when the key is absent.
         if t.corner_three_rate is not None:

@@ -109,9 +109,11 @@ def simulate_game(
         if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
             from app.services.roster import load_roster
             hp = load_roster(db, home_team_id, season, depth=depth,
-                             pre_negation=cfg.use_pre_negation_probs)
+                             pre_negation=cfg.use_pre_negation_probs,
+                             paint_mid_split=cfg.use_paint_mid_split)
             ap = load_roster(db, away_team_id, season, depth=depth,
-                             pre_negation=cfg.use_pre_negation_probs)
+                             pre_negation=cfg.use_pre_negation_probs,
+                             paint_mid_split=cfg.use_paint_mid_split)
             if hp:
                 home_pool = hp
             if ap:

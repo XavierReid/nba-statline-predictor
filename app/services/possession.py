@@ -40,11 +40,20 @@ _POSITIONAL_DEFAULTS: Dict[str, Dict[str, float]] = {
 # Ranges: layup/mid anchored to pre-M3d close/mid ranges so sub-types add differentiation
 # without a net scoring shift. Floater sits between mid and layup (NBA floater ~38-48% FG).
 # Fallback keys ("three", "mid", "close") keep backward compat when use_shot_subtypes=False.
+# NOTE (Probe #10, 2026-09-20): sub-type "floater" is intentionally kept as the
+# NAME but its MEANING has broadened under `cfg.use_paint_mid_split=True` — it
+# now represents the full "paint non-RA" class (runners, hooks, short jumpers,
+# floaters) rather than the traditional narrow floater shot. Real NBA paint
+# non-RA is ~35% of 2P attempts vs the pre-split ~5% floater share, so under
+# the split the sub-type is used far more heavily by bigs. The attribute band
+# (0.59-0.67) still reflects the ability class this shot lives in (above mid
+# jumper, below layup); observed real FG% comes from `paint_fg_prob` on the
+# player when the split flag is ON.
 _SUB_TYPE_SPECS: Dict[str, tuple] = {
     "corner_three":      ("three_point", 0.40, 0.46),
     "above_break_three": ("three_point", 0.36, 0.42),
     "mid_range":         ("mid_range",   0.51, 0.58),  # identical to pre-M3d mid range
-    "floater":           ("close_shot",  0.59, 0.67),  # above mid, below layup
+    "floater":           ("close_shot",  0.59, 0.67),  # paint non-RA class (see note above)
     "layup":             ("layup",       0.65, 0.72),  # identical to pre-M3d close range
     "dunk":              ("dunk",        0.68, 0.76),
     # fallback — used when use_shot_subtypes=False
@@ -61,6 +70,17 @@ _OBSERVED_ZONE_KEY: Dict[str, str] = {
     "dunk": "rim_fg_prob", "layup": "rim_fg_prob", "close": "rim_fg_prob",
     "floater": "nonrim_fg_prob",
     "mid_range": "nonrim_fg_prob", "mid": "nonrim_fg_prob",
+    "corner_three": "three_fg_prob", "above_break_three": "three_fg_prob", "three": "three_fg_prob",
+}
+
+# Probe #10 split variant — when `cfg.use_paint_mid_split=True`, `floater` routes to
+# the paint-only observed FG% and `mid_range` routes to the midrange-only one.
+# `rim_fg_prob` and `three_fg_prob` are unchanged so rim/three shots take exactly
+# the same base-prob path they do today.
+_OBSERVED_ZONE_KEY_SPLIT: Dict[str, str] = {
+    "dunk": "rim_fg_prob", "layup": "rim_fg_prob", "close": "rim_fg_prob",
+    "floater": "paint_fg_prob",
+    "mid_range": "midrange_fg_prob", "mid": "midrange_fg_prob",
     "corner_three": "three_fg_prob", "above_break_three": "three_fg_prob", "three": "three_fg_prob",
 }
 
@@ -216,6 +236,20 @@ _FOUL_DRAW_MULT: Dict[str, float] = {
     "three": 0.75,
 }
 
+# Probe #10b (2026-09-23): under `cfg.use_paint_mid_split=True`, "floater" carries
+# paint non-RA volume (~60% of nonrim vs ~5% legacy) instead of a niche shot. The
+# legacy foul_draw_mult=1.1 was tuned for niche volume; at paint volume it over-produces
+# shooting fouls, inflating paint box FG% (fewer fouled-miss FGAs) and cascading into a
+# non-elite 3P% regression via possession/matchup context. Isolation panel (v3 reach,
+# v4 impact, v5 foul-only, v6 block) attributed the regression almost entirely to this
+# multiplier: v5 alone (foul_draw_mult -> 0.9, matching mid_range) restored aggregate
+# 3P% to the flag-OFF baseline (0.389) while preserving ~99% of the paint/mid shot-mix
+# gain. Gated on the split flag only — floater's flag-OFF (niche, ~5% volume) rate is
+# unchanged, preserving byte-identity when the split is off.
+_FOUL_DRAW_MULT_SPLIT_OVERRIDE: Dict[str, float] = {
+    "floater": 0.9,
+}
+
 # League-average foul drawing rate (FTA/FGA) — used as the floor for players without history.
 # NBA 2024-25: ~0.22 FTA per FGA league-wide.
 _LEAGUE_AVG_FOUL_DRAW_RATE: float = 0.22
@@ -242,11 +276,19 @@ def _position_group(pos: str) -> str:
     return "big"
 
 
-def _select_sub_type(ball_handler: dict, shot_type: str, rng: random.Random) -> str:
+def _select_sub_type(ball_handler: dict, shot_type: str, rng: random.Random,
+                     paint_mid_split: bool = False) -> str:
     """Derive the shot sub-type from the coarse bucket and player/positional rates.
 
-    Designed so player tendency fields (corner_three_rate, dunk_rate, floater_rate)
-    can override positional defaults once ingested, without changing this interface.
+    Designed so player tendency fields (corner_three_rate, dunk_rate, floater_rate
+    or Probe #10's paint_shot_rate) can override positional defaults once ingested,
+    without changing this interface.
+
+    When `paint_mid_split=True` the nonrim branch replaces the legacy floater_rate
+    draw with a SINGLE choose-with-weight roll on `paint_shot_rate` (per-player
+    real paint / (paint + mid) share). "floater" then represents the full paint
+    non-RA class rather than a narrow floater shot — see the note on
+    `_SUB_TYPE_SPECS`. No layered roll: the one draw determines paint vs midrange.
     """
     pos_group = _position_group(ball_handler.get("position", "F"))
     defaults = _POSITIONAL_DEFAULTS[pos_group]
@@ -259,9 +301,17 @@ def _select_sub_type(ball_handler: dict, shot_type: str, rng: random.Random) -> 
         )[0]
 
     if shot_type == "mid":
-        # Non-rim 2pt: mostly mid-range jumpers, a few floaters (both paint/mid zone).
-        # Keeping floaters here makes "close" pure rim, so the mid/rim split is exactly
-        # the player's observed non-rim share (mid_shot_rate) with no bucket leakage.
+        if paint_mid_split:
+            # Real paint share of nonrim from PSS (~0.68 league, higher for bigs,
+            # lower for perimeter guards). Fallback to legacy floater rate for
+            # rosters without the derived field (older-era seasons + tests).
+            paint_rate = ball_handler.get(
+                "paint_shot_rate",
+                ball_handler.get("floater_rate", defaults["floater_rate"]),
+            )
+            return rng.choices(["mid_range", "floater"],
+                               weights=[1.0 - paint_rate, paint_rate])[0]
+        # Legacy path: floater is a specialist sub-type (3-7% positional default).
         floater_rate = ball_handler.get("floater_rate", defaults["floater_rate"])
         return rng.choices(["mid_range", "floater"],
                            weights=[1.0 - floater_rate, floater_rate])[0]
@@ -523,7 +573,10 @@ def _select_action(ctx, result: dict) -> Action:
             ["three", "mid", "close"],
             weights=[three_rate, (1 - three_rate) * mid_frac, (1 - three_rate) * (1 - mid_frac)],
         )[0]
-    sub_type = _select_sub_type(ball_handler, coarse_type, rng) if cfg.use_shot_subtypes else coarse_type
+    sub_type = _select_sub_type(
+        ball_handler, coarse_type, rng,
+        paint_mid_split=cfg.use_paint_mid_split,
+    ) if cfg.use_shot_subtypes else coarse_type
 
     result["shot_type"] = sub_type
     result["scorer"] = ball_handler["id"]
@@ -605,7 +658,8 @@ def _evaluate_shot(ctx, action: Action, matchup: Matchup) -> ShotQuality:
     sub_type, coarse_type, ball_handler = action.sub_type, action.coarse_type, action.ball_handler
 
     attr_key, lo, hi = _SUB_TYPE_SPECS[sub_type]
-    zone_key = _OBSERVED_ZONE_KEY.get(sub_type)
+    zone_map = _OBSERVED_ZONE_KEY_SPLIT if cfg.use_paint_mid_split else _OBSERVED_ZONE_KEY
+    zone_key = zone_map.get(sub_type)
     observed = ball_handler.get(zone_key) if zone_key else None
     base_prob = (observed if observed is not None
                  else attr_to_prob(ball_handler.get(attr_key, ball_handler["close_shot"]), lo=lo, hi=hi))
@@ -684,7 +738,12 @@ def _resolve_outcome(ctx, action: Action, matchup: Matchup, quality: ShotQuality
     result["made"] = rng.random() < quality.make_prob
     result["contested"] = quality.contested   # instrumentation only (None when contest model off)
     ft_prob = _free_throw_prob(ball_handler)
-    shoot_foul_mult = (_FOUL_DRAW_MULT.get(sub_type, 1.0) if cfg.use_foul_drawing else 1.0) * cfg.shooting_foul_scale
+    foul_draw_mult_table = (
+        _FOUL_DRAW_MULT_SPLIT_OVERRIDE if (cfg.use_paint_mid_split and sub_type in _FOUL_DRAW_MULT_SPLIT_OVERRIDE)
+        else _FOUL_DRAW_MULT
+    )
+    shoot_foul_mult = (foul_draw_mult_table.get(sub_type, _FOUL_DRAW_MULT.get(sub_type, 1.0))
+                      if cfg.use_foul_drawing else 1.0) * cfg.shooting_foul_scale
     # NB: the phase foul boost lives on the non-shooting bonus foul (which REPLACES a shot
     # with a low-variance FT trip). Boosting shooting fouls instead adds and-1s — higher
     # variance — so it is deliberately NOT applied here.

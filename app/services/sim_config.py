@@ -43,7 +43,7 @@ class SimConfig:
     # of the season_context merge (2026-08-05); paired with use_season_context, produces
     # roughly uniform ~-2 pts cross-era under-scoring instead of era-scaled overshoot.
     use_pre_negation_probs: bool = True
-    # Probe #10 (2026-09-20 prototype): split the aggregate `nonrim` zone into
+    # Probe #10 (shipped 2026-09-24): split the aggregate `nonrim` zone into
     # `paint` (non-RA paint jumpers/runners/hooks — sub-type "floater") and
     # `midrange` (jump shots — sub-type "mid_range"). When ON:
     #   - `_OBSERVED_ZONE_KEY` routes "floater" -> paint_fg_prob and
@@ -52,8 +52,16 @@ class SimConfig:
     #     paint/mid attempt ratios) to decide paint vs midrange within nonrim.
     #   - Pre-negation uses per-zone constants (paint 0.259, midrange 0.230)
     #     instead of aggregate nonrim 0.190.
-    # Default OFF preserves byte-identity; promote after A/B validates.
-    use_paint_mid_split: bool = False
+    #   - `_FOUL_DRAW_MULT_SPLIT_OVERRIDE` lowers floater's foul-draw mult to
+    #     0.9 (from legacy 1.1) — that legacy value was tuned for floater's
+    #     old ~5% niche volume and over-produced shooting fouls once floater
+    #     carries ~60% of nonrim; isolation testing (Probe #10b) attributed
+    #     the entire cascade to this one multiplier.
+    # Validation (11-team panel, 3 seeds x 2223 games/arm, Probe #10e):
+    # elite nonrim MAE 0.046->0.035 (8x noise floor, robust). No confirmed
+    # regression survives multi-seed averaging — the single-seed 3P "regression"
+    # seen in earlier passes was measurement noise (see project-nonrim-split-probe10).
+    use_paint_mid_split: bool = True
     # Era-anchored league normalization for foul model (2026-08-05). The three anchors
     # `_SHOOTER_DRAW_ANCHOR`, `LEAGUE_FOUL_RATE`, `_LEAGUE_AVG_FOUL_DRAW_RATE` in
     # possession.py are hard-coded modern (2024-25) means. Applied to older-era rosters

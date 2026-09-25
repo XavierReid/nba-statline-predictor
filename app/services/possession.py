@@ -76,11 +76,19 @@ _OBSERVED_ZONE_KEY: Dict[str, str] = {
 # Probe #10 split variant — when `cfg.use_paint_mid_split=True`, `floater` routes to
 # the paint-only observed FG% and `mid_range` routes to the midrange-only one.
 # `rim_fg_prob` and `three_fg_prob` are unchanged so rim/three shots take exactly
-# the same base-prob path they do today.
+# the same base-prob path they do today. "mid" is the COARSE fallback used when
+# `use_shot_subtypes=False` — the split's paint-vs-midrange routing only exists at
+# the sub-type level (`_select_sub_type`, which never runs in coarse mode), so
+# "mid" intentionally keeps routing to the aggregate `nonrim_fg_prob`, identical
+# to the legacy map. Without this, coarse-mode configs (bare SimConfig(), old-era
+# fixtures without use_shot_subtypes) would silently get midrange-only pricing
+# for ALL their non-rim 2P shots just because `use_paint_mid_split` defaulted to
+# True — a scope leak caught by test_lineup_reconstruction's 1996-97 fixture.
 _OBSERVED_ZONE_KEY_SPLIT: Dict[str, str] = {
     "dunk": "rim_fg_prob", "layup": "rim_fg_prob", "close": "rim_fg_prob",
     "floater": "paint_fg_prob",
-    "mid_range": "midrange_fg_prob", "mid": "midrange_fg_prob",
+    "mid_range": "midrange_fg_prob",
+    "mid": "nonrim_fg_prob",
     "corner_three": "three_fg_prob", "above_break_three": "three_fg_prob", "three": "three_fg_prob",
 }
 

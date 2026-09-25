@@ -106,8 +106,12 @@ def test_event_stream_preserves_baseline_box_scores():
         home_team = _resolve_team(db, home_abbr, season)
         away_team = _resolve_team(db, away_abbr, season)
         assert home_team and away_team, f"team lookup failed for {home_abbr}/{away_abbr} {season}"
-        home_players = load_roster(db, home_team.id, season)
-        away_players = load_roster(db, away_team.id, season)
+        home_players = load_roster(db, home_team.id, season,
+                                   pre_negation=config.use_pre_negation_probs,
+                                   paint_mid_split=config.use_paint_mid_split)
+        away_players = load_roster(db, away_team.id, season,
+                                   pre_negation=config.use_pre_negation_probs,
+                                   paint_mid_split=config.use_paint_mid_split)
 
         r = simulate_game(
             home_players, away_players, seed=seed, season=season, config=config,

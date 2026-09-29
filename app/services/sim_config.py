@@ -9,6 +9,17 @@ class SimConfig:
     use_second_chance: bool = False   # oreb extends possession chain
     use_fast_break: bool = False      # steal → transition modifier next possession
     use_team_defense: bool = False    # team def_rating suppresses opponent FG%
+    # Multiplicative dampening on team_defense_factor: factor = 1 + (raw-1)*coefficient,
+    # where raw = defending team's def_rating / league_avg_def. Was hardcoded 0.5 in
+    # game_simulator.py; extracted 2026-09-29 to make this testable via config instead
+    # of code edits. Promoted to 1.0 (removing the dampening entirely) 2026-09-29 after
+    # re-sweeping under the current shipped stack (MODE_CLOSE_LATE + pre-negation +
+    # Probe #10): ρ 0.885->0.914, H2H win rate 0.72->0.77, spread flat. 1.0 and 0.75
+    # were statistically indistinguishable (N=10 runs each); chose 1.0 as the cleaner
+    # value — no dampening — over an arbitrary split with no measured advantage. The
+    # original 2026-09-02 sweep (pre-Probe-#10) found only ~30% gap closure and was
+    # held back; re-measuring after the shot-calibration work cleared more signal.
+    team_defense_coefficient: float = 1.0
     use_strategic_foul: bool = False  # trailing team intentionally fouls late-game
     use_momentum: bool = False        # per-team momentum from runs/stops/steals
     use_fatigue: bool = False         # heavy-minutes lineup efficiency decay

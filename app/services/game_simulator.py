@@ -728,7 +728,7 @@ def simulate_game(
                 defending_stats = away_stats if current_is_home else home_stats
                 if defending_stats:
                     raw = defending_stats["def_rating"] / league_avg_def
-                    team_defense_factor = 1.0 + (raw - 1.0) * 0.5
+                    team_defense_factor = 1.0 + (raw - 1.0) * cfg.team_defense_coefficient
 
             # Lineup quality: season def_rating describes the normal rotation;
             # the factor below moves with the five actually defending.

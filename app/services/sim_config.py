@@ -20,6 +20,18 @@ class SimConfig:
     # original 2026-09-02 sweep (pre-Probe-#10) found only ~30% gap closure and was
     # held back; re-measuring after the shot-calibration work cleared more signal.
     team_defense_coefficient: float = 1.0
+    # 5th rotation-scheduler attempt: shift-based build_rotation_interval instead
+    # of block-fill build_rotation. Fixed the confirmed Q2 substitution deadzone
+    # (Q1/Q2/Q3/Q4 subs went from 13.6/2.0/8.6/21.1 to 33.2/31.7/24.7/26.1 per game
+    # — Q2 was 6.8x sparser than Q1 under block-fill, now roughly even across all
+    # four quarters). Promoted 2026-09-29 after clearing every gate the four prior
+    # rotation attempts failed on: minute-accounting invariant holds (team totals
+    # within 0.2 min of budget, worst single-player delta -0.9 min — same order as
+    # block-fill), standings rho improved 0.914->0.927, spread 34.2->35.6 (closer
+    # to real), H2H win rate 0.77->0.84, H2H margin 9.96->11.97. Star realized MPG
+    # dipped uniformly ~1-3 min/g across tracked stars — watch, not a blocker (no
+    # divergent/collapsing pattern like prior failed attempts showed).
+    use_interval_rotation: bool = True
     use_strategic_foul: bool = False  # trailing team intentionally fouls late-game
     use_momentum: bool = False        # per-team momentum from runs/stops/steals
     use_fatigue: bool = False         # heavy-minutes lineup efficiency decay

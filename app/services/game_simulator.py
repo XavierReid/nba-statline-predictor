@@ -34,6 +34,7 @@ from app.services.rotation import (
     MODE_OT_CLOSE,
     MODE_SCHEDULED,
     build_rotation,
+    build_rotation_interval,
     patch_rotation,
     resolve_lineup,
 )
@@ -205,8 +206,9 @@ def simulate_game(
     else:
         form_factors = {}
 
-    home_rotation = build_rotation(home_players, rng)
-    away_rotation = build_rotation(away_players, rng)
+    _build_rotation = build_rotation_interval if cfg.use_interval_rotation else build_rotation
+    home_rotation = _build_rotation(home_players, rng)
+    away_rotation = _build_rotation(away_players, rng)
     home_def_baseline = rotation_baseline(home_players)
     away_def_baseline = rotation_baseline(away_players)
     tip_winner_is_home = rng.random() < 0.5

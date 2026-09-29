@@ -51,7 +51,7 @@ def make_team(id_offset: int) -> list:
 HOME = make_team(0)
 AWAY = make_team(100)
 SEED = 42
-OT_SEED = 127  # produces OT — re-found 2026-08-03 after Session 6a steal_rate 0.093→0.086 shifted the RNG stream. Prior value 110 no longer OTs on the new config.
+OT_SEED = 196  # produces OT — re-found 2026-09-29 after promoting build_rotation_interval (more rng.gauss() calls per game shifted the RNG stream). Prior value 127 no longer OTs on the new config.
 
 
 # ---------------------------------------------------------------------------

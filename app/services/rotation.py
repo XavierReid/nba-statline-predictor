@@ -65,6 +65,84 @@ def build_rotation(players: list[dict], rng: random.Random) -> list[list[int]]:
     return [list(s) for s in slots]
 
 
+def build_rotation_interval(players: list[dict], rng: random.Random) -> list[list[int]]:
+    """5th rotation-scheduler attempt (2026-09-29): shift-based instead of
+    block-fill. Fixes the Q2 substitution deadzone (`build_rotation`'s
+    contiguous greedy fill lets starters lock up all of Q1+Q2 before bench
+    finds an open slot — confirmed 2026-09-24, Q2 gets 6.8x fewer subs than
+    Q1). Four prior scheduler rewrites were reverted for regressing star MPG,
+    standings correlation, or an accounting invariant; this one is gated
+    behind `SimConfig.use_interval_rotation` (default False) pending the
+    same validation panel those attempts failed.
+
+    Starters get one shift per quarter (so every quarter sees fresh starter
+    minutes, not a single contiguous block). Bench gets 1-3 shifts anchored
+    at the windows real coaches typically use (mid-Q1, mid-Q3, late-Q4).
+    Deficit-based backfill (same as `build_rotation`) reconciles any slot
+    left under 5 after the shift placement.
+    """
+    slots: list[set] = [set() for _ in range(GAME_MINUTES)]
+
+    def try_place_shift(pid: int, start: int, length: int) -> None:
+        for m in range(start, min(GAME_MINUTES, start + length)):
+            if len(slots[m]) < 5 and pid not in slots[m]:
+                slots[m].add(pid)
+
+    starters = [p for p in players if p["is_starter"]]
+    bench = [p for p in players if not p["is_starter"]]
+
+    for p in starters:
+        target = int(round(p["minutes"]))
+        shift_len = max(3, target // 4)
+        for q in range(4):
+            q_start = q * 12
+            max_offset = max(0, 12 - shift_len)
+            if q == 0:
+                # The announced starting five tips off together at minute 0 —
+                # no randomized offset. A random Q1 offset let the deficit
+                # backfill occasionally seat a non-starter in the opening
+                # minute (a starter's shift hadn't started yet), which
+                # test_lineup_reconstruction correctly flags as an invalid
+                # 6-player "initial lineup" (caught 2026-09-29 promoting the
+                # interval scheduler). Later-quarter shifts still vary.
+                offset = 0
+            else:
+                offset = max(0, min(max_offset, int(rng.gauss(1, 1.5))))
+            try_place_shift(p["id"], q_start + offset, shift_len)
+
+    for p in bench:
+        target = int(round(p["minutes"]))
+        if target < 3:
+            continue
+        n_shifts = 3 if target >= 15 else (2 if target >= 8 else 1)
+        shift_len = max(3, target // n_shifts)
+        anchors = [7, 30, 40] if n_shifts == 3 else ([7, 30] if n_shifts == 2 else [30])
+        for anchor in anchors:
+            offset = int(rng.gauss(0, 2))
+            actual_start = max(0, min(GAME_MINUTES - shift_len, anchor + offset))
+            try_place_shift(p["id"], actual_start, shift_len)
+
+    # Same deficit-based backfill as build_rotation: give any under-5 slot to
+    # whoever is furthest below their target minutes.
+    count: dict = {}
+    for slot in slots:
+        for pid in slot:
+            count[pid] = count.get(pid, 0) + 1
+    for slot in slots:
+        while len(slot) < 5:
+            cand = min(
+                (p for p in players if p["id"] not in slot),
+                key=lambda p: count.get(p["id"], 0) - p["minutes"],
+                default=None,
+            )
+            if cand is None:
+                break
+            slot.add(cand["id"])
+            count[cand["id"]] = count.get(cand["id"], 0) + 1
+
+    return [list(s) for s in slots]
+
+
 # Rotation modes — the resolver picks a mode from game state, and the lineup is
 # the output of that mode. Future behaviors (foul-trouble subs, injury overrides)
 # become additional modes, not special cases in the game loop.

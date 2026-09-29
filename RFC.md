@@ -2617,3 +2617,124 @@ pin down sample-size threshold, below-threshold UI, and scope of application
 (PlayerModal in MyLeague context, NextGameCard rotations, future roster
 inspection). Anti-pattern to avoid: silently substituting real-life averages
 when a player has a partial-season sim record.
+
+**Shipped** `e610e84` (backend, `GET /myleague/{sim_id}/player/{player_id}`)
++ `429b565` (PlayerModal sim-vs-real block) + `75eac6d` (generalized to
+Team/League scopes via `GET /simulations/{sim_id}/player/{player_id}`).
+
+**M-3 (`a4102ef` + `f738931`) — team drill-in.** Roster-at-date + bulk season
+stats endpoint, wired into the frontend (team-standings row click → roster
+panel). Era abbreviations fixed, roster split into two sections
+(active/inactive), `NextGameCard` made clickable into the same view.
+
+**M-4 (`fae25ce`) — player availability toggle.** First user-driven
+between-games mutation. OUT/IN toggle on the roster panel writes
+`SET_UNAVAILABLE`/`SET_AVAILABLE` events through the existing M-1a engine —
+no new engine surface needed, the event-sourced availability model built
+into M-1a already supported this from day one. Fold-consistency fixes for
+edge cases where a toggle landed on an already-simulated date.
+
+**M-5a/M-5b (`bcad50f` + `a25dd17`) — injuries.** Infrastructure shipped at
+rate=0 (M-5a, inert by default), then turned on at a calibrated 0.018 rate
+(M-5b) after a 3-seed sweep confirmed no material standings distortion.
+UAT on M-5b surfaced two pre-existing, unrelated gaps that got banked rather
+than chased inside this session: baseline standings compression (see the
+full-league realism audit below — same issue) and a season-specific scoring
+gap.
+
+**Not started:** M-6 (trade proposals + CPU acceptance), M-7 (MPG
+overrides). No design-lock session has happened for either.
+
+## Sim-realism calibration arc (2026-09-01 → 2026-09-29)
+
+One continuous investigation, several shipped legs. Full detail lives in
+`project-full-league-realism-audit`, `project-pre-negation-remeasured`,
+`project-nonrim-split-probe10`, and `project-sub-distribution-probe`
+memory files — this section is the durable summary.
+
+**Full-league realism audit (2026-09-01).** `scratch/full_league_realism_audit.py`,
+N=10 full-league sims, 2024-25, injuries off. Rank preserved (Spearman
+ρ=0.87) but win-total spread compressed ~40% vs real (sim 30.9 vs real 51).
+Symmetric tail collapse — top-3 real teams under by ~15-19 wins, bottom-5
+over by ~12-14. Hard ceiling/floor (top never 60+, bottom never <21).
+
+**Causal chain (Probes A-H, 2026-09-01/02).** Traced to two design-level
+dampeners: the defender-penalty term is centered on the defending lineup's
+own mean, so it contributes ~zero when a team's five defenders are
+homogeneous; and `team_defense_factor` (opponent def_rating's effect on
+opponent FG%) was multiplicatively halved. A coefficient sweep (0.5→1.0)
+closed ~30% of the spread gap with no safeguard violations but was banked,
+not shipped, pending investigation of the remaining 70%.
+
+**Rotation investigation (Probes #1-#5b, 2026-09-02/03).** Found star-MPG
+under-service and a Q2 substitution deadzone, both traced into `rotation.py`
+and framed as architecturally coupled (not five independent bugs). Two fix
+attempts — static star-protection at the availability layer, then an
+interval-based scheduler rewrite — were built, measured, and reverted; both
+were "state-blind" (a uniform allocation or shape change, when the missing
+mechanism was WHEN stars get minutes, not how many).
+
+**MODE_CLOSE_LATE shipped** (`7c23e42`, Fix #3a.2) — a new rotation mode
+firing in the Q4 last-5-minutes-close-game window, concentrating minutes on
+the top-hierarchy five with a projection-aware cap so it doesn't just push a
+star over their real MPG ceiling. Standings ρ 0.844→0.861, small but real
+gain. Residual: SGA/Sengun PPG inflation, redirecting into per-shot
+efficiency work.
+
+**Per-shot efficiency arc (Probes #6-#9, 2026-09-03 → 09-16).** Traced the
+MODE_CLOSE_LATE residual to a collision between the `shooter_draw`
+foul-drawing multiplier (added earlier) and the `_pre_negation_prob`
+fouled-miss constants it was implicitly calibrated against — elite foul
+drawers were seeing more of their misses excluded from FGA than the
+constants accounted for, inflating their box FG%. A per-player elastic fix
+("Option A") was prototyped, measured, and rejected — it only closed ~30% of
+the error and undershot due to a foul-drawing-rate cap. **Shipped instead**
+(`1fadd00`): a straight re-measurement of the global `_ZONE_FOUL_MISS_RATE`
+constants on the current engine (rim 0.24→0.354, three 0.05→0.024; nonrim
+deliberately held at 0.19 pending a further split — see below). Elite rim
+FG% MAE improved ~43%.
+
+**Probe #10 — paint/midrange split (`9b0b5ca` scaffold, `4a856d4`
+promotion).** The held-back "nonrim" bucket was found to conflate two
+materially different shot classes — real paint (non-restricted-area) shots
+at ~35% of all 2P attempts vs the sim's "floater" sub-type carrying only
+~5%, meaning bigs' paint looks were being priced as generic mid-range jump
+shots. Split the zone into `paint_fg_prob` / `midrange_fg_prob` with
+independent shrinkage and a single per-player `paint_shot_rate` roll behind
+`SimConfig.use_paint_mid_split`. An isolation panel (7 arms) attributed a
+downstream 3-point-accuracy side effect entirely to one sub-type parameter
+tuned for the "floater" shot's old ~5% niche volume
+(`_FOUL_DRAW_MULT["floater"]`, 1.1→0.9 under the split); after that fix, a
+multi-seed re-test (3 seeds × 2,223 games/arm) showed the remaining
+3-point-MAE concern from a single-seed panel was measurement noise, not a
+real regression. Promoted 2026-09-24, default now `True`. Promotion itself
+caught two real bugs before shipping: the fixture-capture and
+fixture-regression-test harness scripts weren't threading `pre_negation`/
+`paint_mid_split` into `load_roster` at all (so neither calibration path was
+being exercised by the fixture), and the split's coarse-mode fallback
+(`use_shot_subtypes=False`) was silently routing to the wrong zone-prob key.
+Both fixed as part of the same commit.
+
+**`team_defense_coefficient` promoted 0.5→1.0 (`2ab5e4b`, 2026-09-29).**
+Extracted the hardcoded Path-2 coefficient into `SimConfig` and re-swept
+0.5/0.75/1.0 under the full post-calibration stack rather than trusting the
+2026-09-02 numbers. Result differed from the original sweep — a broadly
+positive move on both rank correlation (ρ 0.885→0.914) and head-to-head
+separation (win rate 0.72→0.77), not the earlier "closes one gap, doesn't
+help another" tradeoff. Plausible explanation: the shot-calibration work
+above cleared per-shot noise that had been masking this lever's effect. 1.0
+and 0.75 were statistically indistinguishable at N=10 runs each; chose 1.0
+(no dampening at all) as the cleaner value.
+
+**Confirmed, not yet fixed — Q2 substitution deadzone.** Xavier flagged a
+Q2-sub-sparse pattern from hands-on play 2026-08-22; measured 2026-09-24 at
+741 games and confirmed severe (Q2 mean 2.0 subs/game vs Q1's 13.6, a 6.8×
+drop). Root-caused live in `rotation.py`'s `assign_minutes`: starters are
+scheduled first with a single contiguous greedy fill from minute 0, no
+rest-oscillation built in, so five starters at ~34 mpg average lock up
+nearly all of Q1+Q2 before bench players (scheduled second) find open slots.
+Same mechanism the earlier Probe #5b diagnosed; MODE_CLOSE_LATE never
+touched it (Q4-only). **Scheduled as the next sim-engine session** — a 5th
+scheduler attempt, with a stricter gate than the four prior attempts
+cleared (each of which regressed something else: star MPG, standings ρ, or
+an accounting invariant).

@@ -203,11 +203,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies to 
 
 ## Where it's headed
 
-**Done:** real-data ingestion · data-grounded player ratings · possession-based game engine with clock, rotations, overtime, late-game strategy · granular event-sourced PBP (SHOT/FOUL/FT/REB/TOV/STL/BLK/AST/SUBSTITUTION) with lineup-reconstruction correctness gate · team-season and full-league batch simulation · MyLeague franchise mode (create → advance day → next-game preview → drill-in) · React SPA over all of it · calibration suite holding the engine to real NBA numbers.
+**Done:** real-data ingestion · data-grounded player ratings · possession-based game engine with clock, rotations, overtime, late-game strategy · granular event-sourced PBP (SHOT/FOUL/FT/REB/TOV/STL/BLK/AST/SUBSTITUTION) with lineup-reconstruction correctness gate · team-season and full-league batch simulation · MyLeague franchise mode (create → advance day → next-game preview → team drill-in → user-driven availability toggle → injuries → drill-in) · React SPA over all of it · calibration suite holding the engine to real NBA numbers, including a full-league realism audit (rank correlation, standings spread, head-to-head separation vs real) with two calibration levers promoted from it — a shooter-foul-drawing / pre-negation collision that was inflating elite scoring, and the paint-vs-midrange shot-mix split that was collapsing bigs' shot selection into a narrow mid-range band.
 
-**Currently in flight:** MyLeague between-games surface. The foundation is live end-to-end; the next layers are user-facing mutations (mark player OUT for a game), then injuries, trades, and eventually CPU-managed roster moves for the other 29 teams. Product intent is locked: simulated stats are the primary reality of the user's league; real-life stats are reference/context only.
+**Currently in flight:** rotation realism. A confirmed, root-caused Q2 substitution deadzone (`rotation.py`'s minute-scheduler fills contiguously from tip-off with no rest-oscillation, so starters can lock up all of Q1+Q2 before the bench gets a look) is next up — scoped as its own session given four prior scheduler-rewrite attempts have each regressed something else.
 
-**On deck after MyLeague:** league-realism validation (measurement session — do full-league sims produce plausible standings shapes across many seeds?), then team-level coaching/scheme modifiers once that data is in hand.
+**On deck after that:** MyLeague between-games mutations beyond availability — trade proposals + CPU acceptance, MPG overrides — then team-level coaching/scheme modifiers. Product intent is locked: simulated stats are the primary reality of the user's league; real-life stats are reference/context only.
 
 Deeper docs for the curious: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how it works) · [`RUNBOOK.md`](RUNBOOK.md) (commands & tools) · [`SIMULATION_GAPS.md`](SIMULATION_GAPS.md) (the calibration detective work).
 

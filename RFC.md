@@ -2726,15 +2726,41 @@ above cleared per-shot noise that had been masking this lever's effect. 1.0
 and 0.75 were statistically indistinguishable at N=10 runs each; chose 1.0
 (no dampening at all) as the cleaner value.
 
-**Confirmed, not yet fixed — Q2 substitution deadzone.** Xavier flagged a
-Q2-sub-sparse pattern from hands-on play 2026-08-22; measured 2026-09-24 at
-741 games and confirmed severe (Q2 mean 2.0 subs/game vs Q1's 13.6, a 6.8×
-drop). Root-caused live in `rotation.py`'s `assign_minutes`: starters are
-scheduled first with a single contiguous greedy fill from minute 0, no
-rest-oscillation built in, so five starters at ~34 mpg average lock up
-nearly all of Q1+Q2 before bench players (scheduled second) find open slots.
-Same mechanism the earlier Probe #5b diagnosed; MODE_CLOSE_LATE never
-touched it (Q4-only). **Scheduled as the next sim-engine session** — a 5th
-scheduler attempt, with a stricter gate than the four prior attempts
-cleared (each of which regressed something else: star MPG, standings ρ, or
-an accounting invariant).
+**Q2 substitution deadzone — confirmed, root-caused, and fixed (`5587944`,
+2026-09-29).** Xavier flagged a Q2-sub-sparse pattern from hands-on play
+2026-08-22; measured 2026-09-24 at 741 games and confirmed severe (Q2 mean
+2.0 subs/game vs Q1's 13.6, a 6.8× drop). Root-caused live in `rotation.py`'s
+`assign_minutes`: starters were scheduled first with a single contiguous
+greedy fill from minute 0, no rest-oscillation, so five starters at ~34 mpg
+average locked up nearly all of Q1+Q2 before bench players (scheduled
+second) found open slots. Same mechanism the earlier Probe #5b diagnosed;
+MODE_CLOSE_LATE never touched it (Q4-only).
+
+**5th scheduler attempt succeeded** — `build_rotation_interval`, a
+shift-based scheduler (starters get one shift per quarter, bench gets 1-3
+shifts anchored at real-coach windows), promoted behind
+`SimConfig.use_interval_rotation` (default `True`). The design itself was
+recovered from a reverted 2026-09-02 attempt (`scratch/
+prototype_interval_rotation.py`, which survived as an untracked file even
+though the integration was reverted) and re-validated under the current
+post-calibration stack rather than trusting the stale result — same pattern
+as the Probe #10 and `team_defense_coefficient` re-tests above. Cleared
+every gate the four prior scheduler attempts failed on: minute-accounting
+invariant holds (team totals within 0.2 min of budget, worst single-player
+delta −0.9 min — the exact gate that killed attempt #3's 269→236 unresolved
+gap), AND standings ρ improved 0.914→0.927, spread 34.2→35.6, H2H win rate
+0.77→0.84, H2H margin 9.96→11.97 pts — the opposite of the 2026-09-02
+attempt's team-strength regression. Q1/Q2/Q3/Q4 sub counts went from
+13.6/2.0/8.6/21.1 to 33.2/31.7/24.7/26.1 per game. Star realized MPG dipped
+uniformly ~1-3 min/g across tracked stars — watched as a residual, not
+blocking.
+
+Promotion caught two real bugs before shipping: the scheduler's randomized
+per-quarter shift offset could delay a starter's Q1 shift past minute 0,
+letting deficit backfill seat a non-starter in the opening minute
+(`test_lineup_reconstruction_invariants` caught a 6-player "initial lineup"
+on the BOS-LAL fixture) — fixed by pinning the Q1 offset to 0, since a real
+starting five tips off together. Separately, `test_game_simulator.py`'s
+hand-picked `OT_SEED` (127) stopped producing an OT game once the extra
+`rng.gauss()` calls per game shifted the RNG stream; re-found a working seed
+(196), same maintenance class as the 2026-08-03 `OT_SEED` update.

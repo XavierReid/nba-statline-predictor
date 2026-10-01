@@ -287,13 +287,35 @@ def simulate_game(
             new_set = set(new_ids)
             added = sorted(new_set - prev_set)
             removed = sorted(prev_set - new_set)
-            # Deterministic 1:1 pairing so PBP renders "P_in for P_out" cleanly.
-            # If added/removed sizes ever drift, still emit each addition + each
-            # removal so the reconstructor can catch the mismatch as an
-            # invariant violation (rather than silently swallowing it).
-            for i in range(max(len(added), len(removed))):
-                pid_in = added[i] if i < len(added) else None
-                pid_out = removed[i] if i < len(removed) else None
+            # Position-aware 1:1 pairing so PBP reads "P_in for P_out" sensibly.
+            # A pure sorted-id zip (pre-2026-09-30) paired whichever added/removed
+            # players happened to land at the same list index — with multi-player
+            # swaps now routine (interval rotation scheduler), that produced
+            # nonsensical labels like a backup PG "subbing in for" the starting C
+            # (caught in UAT 2026-09-30). Greedily match each added player to a
+            # removed player at the SAME position first, falling back to
+            # leftover sorted-id pairing for anyone left over. Display-only —
+            # box score / accounting are unaffected either way.
+            by_pos = home_by_id if is_home_side else away_by_id
+            leftover_removed = list(removed)
+            pairs: list = []
+            for pid_in in added:
+                pos_in = by_pos.get(pid_in, {}).get("position")
+                match = next((r for r in leftover_removed if by_pos.get(r, {}).get("position") == pos_in), None)
+                if match is not None:
+                    leftover_removed.remove(match)
+                    pairs.append((pid_in, match))
+                else:
+                    pairs.append((pid_in, None))
+            for pid_out in leftover_removed:
+                # First unmatched pair absorbs a leftover "out" with no position match.
+                for idx, (pid_in, matched_out) in enumerate(pairs):
+                    if matched_out is None:
+                        pairs[idx] = (pid_in, pid_out)
+                        break
+                else:
+                    pairs.append((None, pid_out))
+            for pid_in, pid_out in pairs:
                 subs.append({
                     "type": "SUBSTITUTION",
                     "possession": upcoming_poss,

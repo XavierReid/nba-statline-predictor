@@ -83,10 +83,51 @@ def build_rotation_interval(players: list[dict], rng: random.Random) -> list[lis
     """
     slots: list[set] = [set() for _ in range(GAME_MINUTES)]
 
+    WINDOW_SEARCH_RADIUS = 6  # minutes; see docstring below
+
     def try_place_shift(pid: int, start: int, length: int) -> None:
-        for m in range(start, min(GAME_MINUTES, start + length)):
-            if len(slots[m]) < 5 and pid not in slots[m]:
-                slots[m].add(pid)
+        """Place a CONTIGUOUS `length`-minute shift as close to `start` as
+        possible, searching outward up to `WINDOW_SEARCH_RADIUS` minutes for
+        a fully-open window. An unbounded version of this search was tried
+        2026-09-30 and reverted the same day after a 4-arm ablation isolated
+        it as the sole cause of a standings-correlation regression (rho
+        0.911->0.890, six times the measured seed-noise floor) — traced to
+        rare bench-shift relocations up to 41 minutes from the requested
+        window, which reshuffle who's on court far beyond the local
+        collision the search was meant to resolve. A plain minute-by-minute
+        fallback (no search at all) was tried in its place but reopened a
+        lineup-integrity hole: fragmenting a shift can leave a team briefly
+        understaffed (<5 on court), which gap-aware backfill then patches
+        with a no-removal "add", surfacing as a phantom second starter in
+        the substitution stream (caught by
+        tests/test_lineup_reconstruction.py). Capping the search radius
+        keeps shifts contiguous for any LOCAL collision — which is what
+        caused the understaffed gaps — while bounding the worst-case
+        relocation distance far below the 41-minute outlier that drove the
+        standings regression."""
+        def window_open(s: int) -> bool:
+            if s < 0 or s + length > GAME_MINUTES:
+                return False
+            return all(len(slots[m]) < 5 and pid not in slots[m] for m in range(s, s + length))
+
+        if window_open(start):
+            chosen = start
+        else:
+            chosen = None
+            for delta in range(1, WINDOW_SEARCH_RADIUS + 1):
+                for cand in (start - delta, start + delta):
+                    if window_open(cand):
+                        chosen = cand
+                        break
+                if chosen is not None:
+                    break
+        if chosen is None:
+            for m in range(start, min(GAME_MINUTES, start + length)):
+                if len(slots[m]) < 5 and pid not in slots[m]:
+                    slots[m].add(pid)
+            return
+        for m in range(chosen, chosen + length):
+            slots[m].add(pid)
 
     starters = [p for p in players if p["is_starter"]]
     bench = [p for p in players if not p["is_starter"]]
@@ -122,23 +163,51 @@ def build_rotation_interval(players: list[dict], rng: random.Random) -> list[lis
             actual_start = max(0, min(GAME_MINUTES - shift_len, anchor + offset))
             try_place_shift(p["id"], actual_start, shift_len)
 
-    # Same deficit-based backfill as build_rotation: give any under-5 slot to
-    # whoever is furthest below their target minutes.
+    # Gap-aware deficit backfill: fill each CONTIGUOUS run of under-5 slots
+    # with a candidate set chosen ONCE for the whole run, not re-picked every
+    # single minute. The original per-slot version (still used by
+    # build_rotation) picked independently minute by minute, which could
+    # legitimately seat a different five-man group for just 1 minute before
+    # moving on — producing a "phantom substitution" in the PBP where a
+    # player enters and leaves within 16-70 seconds (UAT 2026-09-30, BOS@DEN
+    # seed 555: four players sharing the exact same 16-second in/out window).
+    # A first attempt fixed this with an after-the-fact smoothing pass that
+    # merged short lineup runs into whatever preceded them — that broke
+    # individual minute budgets (one player's actual minutes overshot target
+    # by +17.6, because merging doesn't know who a short stint was FOR).
+    # Choosing the fill candidates once per gap, up front, keeps the same
+    # deficit-driven selection this function has always used; it just stops
+    # re-rolling it every minute, so a short gap gets one coherent mini-stint
+    # instead of a flickering sequence.
     count: dict = {}
     for slot in slots:
         for pid in slot:
             count[pid] = count.get(pid, 0) + 1
-    for slot in slots:
-        while len(slot) < 5:
-            cand = min(
-                (p for p in players if p["id"] not in slot),
-                key=lambda p: count.get(p["id"], 0) - p["minutes"],
-                default=None,
-            )
-            if cand is None:
-                break
-            slot.add(cand["id"])
-            count[cand["id"]] = count.get(cand["id"], 0) + 1
+
+    m = 0
+    while m < GAME_MINUTES:
+        if len(slots[m]) >= 5:
+            m += 1
+            continue
+        run_start = m
+        while m < GAME_MINUTES and len(slots[m]) < 5:
+            m += 1
+        run_end = m  # exclusive
+        excluded: set = set()
+        for k in range(run_start, run_end):
+            excluded |= slots[k]
+        pool = [p for p in players if p["id"] not in excluded]
+        pool.sort(key=lambda p: count.get(p["id"], 0) - p["minutes"])
+        max_needed = max(5 - len(slots[k]) for k in range(run_start, run_end))
+        candidates = pool[:max_needed]
+        for k in range(run_start, run_end):
+            need_here = 5 - len(slots[k])
+            for cand in candidates[:need_here]:
+                slots[k].add(cand["id"])
+        for cand in candidates:
+            filled = sum(1 for k in range(run_start, run_end) if cand["id"] in slots[k])
+            if filled:
+                count[cand["id"]] = count.get(cand["id"], 0) + filled
 
     return [list(s) for s in slots]
 

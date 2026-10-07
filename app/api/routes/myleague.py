@@ -14,6 +14,7 @@ Error mapping:
   missing SimulationRun    → 404
 """
 import random
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -556,53 +557,63 @@ def get_myleague_team(
             status_code=404, detail=f"MyLeague state {sim_id} missing."
         )
 
-    # Team lookup — resolve era-accurate abbr via team_identity so
-    # 07-08 SEA / 04-08 CHA-Bobcats work. Also accepts the modern abbr as
-    # a fallback so an old bookmark or a stale UI reference (e.g. "OKC"
-    # while browsing 2007-08) still resolves to the right team.
+    match, era_city, era_nick, era_abbr_val = _resolve_team_for_season(db, sim.season, team_abbr)
+
+    as_of = state_row.current_calendar_date + timedelta(days=1)
+    roster = _build_drill_in_roster(db, sim, match.id, as_of)
+
+    # Chronological over the sim's game rows so streak computation works.
+    sim_games = db.execute(
+        select(SimulatedGame, Game.home_team_id, Game.away_team_id, Game.game_date)
+        .join(Game, Game.id == SimulatedGame.game_id)
+        .where(SimulatedGame.simulation_id == sim_id)
+        .where((Game.home_team_id == match.id) | (Game.away_team_id == match.id))
+        .order_by(Game.game_date.asc(), SimulatedGame.game_id.asc())
+    ).all()
+
+    return TeamDrillInResponse(
+        team_id=match.id,
+        team_abbr=era_abbr_val,
+        team_city=era_city,
+        team_nickname=era_nick,
+        as_of_date=as_of,
+        record=_drill_in_record(sim_games, match.id),
+        roster=roster,
+        recent_games=_recent_games(db, sim_games, sim.season),
+    )
+
+
+def _resolve_team_for_season(db: Session, season: str, team_abbr: str) -> tuple:
+    """Resolve era-accurate abbr via team_identity so 07-08 SEA / 04-08 CHA-Bobcats work.
+    Also accepts the modern abbr as a fallback so an old bookmark or stale UI reference
+    (e.g. "OKC" while browsing 2007-08) still resolves to the right team.
+    Returns (team, era_city, era_nickname, era_abbr)."""
     from app.services.franchise import team_identity
-    all_teams = db.execute(select(Team)).scalars().all()
-    match = None
-    era_city = era_nick = era_abbr_val = None
     normalized = team_abbr.upper()
-    for t in all_teams:
+    for t in db.execute(select(Team)).scalars().all():
         era_c, era_n, era_a = team_identity(
-            t.id, sim.season, (t.city, t.nickname, t.abbreviation)
+            t.id, season, (t.city, t.nickname, t.abbreviation)
         )
         if era_a.upper() == normalized or t.abbreviation.upper() == normalized:
-            match = t
-            era_city, era_nick, era_abbr_val = era_c, era_n, era_a
-            break
-    if match is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Team '{team_abbr}' not found for season {sim.season!r}.",
-        )
+            return t, era_c, era_n, era_a
+    raise HTTPException(
+        status_code=404,
+        detail=f"Team '{team_abbr}' not found for season {season!r}.",
+    )
 
-    # --- roster @ as_of_date
-    #
-    # M-4 fold-consistency fix: fold events at cursor+1 (the earliest
-    # date at which a new event can legally apply, per the M-1a
-    # retroactive-mutation rule). Without this, the drill-in chip would
-    # show a freshly-toggled player as still Available (fold at cursor
-    # doesn't include the cursor+1 event) while NextGameCard folds at
-    # the next game date and correctly shows OUT — the two surfaces
-    # disagreed. Fold effective-date now matches the write's
-    # applied_at_date semantics: the chip reflects "from tomorrow
-    # forward, what will this player's status be."
+
+def _build_drill_in_roster(db: Session, sim, team_id: int, as_of) -> list:
+    """Roster @ as_of. as_of is cursor+1 (M-4 fold-consistency fix): the earliest date a
+    new event can legally apply per the M-1a retroactive-mutation rule, so the chip shows
+    "from tomorrow forward" status and agrees with NextGameCard, which folds at the next
+    game date."""
     from app.services.roster_at_date import resolve_team_roster_at_date, sort_roster_depth_chart
     from app.services.player_stats import derive_bulk_player_stats
-    from datetime import timedelta
-    cursor_date = state_row.current_calendar_date
-    as_of = cursor_date + timedelta(days=1)
-    members = resolve_team_roster_at_date(
-        db, sim_id=sim_id, team_id=match.id, season=sim.season, as_of_date=as_of,
-    )
-    members = sort_roster_depth_chart(members)
-    stats = derive_bulk_player_stats(
-        db, sim, player_ids=[m.player_id for m in members],
-    )
-    roster = [
+    members = sort_roster_depth_chart(resolve_team_roster_at_date(
+        db, sim_id=sim.id, team_id=team_id, season=sim.season, as_of_date=as_of,
+    ))
+    stats = derive_bulk_player_stats(db, sim, player_ids=[m.player_id for m in members])
+    return [
         TeamDrillInRosterPlayer(
             player_id=m.player_id,
             name=m.name,
@@ -617,22 +628,14 @@ def get_myleague_team(
         for m in members
     ]
 
-    # --- record derived from THIS sim's persisted games.
-    #
-    # Chronological over the sim's game rows so streak computation works.
-    sim_games = db.execute(
-        select(SimulatedGame, Game.home_team_id, Game.away_team_id, Game.game_date)
-        .join(Game, Game.id == SimulatedGame.game_id)
-        .where(SimulatedGame.simulation_id == sim_id)
-        .where((Game.home_team_id == match.id) | (Game.away_team_id == match.id))
-        .order_by(Game.game_date.asc(), SimulatedGame.game_id.asc())
-    ).all()
+
+def _drill_in_record(sim_games: list, team_id: int) -> TeamDrillInRecord:
     wins = losses = home_wins = home_losses = away_wins = away_losses = 0
     pts_for_total = pts_against_total = 0
     streak_len = 0
     last_result: Optional[str] = None
-    for sg, home_id, away_id, _gd in sim_games:
-        is_home = home_id == match.id
+    for sg, home_id, _away_id, _gd in sim_games:
+        is_home = home_id == team_id
         pts_for = sg.home_score if is_home else sg.away_score
         pts_against = sg.away_score if is_home else sg.home_score
         pts_for_total += pts_for
@@ -640,30 +643,21 @@ def get_myleague_team(
         win = pts_for > pts_against
         if win:
             wins += 1
-            if is_home:
-                home_wins += 1
-            else:
-                away_wins += 1
+            home_wins += is_home
+            away_wins += not is_home
         else:
             losses += 1
-            if is_home:
-                home_losses += 1
-            else:
-                away_losses += 1
+            home_losses += is_home
+            away_losses += not is_home
         result = "W" if win else "L"
-        if last_result == result:
-            streak_len += 1
-        else:
-            streak_len = 1
+        streak_len = streak_len + 1 if last_result == result else 1
         last_result = result
     total_games = wins + losses
-    pct = round(wins / total_games, 3) if total_games else 0.0
-    streak = f"{last_result}{streak_len}" if last_result else "-"
-    record = TeamDrillInRecord(
+    return TeamDrillInRecord(
         wins=wins,
         losses=losses,
-        pct=pct,
-        streak=streak,
+        pct=round(wins / total_games, 3) if total_games else 0.0,
+        streak=f"{last_result}{streak_len}" if last_result else "-",
         home_wins=home_wins,
         home_losses=home_losses,
         away_wins=away_wins,
@@ -672,29 +666,19 @@ def get_myleague_team(
         ppg_allowed=round(pts_against_total / total_games, 1) if total_games else 0.0,
     )
 
-    # --- recent games (last 10 for this team)
-    recent_rows = list(sim_games)[-10:][::-1]  # newest first
-    recent = []
-    for sg, home_id, away_id, gd in recent_rows:
-        home_abbr = _era_abbr(db, home_id, sim.season)
-        away_abbr = _era_abbr(db, away_id, sim.season)
-        recent.append(RecentGameRow(
+
+def _recent_games(db: Session, sim_games: list, season: str) -> list:
+    """Last 10 games for the team, newest first."""
+    return [
+        RecentGameRow(
             game_id=sg.game_id, game_date=gd,
-            home_team=home_abbr, away_team=away_abbr,
+            home_team=_era_abbr(db, home_id, season),
+            away_team=_era_abbr(db, away_id, season),
             home_score=sg.home_score, away_score=sg.away_score,
             went_to_ot=sg.went_to_ot,
-        ))
-
-    return TeamDrillInResponse(
-        team_id=match.id,
-        team_abbr=era_abbr_val,
-        team_city=era_city,
-        team_nickname=era_nick,
-        as_of_date=as_of,
-        record=record,
-        roster=roster,
-        recent_games=recent,
-    )
+        )
+        for sg, home_id, away_id, gd in list(sim_games)[-10:][::-1]
+    ]
 
 
 def _era_abbr(db: Session, team_id: int, season: str) -> str:

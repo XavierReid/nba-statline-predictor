@@ -623,6 +623,107 @@ def delete_simulation(sim_id: int, db: Session = Depends(get_db)):
     return {"id": sim_id, "deleted": True}
 
 
+_TEAM_SUM_FIELDS = {
+    "fga": "fga", "fgm": "fgm", "fta": "fta", "ftm": "ftm", "fg3a": "fg3a", "fg3m": "fg3m",
+    "pf": "personal_fouls", "tov": "turnovers", "stl": "steals", "blk": "blocks",
+    "ast": "assists", "reb": "rebounds",
+}
+_PLAYER_SUM_FIELDS = (
+    "minutes", "points", "rebounds", "assists", "steals", "blocks", "turnovers",
+    "personal_fouls", "fgm", "fga", "fg3m", "fg3a", "ftm", "fta",
+)
+
+
+def _team_sim_totals(db: Session, sim_games: list, lines: list, team_id: int) -> dict:
+    """Per-game team aggregates: points for/against from the games, box totals from the lines."""
+    n_games = len(sim_games)
+    scored = allowed = 0
+    for sg in sim_games:
+        real_game = db.get(Game, sg.game_id)
+        if real_game.home_team_id == team_id:
+            scored += sg.home_score
+            allowed += sg.away_score
+        else:
+            scored += sg.away_score
+            allowed += sg.home_score
+
+    def per_game(total: float):
+        return round(total / n_games, 2) if n_games else 0
+
+    totals = {"gp": n_games, "ppg": per_game(scored), "opp_ppg": per_game(allowed)}
+    for key, attr in _TEAM_SUM_FIELDS.items():
+        totals[key] = per_game(sum(getattr(l, attr) for l in lines))
+    return totals
+
+
+def _team_real_anchors(db: Session, team_id: int, season: str) -> dict:
+    row = db.execute(
+        select(TeamSeasonStats).where(
+            TeamSeasonStats.team_id == team_id,
+            TeamSeasonStats.season == season,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        return {}
+    return {"pace": row.pace, "off_rating": row.off_rating,
+            "def_rating": row.def_rating, "oreb_pct": row.oreb_pct}
+
+
+def _player_sim_row(agg: dict, gp: int) -> dict:
+    def avg(key: str):
+        return round(agg[key] / gp, 2) if gp else 0
+
+    def pct(made: str, att: str):
+        return round(agg[made] / agg[att], 3) if agg[att] else None
+
+    return {
+        "gp": gp, "mpg": avg("minutes"), "ppg": avg("points"), "rpg": avg("rebounds"),
+        "apg": avg("assists"), "spg": avg("steals"), "bpg": avg("blocks"),
+        "topg": avg("turnovers"), "pf_per_game": avg("personal_fouls"),
+        "fg_pct": pct("fgm", "fga"), "fg3_pct": pct("fg3m", "fg3a"), "ft_pct": pct("ftm", "fta"),
+    }
+
+
+def _player_real_row(r) -> dict:
+    # PlayerSeasonStats stores these as per-game averages already.
+    return {
+        "gp": r.games_played, "mpg": r.minutes_per_game, "ppg": r.points, "rpg": r.rebounds,
+        "apg": r.assists, "spg": r.steals, "bpg": r.blocks, "topg": r.turnovers,
+        "pf_per_game": r.pf_per_game, "fg_pct": r.fg_pct, "fg3_pct": r.fg3_pct, "ft_pct": r.ft_pct,
+    }
+
+
+def _player_averages_rows(db: Session, lines: list, season: str) -> list:
+    per_player: dict = {}
+    per_player_gp: dict = {}
+    for l in lines:
+        agg = per_player.setdefault(l.player_id, dict.fromkeys(_PLAYER_SUM_FIELDS, 0))
+        for f in _PLAYER_SUM_FIELDS:
+            agg[f] += getattr(l, f)
+        per_player_gp[l.player_id] = per_player_gp.get(l.player_id, 0) + 1
+
+    player_ids = list(per_player.keys())
+    name_map = {p.id: p.full_name for p in db.execute(
+        select(Player).where(Player.id.in_(player_ids))
+    ).scalars().all()} if player_ids else {}
+    real_by_pid = {r.player_id: r for r in db.execute(
+        select(PlayerSeasonStats).where(
+            PlayerSeasonStats.player_id.in_(player_ids),
+            PlayerSeasonStats.season == season,
+        )
+    ).scalars().all()} if player_ids else {}
+
+    return [
+        PlayerAveragesRow(
+            player_id=pid,
+            name=name_map.get(pid, str(pid)),
+            sim=_player_sim_row(agg, per_player_gp[pid]),
+            real=_player_real_row(real_by_pid[pid]) if pid in real_by_pid else None,
+        )
+        for pid, agg in per_player.items()
+    ]
+
+
 @season_router.get("/{sim_id}/averages", response_model=SeasonAveragesResponse)
 def season_averages(sim_id: int, db: Session = Depends(get_db)):
     """Sim season averages side-by-side with real NBA anchors for the run's team.
@@ -649,10 +750,10 @@ def season_averages(sim_id: int, db: Session = Depends(get_db)):
         )
 
     team = db.get(Team, sim.team_id)
-    # Persisted lines for this sim, filtered to the team's players.
-    game_ids = [g.id for g in db.execute(
+    sim_games = list(db.execute(
         select(SimulatedGame).where(SimulatedGame.simulation_id == sim_id)
-    ).scalars().all()]
+    ).scalars().all())
+    game_ids = [g.id for g in sim_games]
     lines = list(db.execute(
         select(SimulatedPlayerLine).where(
             SimulatedPlayerLine.simulated_game_id.in_(game_ids),
@@ -660,133 +761,7 @@ def season_averages(sim_id: int, db: Session = Depends(get_db)):
         )
     ).scalars().all()) if game_ids else []
 
-    # Team-level sim aggregates (sum across the team's persisted lines, per-game).
-    n_games = len(game_ids)
-    team_scored = 0
-    team_allowed = 0
-    for sg in db.execute(select(SimulatedGame).where(SimulatedGame.simulation_id == sim_id)).scalars().all():
-        real_game = db.get(Game, sg.game_id)
-        if real_game.home_team_id == sim.team_id:
-            team_scored += sg.home_score
-            team_allowed += sg.away_score
-        else:
-            team_scored += sg.away_score
-            team_allowed += sg.home_score
-
-    def _sum(attr: str) -> int:
-        return sum(getattr(l, attr) for l in lines)
-
-    team_sim = {
-        "gp": n_games,
-        "ppg": round(team_scored / n_games, 2) if n_games else 0,
-        "opp_ppg": round(team_allowed / n_games, 2) if n_games else 0,
-        "fga": round(_sum("fga") / n_games, 2) if n_games else 0,
-        "fgm": round(_sum("fgm") / n_games, 2) if n_games else 0,
-        "fta": round(_sum("fta") / n_games, 2) if n_games else 0,
-        "ftm": round(_sum("ftm") / n_games, 2) if n_games else 0,
-        "fg3a": round(_sum("fg3a") / n_games, 2) if n_games else 0,
-        "fg3m": round(_sum("fg3m") / n_games, 2) if n_games else 0,
-        "pf": round(_sum("personal_fouls") / n_games, 2) if n_games else 0,
-        "tov": round(_sum("turnovers") / n_games, 2) if n_games else 0,
-        "stl": round(_sum("steals") / n_games, 2) if n_games else 0,
-        "blk": round(_sum("blocks") / n_games, 2) if n_games else 0,
-        "ast": round(_sum("assists") / n_games, 2) if n_games else 0,
-        "reb": round(_sum("rebounds") / n_games, 2) if n_games else 0,
-    }
-
-    team_real_row = db.execute(
-        select(TeamSeasonStats).where(
-            TeamSeasonStats.team_id == sim.team_id,
-            TeamSeasonStats.season == sim.season,
-        )
-    ).scalar_one_or_none()
-    team_real = {}
-    if team_real_row:
-        team_real = {
-            "pace": team_real_row.pace,
-            "off_rating": team_real_row.off_rating,
-            "def_rating": team_real_row.def_rating,
-            "oreb_pct": team_real_row.oreb_pct,
-        }
-
-    # Per-player aggregates.
-    per_player: dict[int, dict[str, float]] = {}
-    per_player_gp: dict[int, int] = {}
-    for l in lines:
-        agg = per_player.setdefault(l.player_id, {
-            "minutes": 0.0, "points": 0, "rebounds": 0, "assists": 0,
-            "steals": 0, "blocks": 0, "turnovers": 0, "personal_fouls": 0,
-            "fgm": 0, "fga": 0, "fg3m": 0, "fg3a": 0, "ftm": 0, "fta": 0,
-        })
-        agg["minutes"] += l.minutes
-        agg["points"] += l.points
-        agg["rebounds"] += l.rebounds
-        agg["assists"] += l.assists
-        agg["steals"] += l.steals
-        agg["blocks"] += l.blocks
-        agg["turnovers"] += l.turnovers
-        agg["personal_fouls"] += l.personal_fouls
-        agg["fgm"] += l.fgm
-        agg["fga"] += l.fga
-        agg["fg3m"] += l.fg3m
-        agg["fg3a"] += l.fg3a
-        agg["ftm"] += l.ftm
-        agg["fta"] += l.fta
-        per_player_gp[l.player_id] = per_player_gp.get(l.player_id, 0) + 1
-
-    player_ids = list(per_player.keys())
-    name_map = {p.id: p.full_name for p in db.execute(
-        select(Player).where(Player.id.in_(player_ids))
-    ).scalars().all()} if player_ids else {}
-    real_rows = db.execute(
-        select(PlayerSeasonStats).where(
-            PlayerSeasonStats.player_id.in_(player_ids),
-            PlayerSeasonStats.season == sim.season,
-        )
-    ).scalars().all() if player_ids else []
-    real_by_pid = {r.player_id: r for r in real_rows}
-
-    players: list[PlayerAveragesRow] = []
-    for pid, agg in per_player.items():
-        gp = per_player_gp[pid]
-        sim_row = {
-            "gp": gp,
-            "mpg": round(agg["minutes"] / gp, 2) if gp else 0,
-            "ppg": round(agg["points"] / gp, 2) if gp else 0,
-            "rpg": round(agg["rebounds"] / gp, 2) if gp else 0,
-            "apg": round(agg["assists"] / gp, 2) if gp else 0,
-            "spg": round(agg["steals"] / gp, 2) if gp else 0,
-            "bpg": round(agg["blocks"] / gp, 2) if gp else 0,
-            "topg": round(agg["turnovers"] / gp, 2) if gp else 0,
-            "pf_per_game": round(agg["personal_fouls"] / gp, 2) if gp else 0,
-            "fg_pct": round(agg["fgm"] / agg["fga"], 3) if agg["fga"] else None,
-            "fg3_pct": round(agg["fg3m"] / agg["fg3a"], 3) if agg["fg3a"] else None,
-            "ft_pct": round(agg["ftm"] / agg["fta"], 3) if agg["fta"] else None,
-        }
-        r = real_by_pid.get(pid)
-        real_row = None
-        if r is not None:
-            real_row = {
-                "gp": r.games_played,
-                "mpg": r.minutes_per_game,
-                "ppg": r.points,          # PSS stores these as per-game averages
-                "rpg": r.rebounds,
-                "apg": r.assists,
-                "spg": r.steals,
-                "bpg": r.blocks,
-                "topg": r.turnovers,
-                "pf_per_game": r.pf_per_game,
-                "fg_pct": r.fg_pct,
-                "fg3_pct": r.fg3_pct,
-                "ft_pct": r.ft_pct,
-            }
-        players.append(PlayerAveragesRow(
-            player_id=pid,
-            name=name_map.get(pid, str(pid)),
-            sim=sim_row,
-            real=real_row,
-        ))
-
+    players = _player_averages_rows(db, lines, sim.season)
     # Sort by sim MPG descending so the top of the table is the most-played rotation.
     players.sort(key=lambda p: -p.sim["mpg"])
 
@@ -794,7 +769,10 @@ def season_averages(sim_id: int, db: Session = Depends(get_db)):
         sim_id=sim_id,
         team=team.abbreviation,
         season=sim.season,
-        team_totals=TeamAveragesResponse(sim=team_sim, real=team_real),
+        team_totals=TeamAveragesResponse(
+            sim=_team_sim_totals(db, sim_games, lines, sim.team_id),
+            real=_team_real_anchors(db, sim.team_id, sim.season),
+        ),
         players=players,
     )
 

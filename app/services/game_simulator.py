@@ -73,6 +73,101 @@ def _league_avg_def_rating(db, season: str, fallback: float) -> float:
     return _LEAGUE_DEF_CACHE[season]
 
 
+def _select_game_rosters(
+    home_players: list, away_players: list, cfg, rng, season, db,
+    home_team_id, away_team_id, unavailable_player_ids,
+) -> tuple:
+    """Resolve tonight's rosters. Returns (home_pool, away_pool, home_active, away_active).
+
+    Pool = full loaded roster (pre-selection), retained so callers can tell rostered-but-
+    inactive (DNP) from never-entered. Active = who dresses: with `use_availability`, ~10 of
+    a deeper roster drawn from games_played (eligibility only — the rotation engine is
+    untouched; returns fresh dicts). Draw order on `rng` matters: home then away.
+    """
+    home_pool, away_pool = home_players, away_players
+    if cfg.use_availability:
+        from app.services.availability import select_active_roster
+        # Availability needs the deeper pool: if handed a shallow roster (a caller that
+        # loaded the default depth), reload to roster_depth here so every path benefits
+        # without caller surgery.
+        depth = getattr(cfg, "roster_depth", 10)
+        if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
+            from app.services.roster import load_roster
+            hp = load_roster(db, home_team_id, season, depth=depth,
+                             pre_negation=cfg.use_pre_negation_probs,
+                             paint_mid_split=cfg.use_paint_mid_split)
+            ap = load_roster(db, away_team_id, season, depth=depth,
+                             pre_negation=cfg.use_pre_negation_probs,
+                             paint_mid_split=cfg.use_paint_mid_split)
+            if hp:
+                home_pool = hp
+            if ap:
+                away_pool = ap
+        # M-4 bug fix: the reload above pulls the FULL team roster from PSS/Player and would
+        # silently re-include players who are OUT per MyLeague events. When the caller (e.g.
+        # advance_to) passes an unavailable set, apply it to the reloaded pool so events
+        # actually gate who can play.
+        if unavailable_player_ids:
+            home_pool = [p for p in home_pool if p["id"] not in unavailable_player_ids]
+            away_pool = [p for p in away_pool if p["id"] not in unavailable_player_ids]
+    # gap 3.4g: annotate each pool's full-strength creation reference BEFORE availability
+    # copies the active subset (select_active_roster does dict(p), so the ref propagates).
+    if cfg.use_lineup_creation and db is not None and season:
+        from app.services.lineup_creation import annotate_team_baseline, ensure_league_baseline
+        ensure_league_baseline(db, season, cfg.creation_form)
+        annotate_team_baseline(home_pool, cfg.creation_form)
+        annotate_team_baseline(away_pool, cfg.creation_form)
+    if cfg.use_availability:
+        home_players = select_active_roster(home_pool, rng, cfg)
+        away_players = select_active_roster(away_pool, rng, cfg)
+    return home_pool, away_pool, home_players, away_players
+
+
+def _load_team_stats(db, season, team_id) -> Optional[dict]:
+    """Pace / def_rating / oreb_pct for the pace, defense and OREB modifiers; None if absent."""
+    if db is None or not season or not team_id:
+        return None
+    row = db.execute(select(TeamSeasonStats).where(
+        TeamSeasonStats.team_id == team_id,
+        TeamSeasonStats.season == season,
+    )).scalar_one_or_none()
+    if not row:
+        return None
+    return {"pace": row.pace, "def_rating": row.def_rating, "oreb_pct": row.oreb_pct}
+
+
+def _pair_subs(added: list, removed: list, by_pos: dict) -> list:
+    """Position-aware 1:1 pairing so PBP reads "P_in for P_out" sensibly.
+
+    A pure sorted-id zip (pre-2026-09-30) paired whichever added/removed players happened
+    to land at the same list index — with multi-player swaps now routine (interval rotation
+    scheduler), that produced nonsensical labels like a backup PG "subbing in for" the
+    starting C (caught in UAT 2026-09-30). Greedily match each added player to a removed
+    player at the SAME position first, falling back to leftover sorted-id pairing for
+    anyone left over. Display-only — box score / accounting are unaffected either way.
+    Returns [(player_in, player_out)], either side None if the counts differ.
+    """
+    leftover_removed = list(removed)
+    pairs: list = []
+    for pid_in in added:
+        pos_in = by_pos.get(pid_in, {}).get("position")
+        match = next((r for r in leftover_removed if by_pos.get(r, {}).get("position") == pos_in), None)
+        if match is not None:
+            leftover_removed.remove(match)
+            pairs.append((pid_in, match))
+        else:
+            pairs.append((pid_in, None))
+    for pid_out in leftover_removed:
+        # First unmatched pair absorbs a leftover "out" with no position match.
+        for idx, (pid_in, matched_out) in enumerate(pairs):
+            if matched_out is None:
+                pairs[idx] = (pid_in, pid_out)
+                break
+        else:
+            pairs.append((None, pid_out))
+    return pairs
+
+
 def simulate_game(
     home_players: list[dict],
     away_players: list[dict],
@@ -97,47 +192,10 @@ def simulate_game(
 
     rng = random.Random(seed)
 
-    # Per-game availability (gap 3.4): ~10 of a deeper roster are active tonight, drawn from
-    # games_played. Eligibility only — the rotation engine is untouched. Returns fresh dicts.
-    # Availability needs the deeper pool: if handed a shallow roster (a caller that loaded the
-    # default depth), reload to roster_depth here so every path benefits without caller surgery.
-    # Full loaded pool (pre-selection) is retained so callers can distinguish who was
-    # rostered-but-inactive (DNP) from who simply never entered the box score.
-    home_pool, away_pool = home_players, away_players
-    if cfg.use_availability:
-        from app.services.availability import select_active_roster
-        depth = getattr(cfg, "roster_depth", 10)
-        if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
-            from app.services.roster import load_roster
-            hp = load_roster(db, home_team_id, season, depth=depth,
-                             pre_negation=cfg.use_pre_negation_probs,
-                             paint_mid_split=cfg.use_paint_mid_split)
-            ap = load_roster(db, away_team_id, season, depth=depth,
-                             pre_negation=cfg.use_pre_negation_probs,
-                             paint_mid_split=cfg.use_paint_mid_split)
-            if hp:
-                home_pool = hp
-            if ap:
-                away_pool = ap
-        # M-4 bug fix: the reload above pulls the FULL team roster from
-        # PSS/Player and would silently re-include players who are OUT
-        # per MyLeague events. When the caller (e.g. advance_to) passes
-        # an unavailable set, apply it to the reloaded pool so events
-        # actually gate who can play. Without this, availability events
-        # took no effect on games where reload triggered.
-        if unavailable_player_ids:
-            home_pool = [p for p in home_pool if p["id"] not in unavailable_player_ids]
-            away_pool = [p for p in away_pool if p["id"] not in unavailable_player_ids]
-    # gap 3.4g: annotate each pool's full-strength creation reference BEFORE availability copies
-    # the active subset (select_active_roster does dict(p), so the ref propagates to the copies).
-    if cfg.use_lineup_creation and db is not None and season:
-        from app.services.lineup_creation import annotate_team_baseline, ensure_league_baseline
-        ensure_league_baseline(db, season, cfg.creation_form)
-        annotate_team_baseline(home_pool, cfg.creation_form)
-        annotate_team_baseline(away_pool, cfg.creation_form)
-    if cfg.use_availability:
-        home_players = select_active_roster(home_pool, rng, cfg)
-        away_players = select_active_roster(away_pool, rng, cfg)
+    home_pool, away_pool, home_players, away_players = _select_game_rosters(
+        home_players, away_players, cfg, rng, season, db,
+        home_team_id, away_team_id, unavailable_player_ids,
+    )
 
     # Era-anchored league normalization for the foul model. Built from the FULL
     # pool (pre-availability) so the anchor reflects the season's rostered pool,
@@ -158,31 +216,8 @@ def simulate_game(
     )
 
     # Load team season stats for pace/defense/OREB modifiers
-    home_stats: Optional[dict] = None
-    away_stats: Optional[dict] = None
-    if db is not None and season:
-        if home_team_id:
-            row = db.execute(select(TeamSeasonStats).where(
-                TeamSeasonStats.team_id == home_team_id,
-                TeamSeasonStats.season == season,
-            )).scalar_one_or_none()
-            if row:
-                home_stats = {
-                    "pace": row.pace,
-                    "def_rating": row.def_rating,
-                    "oreb_pct": row.oreb_pct,
-                }
-        if away_team_id:
-            row = db.execute(select(TeamSeasonStats).where(
-                TeamSeasonStats.team_id == away_team_id,
-                TeamSeasonStats.season == season,
-            )).scalar_one_or_none()
-            if row:
-                away_stats = {
-                    "pace": row.pace,
-                    "def_rating": row.def_rating,
-                    "oreb_pct": row.oreb_pct,
-                }
+    home_stats = _load_team_stats(db, season, home_team_id)
+    away_stats = _load_team_stats(db, season, away_team_id)
 
     league_avg_def = (
         _league_avg_def_rating(db, season, cfg.league_avg_def_rating)
@@ -287,34 +322,7 @@ def simulate_game(
             new_set = set(new_ids)
             added = sorted(new_set - prev_set)
             removed = sorted(prev_set - new_set)
-            # Position-aware 1:1 pairing so PBP reads "P_in for P_out" sensibly.
-            # A pure sorted-id zip (pre-2026-09-30) paired whichever added/removed
-            # players happened to land at the same list index — with multi-player
-            # swaps now routine (interval rotation scheduler), that produced
-            # nonsensical labels like a backup PG "subbing in for" the starting C
-            # (caught in UAT 2026-09-30). Greedily match each added player to a
-            # removed player at the SAME position first, falling back to
-            # leftover sorted-id pairing for anyone left over. Display-only —
-            # box score / accounting are unaffected either way.
-            by_pos = home_by_id if is_home_side else away_by_id
-            leftover_removed = list(removed)
-            pairs: list = []
-            for pid_in in added:
-                pos_in = by_pos.get(pid_in, {}).get("position")
-                match = next((r for r in leftover_removed if by_pos.get(r, {}).get("position") == pos_in), None)
-                if match is not None:
-                    leftover_removed.remove(match)
-                    pairs.append((pid_in, match))
-                else:
-                    pairs.append((pid_in, None))
-            for pid_out in leftover_removed:
-                # First unmatched pair absorbs a leftover "out" with no position match.
-                for idx, (pid_in, matched_out) in enumerate(pairs):
-                    if matched_out is None:
-                        pairs[idx] = (pid_in, pid_out)
-                        break
-                else:
-                    pairs.append((None, pid_out))
+            pairs = _pair_subs(added, removed, home_by_id if is_home_side else away_by_id)
             for pid_in, pid_out in pairs:
                 subs.append({
                     "type": "SUBSTITUTION",

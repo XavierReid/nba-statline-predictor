@@ -384,8 +384,9 @@ The `total_steps` in the response is the actual count after OT resolution — it
 | Preset | Description | Use when |
 |---|---|---|
 | `baseline` (default) | All modifiers off. Fixed 200 possessions, simple alternating possession. | Isolating player/rating behavior, fast calibration baseline |
-| `drama-m1` | Pace, clock, second-chance, fast break, team defense, strategic foul. | Realistic game flow testing, M1 UAT |
-| `drama-m2` | All M1 modifiers + momentum + fatigue + foul trouble + clutch. | Full drama pipeline testing |
+| `drama-m3` | Full realism stack for single games (availability off, roster depth 10). | Single-game sims, UAT |
+| `drama-m3-season` | `drama-m3` plus availability on and roster depth 15. | Season, league and MyLeague sims |
+| `drama-m3-no-subtypes` | `drama-m3` without TOV/foul subtypes. | Isolating subtype effects |
 
 ### Modifier reference
 
@@ -409,26 +410,26 @@ The `total_steps` in the response is the actual count after OT resolution — it
 curl -s -X POST http://localhost:8000/simulations/game \
   -H "Content-Type: application/json" \
   -d '{"home_team":"BOS","away_team":"LAL","season":"2025-26","seed":42,
-       "config":{"preset":"drama-m1"}}' | jq '{home_score, away_score}'
+       "config":{"preset":"drama-m3"}}' | jq '{home_score, away_score}'
 
 # Preset + override (disable one modifier)
 curl -s -X POST http://localhost:8000/simulations/game \
   -H "Content-Type: application/json" \
   -d '{"home_team":"BOS","away_team":"LAL","season":"2025-26","seed":42,
-       "config":{"preset":"drama-m1","overrides":{"use_second_chance":false}}}' \
+       "config":{"preset":"drama-m3","overrides":{"use_second_chance":false}}}' \
   | jq '{home_score, away_score}'
 
-# Season sim with drama-m1
+# Season sim with drama-m3-season
 curl -s -X POST http://localhost:8000/simulations/ \
   -H "Content-Type: application/json" \
-  -d '{"team":"NYK","season":"2025-26","seed":99,"config":{"preset":"drama-m1"}}' | jq .
+  -d '{"team":"NYK","season":"2025-26","seed":99,"config":{"preset":"drama-m3-season"}}' | jq .
 ```
 
 ### Calibration targets (2025-26, real data)
 
-Run `python scratch/calibrate_simulator.py --games 500 --season 2025-26 [--drama-m1]` to compare.
+Run `python scratch/calibrate_simulator.py --games 500 --season 2025-26 [--preset drama-m3]` to compare.
 
-| Metric | Real 2025-26 | Baseline | Drama M1 |
+| Metric | Real 2025-26 | Baseline | Drama M1 (historical; preset since removed) |
 |---|---|---|---|
 | Avg team score | 115.6 pts | ~112 | ~118.8 |
 | Avg margin | 13.3 pts | ~14.1 | ~14.4 |

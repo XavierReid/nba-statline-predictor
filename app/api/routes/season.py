@@ -642,6 +642,12 @@ def season_averages(sim_id: int, db: Session = Depends(get_db)):
             detail=f"Simulation {sim_id} is '{sim.status}' — averages only available for complete or cancelled runs.",
         )
 
+    if sim.team_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Simulation {sim_id} is a {sim.scope}-scope run — averages are per-team.",
+        )
+
     team = db.get(Team, sim.team_id)
     # Persisted lines for this sim, filtered to the team's players.
     game_ids = [g.id for g in db.execute(

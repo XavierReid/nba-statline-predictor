@@ -18,7 +18,8 @@ def _a_completed_sim():
     db = SessionLocal()
     try:
         return db.execute(
-            select(SimulationRun).where(SimulationRun.status == "complete")
+            select(SimulationRun).where(
+                SimulationRun.status == "complete", SimulationRun.team_id.is_not(None))
         ).scalars().first()
     finally:
         db.close()
@@ -27,6 +28,18 @@ def _a_completed_sim():
 def test_averages_404_for_unknown_sim():
     r = client.get("/simulations/999999/averages")
     assert r.status_code == 404
+
+
+def test_averages_422_for_league_scope_run():
+    db = SessionLocal()
+    try:
+        league = db.execute(select(SimulationRun).where(
+            SimulationRun.status == "complete", SimulationRun.team_id.is_(None))).scalars().first()
+    finally:
+        db.close()
+    if not league:
+        pytest.skip("no completed league-scope SimulationRun in DB")
+    assert client.get(f"/simulations/{league.id}/averages").status_code == 422
 
 
 def test_averages_shape_for_completed_run():

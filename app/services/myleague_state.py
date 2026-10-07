@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import FrozenSet, List, Optional, Tuple
 
 
 # Event type constants — string values persisted in myleague_events.event_type.

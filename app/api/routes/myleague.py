@@ -629,7 +629,6 @@ def get_myleague_team(
     ).all()
     wins = losses = home_wins = home_losses = away_wins = away_losses = 0
     pts_for_total = pts_against_total = 0
-    streak_letter = "-"
     streak_len = 0
     last_result: Optional[str] = None
     for sg, home_id, away_id, _gd in sim_games:

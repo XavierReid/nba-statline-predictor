@@ -15,7 +15,7 @@ from app.services.game_simulator import load_roster, simulate_game
 from app.services.season_simulator import _game_seed, run_season_simulation
 from app.services.league_simulator import season_bounds, compute_standings, run_league_simulation
 from app.services.sim_config import SimConfig
-from app.api.helpers import build_box, get_team, sim_game_is_win
+from app.api.helpers import build_box, get_team
 from app.api.schemas.simulations import (
     CreateLeagueSimulationRequest,
     CreateSimulationRequest,

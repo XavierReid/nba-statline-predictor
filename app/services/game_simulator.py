@@ -521,7 +521,6 @@ def simulate_game(
         gs.away_last2_fouls = 0
         oreb_depth = 0
         next_is_fastbreak = False
-        foul_reset_depth = 0        # consecutive pre-bonus non-shooting fouls on this possession
 
         while quarter_clock > 0:
             # Strategic foul check — final period only (Q4 or any OT): intentional
@@ -627,7 +626,6 @@ def simulate_game(
                             current_is_home = not current_is_home
                             oreb_depth = 0
                             next_is_fastbreak = False
-                            foul_reset_depth = 0
                             continue
 
             # Sample possession time
@@ -887,7 +885,6 @@ def simulate_game(
                 # WITHIN the same statistical possession (not a new possession).
                 diag.time["foul_reset"] += extra
                 diag.pre_bonus_fouls += 1
-            foul_reset_depth = 0  # cap obsolete under in-line representation
             rebounded_by = event.get("rebounded_by")
             offense_ids = home_ids if current_is_home else away_ids
             is_oreb = (

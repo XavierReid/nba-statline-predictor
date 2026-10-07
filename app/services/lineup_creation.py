@@ -79,13 +79,6 @@ def set_league_baseline(players: List[dict], form: str) -> None:
     _BASELINE[form] = {"attr_means": attr_means, "composite_mean": cm, "std": var ** 0.5}
 
 
-def creation_std(form: str) -> float:
-    """League std of the mean-1 creation value — lets a harness set k per form so different
-    forms are compared at matched shift variance rather than a raw common coefficient."""
-    b = _BASELINE.get(form)
-    return b["std"] if b else 0.0
-
-
 def creation_value(player: dict, form: str) -> float:
     """Player's mean-1 creation under `form`. 1.0 for an average creator, >1 elite."""
     b = _BASELINE.get(form)

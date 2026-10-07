@@ -14,11 +14,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
-from app.models.team import Team
 
 
 EXPECTED_LEAGUE_GAMES = 1230
@@ -126,17 +125,6 @@ def validate_season_schedule(
     )
 
 
-class ScheduleIntegrityError(RuntimeError):
-    """Raised when validate_season_schedule fails and we refuse to run."""
-
-    def __init__(self, result: ScheduleIntegrityResult):
-        self.result = result
-        summary = "; ".join(result.failures)
-        super().__init__(
-            f"schedule integrity check failed for the season: {summary}"
-        )
-
-
 # ---------------------------------------------------------------------------
 # Standings computation (derived state — no persistence)
 # ---------------------------------------------------------------------------
@@ -238,7 +226,7 @@ import logging  # noqa: E402
 from datetime import datetime  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
-from app.models.simulation import SimulatedGame, SimulationRun  # noqa: E402
+from app.models.simulation import SimulationRun  # noqa: E402
 from app.services.game_simulator import load_roster, simulate_game  # noqa: E402
 from app.services.season_simulator import _game_seed, _persist_game  # noqa: E402
 

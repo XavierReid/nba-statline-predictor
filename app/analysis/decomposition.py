@@ -64,13 +64,6 @@ def simulate_schedule(db, season: str, config, sims_per_game: int) -> List[dict]
     return out
 
 
-def _ppp_parts(a: PossessionAccounting) -> dict:
-    """PPP contribution of each component (sums to ~ppp; residual = uncategorized)."""
-    parts = {z: a.zones[z].fga_per100 / 100 * a.zones[z].ppa for z in ZONES}
-    parts["ft"] = a.ft_pct * a.fta_rate
-    return parts
-
-
 def compare(real: PossessionAccounting, sim: PossessionAccounting) -> None:
     w = 74
     print("\n" + "=" * w)

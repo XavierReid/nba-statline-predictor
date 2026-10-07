@@ -24,9 +24,9 @@ team. The injury generator is trusted: it always writes future-dated
 events (game_date + 1), so the retroactive-mutation invariant holds
 by construction.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 import random
 
 from sqlalchemy import or_, select

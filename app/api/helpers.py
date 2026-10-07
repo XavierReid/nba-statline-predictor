@@ -5,8 +5,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.game import Game
-from app.models.simulation import SimulatedGame
 from app.models.team import Team
 from app.services.game_simulator import load_roster
 from app.services.franchise import resolve_abbreviation
@@ -91,7 +89,3 @@ def build_stepthrough_response(token: str, data: dict) -> StepThroughResponse:
     )
 
 
-def sim_game_is_win(db: Session, sg: SimulatedGame, team_id: int) -> bool:
-    real_game = db.get(Game, sg.game_id)
-    is_home = real_game.home_team_id == team_id
-    return (sg.home_score > sg.away_score) if is_home else (sg.away_score > sg.home_score)

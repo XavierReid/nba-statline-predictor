@@ -56,6 +56,91 @@ def _pct(made: int, attempted: int) -> Optional[float]:
     return round(made / attempted, 3)
 
 
+_SIM_SUM_FIELDS = (
+    ("mins", "minutes", 0.0), ("pts", "points", 0), ("reb", "rebounds", 0),
+    ("ast", "assists", 0), ("stl", "steals", 0), ("blk", "blocks", 0),
+    ("tov", "turnovers", 0), ("fgm", "fgm", 0), ("fga", "fga", 0),
+    ("fg3m", "fg3m", 0), ("fg3a", "fg3a", 0), ("ftm", "ftm", 0), ("fta", "fta", 0),
+)
+
+
+def _sim_sum_columns() -> list:
+    """Per-group totals of SimulatedPlayerLine — the sum-of-sums the contract requires."""
+    return [func.count(SimulatedPlayerLine.id).label("gp")] + [
+        func.coalesce(func.sum(getattr(SimulatedPlayerLine, attr)), zero).label(label)
+        for label, attr, zero in _SIM_SUM_FIELDS
+    ]
+
+
+def _build_sim_block(
+    rows: list, team_abbr_by_id: dict, team_gp: int,
+) -> PlayerMyLeagueSim:
+    """Totals-first: per-team blocks from each grouped row, overall block from the summed totals."""
+    by_team_blocks: list[PlayerMyLeagueStatsBlock] = []
+    tot_gp = tot_mins = tot_pts = tot_reb = tot_ast = tot_stl = tot_blk = tot_tov = 0
+    tot_fgm = tot_fga = tot_fg3m = tot_fg3a = tot_ftm = tot_fta = 0
+    for r in rows:
+        by_team_blocks.append(PlayerMyLeagueStatsBlock(
+            team_abbr=team_abbr_by_id.get(r.team_id, "?"),
+            gp=r.gp,
+            **_derive_rates(r.gp, r.mins, r.pts, r.reb, r.ast, r.stl, r.blk, r.tov),
+            fg_pct=_pct(r.fgm, r.fga),
+            fg3_pct=_pct(r.fg3m, r.fg3a),
+            ft_pct=_pct(r.ftm, r.fta),
+        ))
+        tot_gp += r.gp
+        tot_mins += float(r.mins); tot_pts += r.pts; tot_reb += r.reb
+        tot_ast += r.ast; tot_stl += r.stl; tot_blk += r.blk; tot_tov += r.tov
+        tot_fgm += r.fgm; tot_fga += r.fga
+        tot_fg3m += r.fg3m; tot_fg3a += r.fg3a
+        tot_ftm += r.ftm; tot_fta += r.fta
+    return PlayerMyLeagueSim(
+        gp=tot_gp,
+        team_gp=team_gp,
+        **_derive_rates(tot_gp, tot_mins, tot_pts, tot_reb, tot_ast, tot_stl, tot_blk, tot_tov),
+        fg_pct=_pct(tot_fgm, tot_fga),
+        fg3_pct=_pct(tot_fg3m, tot_fg3a),
+        ft_pct=_pct(tot_ftm, tot_fta),
+        by_team=by_team_blocks,
+    )
+
+
+def _build_real_block(pss_rows: list) -> Optional[PlayerMyLeagueReal]:
+    """Same-season PSS rows → one block. Sums across rows if the player was traded in real
+    life (two team rows for one season); weights per-game averages by GP so cross-team
+    real stats never blend as averages-of-averages. None when no games were played."""
+    r_gp = 0
+    r_mins = r_pts = r_reb = r_ast = r_stl = r_blk = r_tov = 0.0
+    r_fgm = r_fga = r_fg3m = r_fg3a = r_ftm = r_fta = 0.0
+    for row in pss_rows:
+        gp = row.games_played or 0
+        if gp <= 0:
+            continue
+        r_gp += gp
+        r_mins += (row.minutes_per_game or 0.0) * gp
+        r_pts += (row.points or 0.0) * gp
+        r_reb += (row.rebounds or 0.0) * gp
+        r_ast += (row.assists or 0.0) * gp
+        r_stl += (row.steals or 0.0) * gp
+        r_blk += (row.blocks or 0.0) * gp
+        r_tov += (row.turnovers or 0.0) * gp
+        r_fgm += (row.fgm or 0.0) * gp
+        r_fga += (row.fga or 0.0) * gp
+        r_fg3m += (row.fg3m or 0.0) * gp
+        r_fg3a += (row.fg3a or 0.0) * gp
+        r_ftm += (row.ftm or 0.0) * gp
+        r_fta += (row.fta or 0.0) * gp
+    if r_gp <= 0:
+        return None
+    return PlayerMyLeagueReal(
+        gp=r_gp,
+        **_derive_rates(r_gp, r_mins, r_pts, r_reb, r_ast, r_stl, r_blk, r_tov),
+        fg_pct=_pct(int(round(r_fgm)), int(round(r_fga))),
+        fg3_pct=_pct(int(round(r_fg3m)), int(round(r_fg3a))),
+        ft_pct=_pct(int(round(r_ftm)), int(round(r_fta))),
+    )
+
+
 def derive_player_stats(
     db: Session, sim: SimulationRun, player: Player,
 ) -> PlayerMyLeagueStatsResponse:
@@ -70,27 +155,8 @@ def derive_player_stats(
     Works for any scope — team-scope sims have a single team_id in
     by_team, league / myleague may have more.
     """
-    # --- Sim block: aggregate SimulatedPlayerLine → totals → derive rates.
-    # Query per-team totals in ONE round-trip; the aggregate row is a
-    # sum-of-sums, matching what the contract requires (totals-first).
     lines_by_team = db.execute(
-        select(
-            SimulatedPlayerLine.team_id,
-            func.count(SimulatedPlayerLine.id).label("gp"),
-            func.coalesce(func.sum(SimulatedPlayerLine.minutes), 0.0).label("mins"),
-            func.coalesce(func.sum(SimulatedPlayerLine.points), 0).label("pts"),
-            func.coalesce(func.sum(SimulatedPlayerLine.rebounds), 0).label("reb"),
-            func.coalesce(func.sum(SimulatedPlayerLine.assists), 0).label("ast"),
-            func.coalesce(func.sum(SimulatedPlayerLine.steals), 0).label("stl"),
-            func.coalesce(func.sum(SimulatedPlayerLine.blocks), 0).label("blk"),
-            func.coalesce(func.sum(SimulatedPlayerLine.turnovers), 0).label("tov"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fgm), 0).label("fgm"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fga), 0).label("fga"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fg3m), 0).label("fg3m"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fg3a), 0).label("fg3a"),
-            func.coalesce(func.sum(SimulatedPlayerLine.ftm), 0).label("ftm"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fta), 0).label("fta"),
-        )
+        select(SimulatedPlayerLine.team_id, *_sim_sum_columns())
         .join(SimulatedGame, SimulatedGame.id == SimulatedPlayerLine.simulated_game_id)
         .where(SimulatedGame.simulation_id == sim.id)
         .where(SimulatedPlayerLine.player_id == player.id)
@@ -103,27 +169,7 @@ def derive_player_stats(
         ).scalars()
     } if lines_by_team else {}
 
-    by_team_blocks: list[PlayerMyLeagueStatsBlock] = []
-    tot_gp = tot_mins = tot_pts = tot_reb = tot_ast = tot_stl = tot_blk = tot_tov = 0
-    tot_fgm = tot_fga = tot_fg3m = tot_fg3a = tot_ftm = tot_fta = 0
-    for r in lines_by_team:
-        rates = _derive_rates(r.gp, r.mins, r.pts, r.reb, r.ast, r.stl, r.blk, r.tov)
-        by_team_blocks.append(PlayerMyLeagueStatsBlock(
-            team_abbr=team_abbr_by_id.get(r.team_id, "?"),
-            gp=r.gp,
-            **rates,
-            fg_pct=_pct(r.fgm, r.fga),
-            fg3_pct=_pct(r.fg3m, r.fg3a),
-            ft_pct=_pct(r.ftm, r.fta),
-        ))
-        tot_gp += r.gp
-        tot_mins += float(r.mins); tot_pts += r.pts; tot_reb += r.reb
-        tot_ast += r.ast; tot_stl += r.stl; tot_blk += r.blk; tot_tov += r.tov
-        tot_fgm += r.fgm; tot_fga += r.fga
-        tot_fg3m += r.fg3m; tot_fg3a += r.fg3a
-        tot_ftm += r.ftm; tot_fta += r.fta
-
-    # --- team_gp: games played by teams the player was rostered on in this
+    # team_gp: games played by teams the player was rostered on in this
     # sim. Team scope: rostered_team_ids is the one team_id on the sim
     # (via PSS). League / MyLeague: any team(s) the player was on for the
     # season. Trade-period filtering is future work when M-6 trades ship.
@@ -152,66 +198,18 @@ def derive_player_stats(
             )
         ).scalar() or 0
 
-    sim_rates = _derive_rates(
-        tot_gp, tot_mins, tot_pts, tot_reb, tot_ast, tot_stl, tot_blk, tot_tov,
-    )
-    sim_block = PlayerMyLeagueSim(
-        gp=tot_gp,
-        team_gp=team_gp,
-        **sim_rates,
-        fg_pct=_pct(tot_fgm, tot_fga),
-        fg3_pct=_pct(tot_fg3m, tot_fg3a),
-        ft_pct=_pct(tot_ftm, tot_fta),
-        by_team=by_team_blocks,
-    )
-
-    # --- Real block: same-season PSS. Sum across rows if the player was
-    # traded in real life (two team rows for one season) — same totals-
-    # first policy so cross-team real stats never blend as averages.
     pss_rows = db.execute(
         select(PlayerSeasonStats)
         .where(PlayerSeasonStats.player_id == player.id)
         .where(PlayerSeasonStats.season == sim.season)
     ).scalars().all()
-    real_block: Optional[PlayerMyLeagueReal] = None
-    if pss_rows:
-        r_gp = 0
-        r_mins = r_pts = r_reb = r_ast = r_stl = r_blk = r_tov = 0.0
-        r_fgm = r_fga = r_fg3m = r_fg3a = r_ftm = r_fta = 0.0
-        for row in pss_rows:
-            gp = row.games_played or 0
-            if gp <= 0:
-                continue
-            r_gp += gp
-            r_mins += (row.minutes_per_game or 0.0) * gp
-            r_pts += (row.points or 0.0) * gp
-            r_reb += (row.rebounds or 0.0) * gp
-            r_ast += (row.assists or 0.0) * gp
-            r_stl += (row.steals or 0.0) * gp
-            r_blk += (row.blocks or 0.0) * gp
-            r_tov += (row.turnovers or 0.0) * gp
-            r_fgm += (row.fgm or 0.0) * gp
-            r_fga += (row.fga or 0.0) * gp
-            r_fg3m += (row.fg3m or 0.0) * gp
-            r_fg3a += (row.fg3a or 0.0) * gp
-            r_ftm += (row.ftm or 0.0) * gp
-            r_fta += (row.fta or 0.0) * gp
-        if r_gp > 0:
-            real_rates = _derive_rates(r_gp, r_mins, r_pts, r_reb, r_ast, r_stl, r_blk, r_tov)
-            real_block = PlayerMyLeagueReal(
-                gp=r_gp,
-                **real_rates,
-                fg_pct=_pct(int(round(r_fgm)), int(round(r_fga))),
-                fg3_pct=_pct(int(round(r_fg3m)), int(round(r_fg3a))),
-                ft_pct=_pct(int(round(r_ftm)), int(round(r_fta))),
-            )
 
     return PlayerMyLeagueStatsResponse(
         player_id=player.id,
         name=player.full_name,
         season=sim.season,
-        sim=sim_block,
-        real=real_block,
+        sim=_build_sim_block(lines_by_team, team_abbr_by_id, team_gp),
+        real=_build_real_block(pss_rows),
     )
 
 
@@ -238,24 +236,7 @@ def derive_bulk_player_stats(
     # preserve by_team for future UI. Same math as derive_player_stats
     # but bulk.
     per_player_team = db.execute(
-        select(
-            SimulatedPlayerLine.player_id,
-            SimulatedPlayerLine.team_id,
-            func.count(SimulatedPlayerLine.id).label("gp"),
-            func.coalesce(func.sum(SimulatedPlayerLine.minutes), 0.0).label("mins"),
-            func.coalesce(func.sum(SimulatedPlayerLine.points), 0).label("pts"),
-            func.coalesce(func.sum(SimulatedPlayerLine.rebounds), 0).label("reb"),
-            func.coalesce(func.sum(SimulatedPlayerLine.assists), 0).label("ast"),
-            func.coalesce(func.sum(SimulatedPlayerLine.steals), 0).label("stl"),
-            func.coalesce(func.sum(SimulatedPlayerLine.blocks), 0).label("blk"),
-            func.coalesce(func.sum(SimulatedPlayerLine.turnovers), 0).label("tov"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fgm), 0).label("fgm"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fga), 0).label("fga"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fg3m), 0).label("fg3m"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fg3a), 0).label("fg3a"),
-            func.coalesce(func.sum(SimulatedPlayerLine.ftm), 0).label("ftm"),
-            func.coalesce(func.sum(SimulatedPlayerLine.fta), 0).label("fta"),
-        )
+        select(SimulatedPlayerLine.player_id, SimulatedPlayerLine.team_id, *_sim_sum_columns())
         .join(SimulatedGame, SimulatedGame.id == SimulatedPlayerLine.simulated_game_id)
         .where(SimulatedGame.simulation_id == sim.id)
         .where(SimulatedPlayerLine.player_id.in_(player_ids))
@@ -319,73 +300,13 @@ def derive_bulk_player_stats(
 
     result: dict[int, tuple[Optional[PlayerMyLeagueSim], Optional[PlayerMyLeagueReal]]] = {}
     for pid in player_ids:
-        # --- sim
-        rows = by_player.get(pid, [])
-        by_team_blocks: list[PlayerMyLeagueStatsBlock] = []
-        tot_gp = tot_mins = tot_pts = tot_reb = tot_ast = tot_stl = tot_blk = tot_tov = 0
-        tot_fgm = tot_fga = tot_fg3m = tot_fg3a = tot_ftm = tot_fta = 0
-        for r in rows:
-            rates = _derive_rates(r.gp, r.mins, r.pts, r.reb, r.ast, r.stl, r.blk, r.tov)
-            by_team_blocks.append(PlayerMyLeagueStatsBlock(
-                team_abbr=team_abbr_by_id.get(r.team_id, "?"),
-                gp=r.gp,
-                **rates,
-                fg_pct=_pct(r.fgm, r.fga),
-                fg3_pct=_pct(r.fg3m, r.fg3a),
-                ft_pct=_pct(r.ftm, r.fta),
-            ))
-            tot_gp += r.gp
-            tot_mins += float(r.mins); tot_pts += r.pts; tot_reb += r.reb
-            tot_ast += r.ast; tot_stl += r.stl; tot_blk += r.blk; tot_tov += r.tov
-            tot_fgm += r.fgm; tot_fga += r.fga
-            tot_fg3m += r.fg3m; tot_fg3a += r.fg3a
-            tot_ftm += r.ftm; tot_fta += r.fta
         # team_gp: sum games-played by any team this player was rostered on.
         team_gp = sum(
             games_played_by_team.get(tid, 0)
             for tid in rostered_teams_per_player.get(pid, set())
         )
-        sim_block = PlayerMyLeagueSim(
-            gp=tot_gp,
-            team_gp=team_gp,
-            **_derive_rates(tot_gp, tot_mins, tot_pts, tot_reb, tot_ast, tot_stl, tot_blk, tot_tov),
-            fg_pct=_pct(tot_fgm, tot_fga),
-            fg3_pct=_pct(tot_fg3m, tot_fg3a),
-            ft_pct=_pct(tot_ftm, tot_fta),
-            by_team=by_team_blocks,
+        result[pid] = (
+            _build_sim_block(by_player.get(pid, []), team_abbr_by_id, team_gp),
+            _build_real_block(real_by_player.get(pid, [])),
         )
-
-        # --- real
-        real_rows = real_by_player.get(pid, [])
-        real_block: Optional[PlayerMyLeagueReal] = None
-        r_gp = 0
-        r_mins = r_pts = r_reb = r_ast = r_stl = r_blk = r_tov = 0.0
-        r_fgm = r_fga = r_fg3m = r_fg3a = r_ftm = r_fta = 0.0
-        for row in real_rows:
-            gp = row.games_played or 0
-            if gp <= 0:
-                continue
-            r_gp += gp
-            r_mins += (row.minutes_per_game or 0.0) * gp
-            r_pts += (row.points or 0.0) * gp
-            r_reb += (row.rebounds or 0.0) * gp
-            r_ast += (row.assists or 0.0) * gp
-            r_stl += (row.steals or 0.0) * gp
-            r_blk += (row.blocks or 0.0) * gp
-            r_tov += (row.turnovers or 0.0) * gp
-            r_fgm += (row.fgm or 0.0) * gp
-            r_fga += (row.fga or 0.0) * gp
-            r_fg3m += (row.fg3m or 0.0) * gp
-            r_fg3a += (row.fg3a or 0.0) * gp
-            r_ftm += (row.ftm or 0.0) * gp
-            r_fta += (row.fta or 0.0) * gp
-        if r_gp > 0:
-            real_block = PlayerMyLeagueReal(
-                gp=r_gp,
-                **_derive_rates(r_gp, r_mins, r_pts, r_reb, r_ast, r_stl, r_blk, r_tov),
-                fg_pct=_pct(int(round(r_fgm)), int(round(r_fga))),
-                fg3_pct=_pct(int(round(r_fg3m)), int(round(r_fg3a))),
-                ft_pct=_pct(int(round(r_ftm)), int(round(r_fta))),
-            )
-        result[pid] = (sim_block, real_block)
     return result

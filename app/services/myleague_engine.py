@@ -287,6 +287,96 @@ def _scheduled_games_between(
     return [g for g in rows if g.id not in already_completed]
 
 
+def _make_roster_loader(db: Session, season: str, config: SimConfig):
+    """Roster loader with M-4 backfill: if events mark N players OUT on a team, load N
+    extra players from the pool so the sim still gets `config.roster_depth` active guys —
+    matches how real coaches promote bench players when starters are out. Cache is keyed
+    by (team_id, out_count) since different games may have different OUT counts (e.g.
+    later in the season after more events)."""
+    cache: dict = {}
+
+    def base_roster(team_id: int, out_count: int = 0) -> list:
+        key = (team_id, out_count)
+        if key not in cache:
+            cache[key] = load_roster(
+                db, team_id, season,
+                depth=config.roster_depth + out_count,
+                pre_negation=config.use_pre_negation_probs,
+            )
+        return cache[key]
+
+    return base_roster
+
+
+def _draw_post_game_injuries(
+    db: Session, sim: SimulationRun, state_row: MyLeagueState, game: Game,
+    result: dict, home_players: list, away_players: list, seed: int,
+) -> bool:
+    """M-5a post-game injury draws. Rolls a per-player injury probability against the
+    players who actually appeared (minutes > 0), using a per-game derived RNG so injuries
+    are deterministic and reproducible from the same event log. Writes OUT/recovery events
+    and commits. Returns True when new injuries were written (caller must reload events).
+    Rate comes from sim.parameters["injury_config"]; rate 0 draws nothing."""
+    from app.services.injuries import (
+        InjuryConfig, generate_injuries_for_game, write_injury_events,
+    )
+    stored_injury = (sim.parameters or {}).get("injury_config") or {}
+    icfg = InjuryConfig(rate=float(stored_injury.get("rate", 0.0)))
+    if icfg.rate <= 0.0:
+        return False
+    box = result.get("box_score", {})
+    home_appeared = [p["id"] for p in home_players if box.get(p["id"], {}).get("min", 0) > 0]
+    away_appeared = [p["id"] for p in away_players if box.get(p["id"], {}).get("min", 0) > 0]
+    injury_rng = random.Random(seed ^ 0xA11B10CC)
+    new_injuries = generate_injuries_for_game(
+        injury_rng, icfg, db, sim.season, game.game_date,
+        game.home_team_id, game.away_team_id,
+        home_appeared, away_appeared,
+    )
+    for inj in new_injuries:
+        write_injury_events(db, state_row.id, inj)
+    if new_injuries:
+        db.commit()
+    return bool(new_injuries)
+
+
+def _commit_advance(
+    db: Session, sim: SimulationRun, state_row: MyLeagueState,
+    target_date: date, completed_this_advance: int,
+) -> None:
+    """Move the cursor (even on a zero-game advance), bump the game counter, and mark the
+    run complete once every game in the season window is persisted — the frontend uses that
+    to lock the Advance button and shift into final-standings view."""
+    db.execute(
+        update(MyLeagueState)
+        .where(MyLeagueState.id == state_row.id)
+        .values(current_calendar_date=target_date, updated_at=datetime.now(timezone.utc))
+    )
+    if completed_this_advance:
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == sim.id)
+            .values(games_completed=SimulationRun.games_completed + completed_this_advance)
+        )
+    db.commit()
+
+    total_games = db.execute(
+        select(func.count(Game.id))
+        .where(Game.game_date.between(*season_bounds(sim.season)))
+    ).scalar()
+    persisted_games = db.execute(
+        select(func.count(SimulatedGame.id))
+        .where(SimulatedGame.simulation_id == sim.id)
+    ).scalar()
+    if total_games and persisted_games >= total_games:
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == sim.id, SimulationRun.status != "complete")
+            .values(status="complete", completed_at=datetime.now(timezone.utc))
+        )
+        db.commit()
+
+
 def advance_to(
     db: Session,
     *,
@@ -328,22 +418,7 @@ def advance_to(
         db, sim.season, state_row.current_calendar_date, target_date, completed_ids,
     )
 
-    # Roster loader with M-4 backfill: if events mark N players OUT on
-    # a team, load N extra players from the pool so the sim still gets
-    # `config.roster_depth` active guys — matches how real coaches
-    # promote bench players when starters are out. Cache is keyed by
-    # (team_id, out_count) since different games may have different
-    # OUT counts (e.g. later in the season after more events).
-    base_roster_cache: dict = {}
-    def _base_roster(team_id: int, out_count: int = 0) -> list:
-        key = (team_id, out_count)
-        if key not in base_roster_cache:
-            base_roster_cache[key] = load_roster(
-                db, team_id, sim.season,
-                depth=config.roster_depth + out_count,
-                pre_negation=config.use_pre_negation_probs,
-            )
-        return base_roster_cache[key]
+    base_roster = _make_roster_loader(db, sim.season, config)
 
     completed_this_advance = 0
     for game in games:
@@ -352,10 +427,10 @@ def advance_to(
         home_out = sum(1 for (t, _p) in unavailable if t == game.home_team_id)
         away_out = sum(1 for (t, _p) in unavailable if t == game.away_team_id)
         home_players = filter_available_players(
-            _base_roster(game.home_team_id, home_out), game.home_team_id, unavailable,
+            base_roster(game.home_team_id, home_out), game.home_team_id, unavailable,
         )
         away_players = filter_available_players(
-            _base_roster(game.away_team_id, away_out), game.away_team_id, unavailable,
+            base_roster(game.away_team_id, away_out), game.away_team_id, unavailable,
         )
         if len(home_players) < 5 or len(away_players) < 5:
             # Not enough eligible players — skip (surfaces later as a
@@ -379,78 +454,13 @@ def advance_to(
         _persist_game(db, simulation_id, game, result, home_players, away_players)
         completed_this_advance += 1
 
-        # --- M-5a: post-game injury draws.
-        #
-        # Rolls a per-player injury probability against the players who
-        # actually appeared in this game (minutes > 0). Ships with
-        # rate=0.0 default — no live injuries. M-5b turns rate on and
-        # calibrates against the multi-season validator.
-        # Uses the game's RNG (fresh seed per game) so injuries are
-        # deterministic + reproducible from the same event log.
-        from app.services.injuries import (
-            InjuryConfig, generate_injuries_for_game, write_injury_events,
-        )
-        stored_injury = (sim.parameters or {}).get("injury_config") or {}
-        icfg = InjuryConfig(
-            rate=float(stored_injury.get("rate", 0.0)),
-        )
-        if icfg.rate > 0.0:
-            box = result.get("box_score", {})
-            home_appeared = [
-                p["id"] for p in home_players
-                if box.get(p["id"], {}).get("min", 0) > 0
-            ]
-            away_appeared = [
-                p["id"] for p in away_players
-                if box.get(p["id"], {}).get("min", 0) > 0
-            ]
-            injury_rng = random.Random(seed ^ 0xA11B10CC)  # derived, deterministic
-            new_injuries = generate_injuries_for_game(
-                injury_rng, icfg, db, sim.season, game.game_date,
-                game.home_team_id, game.away_team_id,
-                home_appeared, away_appeared,
-            )
-            for inj in new_injuries:
-                write_injury_events(db, state_row.id, inj)
-            if new_injuries:
-                db.commit()
-                # Reload events so the NEXT game in this advance sees
-                # the fresh injury OUT events. Without this, injuries
-                # from game N wouldn't affect games N+1 in the same
-                # advance batch.
-                events = _load_events(db, state_row.id)
+        if _draw_post_game_injuries(
+            db, sim, state_row, game, result, home_players, away_players, seed,
+        ):
+            # Reload events so the NEXT game in this advance sees the fresh
+            # injury OUT events. Without this, injuries from game N wouldn't
+            # affect games N+1 in the same advance batch.
+            events = _load_events(db, state_row.id)
 
-    # Update cursor + audit timestamp even on a zero-game advance.
-    db.execute(
-        update(MyLeagueState)
-        .where(MyLeagueState.id == state_row.id)
-        .values(current_calendar_date=target_date, updated_at=datetime.now(timezone.utc))
-    )
-    if completed_this_advance:
-        db.execute(
-            update(SimulationRun)
-            .where(SimulationRun.id == simulation_id)
-            .values(games_completed=SimulationRun.games_completed + completed_this_advance)
-        )
-    db.commit()
-
-    # Season-complete detection: mark run.status='complete' when every
-    # game in the season window is persisted. Frontend uses this to lock
-    # the Advance button and shift into final-standings view.
-    total_games = db.execute(
-        select(func.count(Game.id))
-        .where(Game.game_date.between(*season_bounds(sim.season)))
-    ).scalar()
-    persisted_games = db.execute(
-        select(func.count(SimulatedGame.id))
-        .where(SimulatedGame.simulation_id == simulation_id)
-    ).scalar()
-    if total_games and persisted_games >= total_games:
-        db.execute(
-            update(SimulationRun)
-            .where(SimulationRun.id == simulation_id, SimulationRun.status != "complete")
-            .values(status="complete", completed_at=datetime.now(timezone.utc))
-        )
-        db.commit()
-
+    _commit_advance(db, sim, state_row, target_date, completed_this_advance)
     return load_state(db, simulation_id)

@@ -369,13 +369,116 @@ def ingest_play_by_play(db: Session, season_prefix: str) -> int:
     return done
 
 
+# v2 attributes fall back to position-adjusted defaults when a player is below the
+# data volume gates (flat defaults would erase position identity).
+_V2_ATTRS = {"layup", "close_shot", "dunk", "interior_defense", "perimeter_defense"}
+_DUNK_POS_MOD = {"C": +5, "F": 0, "G": -5}
+
+
+def _box_score_defense(db: Session, season: str, all_stats: list) -> dict:
+    """Pre-2013-14 seasons have no player-tracking defense (LeagueDashPtDefend empty), so
+    interior/perimeter defense would collapse to flat positional defaults. Derive them from
+    box score + team def_rating instead. Detected by data presence, not a hardcoded year —
+    the current season always has tracking so its rating stays byte-identical."""
+    from sqlalchemy import select
+    from app.services.rating_engine import derive_box_score_defense
+
+    if any(getattr(s, "d_lt6_fga", None) is not None for s in all_stats):
+        return {}
+    team_def_ratings = {
+        ts.team_id: ts.def_rating
+        for ts in db.execute(
+            select(TeamSeasonStats).where(TeamSeasonStats.season == season)
+        ).scalars().all()
+    }
+    if not team_def_ratings:
+        return {}
+    positions = {p.id: p.position for p in db.execute(select(Player)).scalars().all()}
+    box_defense = derive_box_score_defense(all_stats, team_def_ratings, positions)
+    log.info("seed_player_attributes: box-score defense fallback for %s (%d players)",
+             season, len(box_defense))
+    return box_defense
+
+
+def _team_possession_totals(all_stats: list) -> dict:
+    """team_totals[team_id] = (season_total_possessions, season_total_player_minutes), for
+    accurate usage_rate. Stats are stored as per-game averages, so multiply by games_played."""
+    team_totals: dict = {}
+    for s in all_stats:
+        if s.team_id is None:
+            continue
+        gp = s.games_played or 1
+        poss = ((s.fga or 0) + 0.44 * (s.fta or 0) + (s.turnovers or 0)) * gp
+        mins = (s.minutes_per_game or 0) * gp
+        prev_poss, prev_mins = team_totals.get(s.team_id, (0.0, 0.0))
+        team_totals[s.team_id] = (prev_poss + poss, prev_mins + mins)
+    return team_totals
+
+
+def _final_attributes(
+    db: Session, season: str, pid: int, ratings_by_attr: dict, derived_attributes: list,
+    box_defense: dict,
+) -> dict:
+    """One player's complete attribute dict: positional defaults < derived ratings < dunk
+    hybrid < box-score defense < manual overrides, plus the computed overall."""
+    from sqlalchemy import select
+    from app.services.rating_engine import apply_overrides, compute_overall, position_defaults
+
+    attr_vals = {
+        attr: ratings_by_attr[attr][pid]
+        for attr in derived_attributes
+        if pid in ratings_by_attr[attr]
+    }
+    player = db.get(Player, pid)
+    position = player.position if player else None
+    full_attrs = {**position_defaults(position), **attr_vals}
+
+    # Dunk hybrid: 0.7 x rim-finishing percentile + 0.3 x layup rating + positional
+    # modifier. No clean NBA dunk endpoint exists; this stays data-driven via RA
+    # efficiency/volume while acknowledging dunkers != layup finishers. Evolves to
+    # play-type/tracking data without touching the simulator (RFC: Attribute v2).
+    # Only applied when the rim component was derivable.
+    if pid in ratings_by_attr["dunk"] and "layup" in full_attrs:
+        pos_key = (position or "F").upper().split("-")[0]
+        full_attrs["dunk"] = max(30, min(99, round(
+            0.7 * ratings_by_attr["dunk"][pid]
+            + 0.3 * full_attrs["layup"]
+            + _DUNK_POS_MOD.get(pos_key, 0)
+        )))
+
+    # Overwrites the flat positional defaults that the tracking-based derivation left
+    # behind for pre-2013-14 seasons.
+    if pid in box_defense:
+        full_attrs.update(box_defense[pid])
+
+    overrides = db.execute(
+        select(PlayerAttributeOverride).where(
+            PlayerAttributeOverride.player_id == pid,
+            PlayerAttributeOverride.season == season,
+        )
+    ).scalars().all()
+    full_attrs = apply_overrides(full_attrs, overrides)
+    full_attrs["overall_rating"] = compute_overall(full_attrs, position)
+    return full_attrs
+
+
+def _upsert_player_season(db: Session, model, pid: int, season: str, values: dict) -> None:
+    from sqlalchemy import select
+    existing = db.execute(
+        select(model).where(model.player_id == pid, model.season == season)
+    ).scalar_one_or_none()
+    if existing:
+        for k, v in values.items():
+            setattr(existing, k, v)
+    else:
+        db.add(model(player_id=pid, season=season, **values))
+
+
 def seed_player_attributes(db: Session, season: str) -> int:
     """Derive PlayerAttributes and PlayerTendencies from PlayerSeasonStats."""
     from sqlalchemy import select
     from app.services.rating_engine import (
-        compute_ratings_for_attribute, compute_tendencies,
-        apply_overrides, position_defaults, compute_overall, SKILL_CONFIGS,
-        derive_box_score_defense,
+        compute_ratings_for_attribute, compute_tendencies, SKILL_CONFIGS,
     )
 
     all_stats = db.execute(
@@ -386,129 +489,32 @@ def seed_player_attributes(db: Session, season: str) -> int:
         log.warning("No season stats found for season=%s — run ingest_season_stats first", season)
         return 0
 
-    # Pre-2013-14 seasons have no player-tracking defense (LeagueDashPtDefend
-    # empty), so interior/perimeter defense would collapse to flat positional
-    # defaults. Derive them from box score + team def_rating instead. Detected by
-    # data presence, not a hardcoded year — the current season always has tracking
-    # so its rating stays byte-identical.
-    has_tracking_defense = any(getattr(s, "d_lt6_fga", None) is not None for s in all_stats)
-    box_defense: dict = {}
-    if not has_tracking_defense:
-        team_def_ratings = {
-            ts.team_id: ts.def_rating
-            for ts in db.execute(
-                select(TeamSeasonStats).where(TeamSeasonStats.season == season)
-            ).scalars().all()
-        }
-        if team_def_ratings:
-            positions = {
-                p.id: p.position
-                for p in db.execute(select(Player)).scalars().all()
-            }
-            box_defense = derive_box_score_defense(all_stats, team_def_ratings, positions)
-            log.info("seed_player_attributes: box-score defense fallback for %s (%d players)",
-                     season, len(box_defense))
-
-    # v2 attributes fall back to position-adjusted defaults when a player is
-    # below the data volume gates (flat defaults would erase position identity).
-    V2_ATTRS = {"layup", "close_shot", "dunk", "interior_defense", "perimeter_defense"}
+    box_defense = _box_score_defense(db, season, all_stats)
     derived_attributes = list(SKILL_CONFIGS.keys())
     ratings_by_attr = {
         attr: compute_ratings_for_attribute(
             attr, all_stats, SKILL_CONFIGS[attr],
-            default_for_ineligible=attr not in V2_ATTRS,
+            default_for_ineligible=attr not in _V2_ATTRS,
         )
         for attr in derived_attributes
     }
-
-    # Dunk hybrid: 0.7 x rim-finishing percentile + 0.3 x layup rating + positional
-    # modifier. No clean NBA dunk endpoint exists; this stays data-driven via RA
-    # efficiency/volume while acknowledging dunkers != layup finishers. Evolves to
-    # play-type/tracking data without touching the simulator (RFC: Attribute v2).
-    _DUNK_POS_MOD = {"C": +5, "F": 0, "G": -5}
-
-    # Aggregate season-total possessions + minutes per team for accurate usage_rate.
-    # Stats are stored as per-game averages, so multiply by games_played.
-    # team_totals[team_id] = (season_total_possessions, season_total_player_minutes)
-    team_totals: dict = {}
-    for s in all_stats:
-        if s.team_id is None:
-            continue
-        gp = s.games_played or 1
-        poss = ((s.fga or 0) + 0.44 * (s.fta or 0) + (s.turnovers or 0)) * gp
-        mins = (s.minutes_per_game or 0) * gp
-        prev_poss, prev_mins = team_totals.get(s.team_id, (0.0, 0.0))
-        team_totals[s.team_id] = (prev_poss + poss, prev_mins + mins)
+    team_totals = _team_possession_totals(all_stats)
 
     count = 0
     for stats in all_stats:
         pid = stats.player_id
-        attr_vals = {
-            attr: ratings_by_attr[attr][pid]
-            for attr in derived_attributes
-            if pid in ratings_by_attr[attr]
-        }
-
-        player = db.get(Player, pid)
-        position = player.position if player else None
-        pos_defaults = position_defaults(position)
-        full_attrs = {**pos_defaults, **attr_vals}
-
-        # Dunk hybrid — only when the rim component was derivable
-        if pid in ratings_by_attr["dunk"] and "layup" in full_attrs:
-            pos_key = (position or "F").upper().split("-")[0]
-            full_attrs["dunk"] = max(30, min(99, round(
-                0.7 * ratings_by_attr["dunk"][pid]
-                + 0.3 * full_attrs["layup"]
-                + _DUNK_POS_MOD.get(pos_key, 0)
-            )))
-
-        # Box-score defense fallback overwrites the flat positional defaults that
-        # the tracking-based derivation left behind for pre-2013-14 seasons.
-        if pid in box_defense:
-            full_attrs.update(box_defense[pid])
-
-        overrides = db.execute(
-            select(PlayerAttributeOverride).where(
-                PlayerAttributeOverride.player_id == pid,
-                PlayerAttributeOverride.season == season,
-            )
-        ).scalars().all()
-        full_attrs = apply_overrides(full_attrs, overrides)
-        full_attrs["overall_rating"] = compute_overall(full_attrs, player.position if player else None)
-        attr_vals = full_attrs
-
-        existing_attr = db.execute(
-            select(PlayerAttributes).where(
-                PlayerAttributes.player_id == pid,
-                PlayerAttributes.season == season,
-            )
-        ).scalar_one_or_none()
-
-        if existing_attr:
-            for k, v in attr_vals.items():
-                setattr(existing_attr, k, v)
-        else:
-            db.add(PlayerAttributes(player_id=pid, season=season, **attr_vals))
-
-        tendencies = compute_tendencies(stats, team_totals=team_totals)
-        existing_tend = db.execute(
-            select(PlayerTendencies).where(
-                PlayerTendencies.player_id == pid,
-                PlayerTendencies.season == season,
-            )
-        ).scalar_one_or_none()
-
-        if existing_tend:
-            for k, v in tendencies.items():
-                setattr(existing_tend, k, v)
-        else:
-            db.add(PlayerTendencies(player_id=pid, season=season, **tendencies))
-
+        attrs = _final_attributes(
+            db, season, pid, ratings_by_attr, derived_attributes, box_defense,
+        )
+        _upsert_player_season(db, PlayerAttributes, pid, season, attrs)
+        _upsert_player_season(
+            db, PlayerTendencies, pid, season,
+            compute_tendencies(stats, team_totals=team_totals),
+        )
         count += 1
 
-    # --- Clutch rating pass ---
-    # Fetch separately since it's a different endpoint with smaller sample sizes.
+    # Clutch comes from a different endpoint with smaller sample sizes, so it is a
+    # separate pass.
     _seed_clutch_ratings(db, season, all_stats)
 
     return count

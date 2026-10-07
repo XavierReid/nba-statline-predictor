@@ -233,6 +233,133 @@ def _shrunk_zone_prob(fgm_pg, fga_pg, gp, prior_fg) -> Optional[float]:
                  / (att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
 
 
+def _player_base(p, a, t, s) -> dict:
+    """Identity, attributes (0-100 scale) and tendencies straight from the DB rows."""
+    return {
+        "id": p.id,
+        "name": p.full_name,
+        "position": p.position or "F",
+        "minutes": s.minutes_per_game,
+        "games_played": s.games_played or 0,
+        "is_starter": False,
+        "three_point": a.three_point,
+        "mid_range": a.mid_range,
+        "free_throw": a.free_throw,
+        "close_shot": a.close_shot,
+        "layup": a.layup,
+        "dunk": a.dunk,
+        "passing": a.passing,
+        "steal": a.steal,
+        "block": a.block,
+        "perimeter_defense": a.perimeter_defense,
+        "interior_defense": a.interior_defense,
+        "offensive_rebound": a.offensive_rebound,
+        "defensive_rebound": a.defensive_rebound,
+        "overall": a.overall_rating,
+        "clutch_rating": a.clutch_rating,
+        "usage_rate": t.usage_rate or 0.20,
+        # `is not None` (not `or`): a real 0.0 three rate — a non-shooter, ~27% of
+        # players in pre-spacing eras — must stay 0.0, not fall through to the default.
+        "three_point_rate": t.three_point_rate if t.three_point_rate is not None else 0.30,
+        "shot_tendency": t.shot_tendency or 15.0,
+        "assist_rate": s.assists or 1.0,
+        "oreb_rate": t.oreb_rate or 0.05,
+        "dreb_rate": t.dreb_rate or 0.10,
+        "rebound_rate": t.rebound_rate or 5.0,
+        "turnover_rate": t.turnover_rate or 2.0,
+        "foul_drawing_rate": t.foul_drawing_rate,
+    }
+
+
+def _add_observed_rates(d: dict, s) -> None:
+    """Per-opportunity rates derived from observed season stats (guardrail #7)."""
+    # FT probability straight from observation — FT% is one of the few skills
+    # where the observation IS the probability. The old rating round-trip
+    # (real FT% -> percentile rating -> attr_to_prob 0.60-0.95) ran the league
+    # at ~0.85 vs 0.78 real. Shrinkage keeps 2-for-2 bench players honest.
+    fta_total = (s.fta or 0) * (s.games_played or 0)
+    ftm_total = (s.ftm or 0) * (s.games_played or 0)
+    d["ft_prob"] = round(
+        (ftm_total + LEAGUE_FT_PCT * _FT_SHRINK_PRIOR_ATTEMPTS)
+        / (fta_total + _FT_SHRINK_PRIOR_ATTEMPTS), 4)
+    # Foul propensity as a PER-MINUTE rate: the weighted foul-attribution draw picks among
+    # on-court defenders, so weighting by PF/min gives each player expected fouls ~
+    # (PF/min x minutes on court) ~ their measured PF. This stops the uniform draw from
+    # funneling fouls onto whoever plays the most minutes (stars), who in reality foul the
+    # LEAST per minute. Falls back to the league mean (~0.09/min = ~22 team PF / 240 min)
+    # when PF isn't ingested for a season.
+    mpg = s.minutes_per_game or 0.0
+    d["foul_rate"] = round((s.pf_per_game / mpg), 4) if (s.pf_per_game and mpg > 0) else 0.09
+    # Turnover ECONOMY (per used possession), not per-36. TOV/36 is a volume stat
+    # inflated by usage — reading it as a per-possession rate gave stars an
+    # inverted turnover economy (gap 3.4b). Real TOV/used-poss is ~flat (~0.12-0.14,
+    # slightly lower for stars). Drives the unforced-turnover event in possession.py.
+    used_poss = (s.fga or 0.0) + 0.44 * (s.fta or 0.0) + (s.turnovers or 0.0)
+    if used_poss > 0:
+        d["tov_per_poss"] = round((s.turnovers or 0.0) / used_poss, 4)
+
+
+def _add_zone_rates(d: dict, s, t, zone_prior: dict, pre_negation: bool,
+                    paint_mid_split: bool) -> None:
+    """Observed zone make probabilities (rim/paint/mid/three) and shot-mix shares — the
+    shot's era-embedded difficulty. Keys are absent when the season has no shot-location
+    data; _evaluate_shot / sub-type selection then fall back to attribute/positional bands."""
+    gp = s.games_played or 0
+    # Aggregate nonrim — always computed for byte-identity when paint_mid_split OFF.
+    paint_pg_fga, paint_pg_fgm = (s.paint_fga or 0.0), (s.paint_fgm or 0.0)
+    mid_pg_fga = (s.mid_fga or 0.0)
+    mid_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)
+    nonrim_fga = paint_pg_fga + mid_pg_fga
+    nonrim_fgm = paint_pg_fgm + mid_pg_fgm
+    rim = _shrunk_zone_prob(s.ra_fgm, s.ra_fga, gp, zone_prior["rim"])
+    nonrim = _shrunk_zone_prob(nonrim_fgm, nonrim_fga, gp, zone_prior["nonrim"])
+    three = _shrunk_zone_prob(s.fg3m, s.fg3a, gp, zone_prior["three"])
+    # Probe #10 split — always computed (cheap; presence gated by caller reads).
+    # Independent shrinkage: paint and midrange each use their own prior + attempts,
+    # so a sparse paint sample doesn't drag midrange toward paint average.
+    paint = _shrunk_zone_prob(paint_pg_fgm, paint_pg_fga, gp, zone_prior.get("paint"))
+    midrange_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)  # rebuild for clarity
+    midrange = _shrunk_zone_prob(midrange_pg_fgm, mid_pg_fga, gp, zone_prior.get("midrange"))
+    if pre_negation:
+        # Invert sim's PR#8 negation once at load time so the sim treats these
+        # values as raw make probs (not double-counted post-neg data). See
+        # `_pre_negation_prob` doc + Session 2 causal proof.
+        rim = _pre_negation_prob(rim, _ZONE_FOUL_MISS_RATE["rim"])
+        three = _pre_negation_prob(three, _ZONE_FOUL_MISS_RATE["three"])
+        if paint_mid_split:
+            # Split path: each 2P sub-zone gets its own f_miss inversion.
+            paint = _pre_negation_prob(paint, _ZONE_FOUL_MISS_RATE["paint"])
+            midrange = _pre_negation_prob(midrange, _ZONE_FOUL_MISS_RATE["midrange"])
+            # nonrim is unused on the read side under the split; skip the inversion
+            # (keeps `nonrim_fg_prob` as an unused raw-shrunk value for compat).
+        else:
+            nonrim = _pre_negation_prob(nonrim, _ZONE_FOUL_MISS_RATE["nonrim"])
+    for key, val in (("rim_fg_prob", rim), ("nonrim_fg_prob", nonrim), ("paint_fg_prob", paint),
+                     ("midrange_fg_prob", midrange), ("three_fg_prob", three)):
+        if val is not None:
+            d[key] = val
+    # Non-rim (paint+mid) share of this player's 2pt attempts (observed) —
+    # replaces the hardcoded 0.4 mid/interior split in shot selection. Shrunk
+    # toward the era's league share so low-volume players regress to their norm.
+    two_pt_att = ((s.ra_fga or 0.0) + nonrim_fga) * gp
+    if two_pt_att and zone_prior["nonrim_frac"] is not None:
+        d["mid_shot_rate"] = round(
+            (nonrim_fga * gp + zone_prior["nonrim_frac"] * _ZONE_SHRINK_PRIOR_ATTEMPTS)
+            / (two_pt_att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
+    # Probe #10: per-player share of nonrim attempts that are paint (non-RA).
+    # Shrunk against league `paint_share_of_nonrim` so thin-sample players regress
+    # to the league mean. Read by `_select_sub_type` only under the split flag —
+    # positioned as the SOLE random draw for paint vs midrange within nonrim
+    # (no layered floater_rate on top).
+    paint_att = paint_pg_fga * gp
+    nonrim_att_total = nonrim_fga * gp
+    prior_share = zone_prior.get("paint_share_of_nonrim")
+    if nonrim_att_total and prior_share is not None:
+        d["paint_shot_rate"] = round(
+            (paint_att + prior_share * _ZONE_SHRINK_PRIOR_ATTEMPTS)
+            / (nonrim_att_total + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
+
+
 def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = False,
                   paint_mid_split: bool = False) -> list[dict]:
     if not rows:
@@ -241,134 +368,15 @@ def _build_roster(rows, zone_prior: Optional[dict] = None, pre_negation: bool = 
 
     players = []
     for p, a, t, s in rows:
-        players.append({
-            "id": p.id,
-            "name": p.full_name,
-            "position": p.position or "F",
-            "minutes": s.minutes_per_game,
-            "games_played": s.games_played or 0,
-            "is_starter": False,
-            # attributes (0-100 scale)
-            "three_point": a.three_point,
-            "mid_range": a.mid_range,
-            "free_throw": a.free_throw,
-            "close_shot": a.close_shot,
-            "layup": a.layup,
-            "dunk": a.dunk,
-            "passing": a.passing,
-            "steal": a.steal,
-            "block": a.block,
-            "perimeter_defense": a.perimeter_defense,
-            "interior_defense": a.interior_defense,
-            "offensive_rebound": a.offensive_rebound,
-            "defensive_rebound": a.defensive_rebound,
-            "overall": a.overall_rating,
-            "clutch_rating": a.clutch_rating,
-            # tendencies
-            "usage_rate": t.usage_rate or 0.20,
-            # `is not None` (not `or`): a real 0.0 three rate — a non-shooter, ~27% of
-            # players in pre-spacing eras — must stay 0.0, not fall through to the default.
-            "three_point_rate": t.three_point_rate if t.three_point_rate is not None else 0.30,
-            "shot_tendency": t.shot_tendency or 15.0,
-            "assist_rate": s.assists or 1.0,
-            "oreb_rate": t.oreb_rate or 0.05,
-            "dreb_rate": t.dreb_rate or 0.10,
-            "rebound_rate": t.rebound_rate or 5.0,
-            "turnover_rate": t.turnover_rate or 2.0,
-            "foul_drawing_rate": t.foul_drawing_rate,
-        })
-        # FT probability straight from observation — FT% is one of the few skills
-        # where the observation IS the probability. The old rating round-trip
-        # (real FT% -> percentile rating -> attr_to_prob 0.60-0.95) ran the league
-        # at ~0.85 vs 0.78 real. Shrinkage keeps 2-for-2 bench players honest.
-        fta_total = (s.fta or 0) * (s.games_played or 0)
-        ftm_total = (s.ftm or 0) * (s.games_played or 0)
-        players[-1]["ft_prob"] = round(
-            (ftm_total + LEAGUE_FT_PCT * _FT_SHRINK_PRIOR_ATTEMPTS)
-            / (fta_total + _FT_SHRINK_PRIOR_ATTEMPTS), 4)
-        # Turnover ECONOMY (per used possession), not per-36. TOV/36 is a volume stat
-        # inflated by usage — reading it as a per-possession rate gave stars an
-        # inverted turnover economy (gap 3.4b). Real TOV/used-poss is ~flat (~0.12-0.14,
-        # slightly lower for stars). Drives the unforced-turnover event in possession.py.
-        # Foul propensity as a PER-MINUTE rate (guardrail #7): the weighted foul-
-        # attribution draw picks among on-court defenders, so weighting by PF/min gives
-        # each player expected fouls ~ (PF/min x minutes on court) ~ their measured PF.
-        # This is what stops the uniform draw from funneling fouls onto whoever plays the
-        # most minutes (stars), who in reality foul the LEAST per minute. Falls back to the
-        # league mean (~0.09/min = ~22 team PF / 240 min) when PF isn't ingested for a season.
-        mpg = s.minutes_per_game or 0.0
-        players[-1]["foul_rate"] = round((s.pf_per_game / mpg), 4) if (s.pf_per_game and mpg > 0) else 0.09
-        used_poss = (s.fga or 0.0) + 0.44 * (s.fta or 0.0) + (s.turnovers or 0.0)
-        if used_poss > 0:
-            players[-1]["tov_per_poss"] = round((s.turnovers or 0.0) / used_poss, 4)
-        # Observed zone make probabilities (rim/paint/mid) — the shot's era-embedded
-        # difficulty. Absent when the season has no shot-location data; _evaluate_shot
-        # then falls back to the attribute-derived band.
-        gp = s.games_played or 0
-        # Aggregate nonrim — always computed for byte-identity when paint_mid_split OFF.
-        paint_pg_fga, paint_pg_fgm = (s.paint_fga or 0.0), (s.paint_fgm or 0.0)
-        mid_pg_fga = (s.mid_fga or 0.0)
-        mid_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)
-        nonrim_fga = paint_pg_fga + mid_pg_fga
-        nonrim_fgm = paint_pg_fgm + mid_pg_fgm
-        rim = _shrunk_zone_prob(s.ra_fgm, s.ra_fga, gp, zone_prior["rim"])
-        nonrim = _shrunk_zone_prob(nonrim_fgm, nonrim_fga, gp, zone_prior["nonrim"])
-        three = _shrunk_zone_prob(s.fg3m, s.fg3a, gp, zone_prior["three"])
-        # Probe #10 split — always computed (cheap; presence gated by caller reads).
-        # Independent shrinkage: paint and midrange each use their own prior + attempts,
-        # so a sparse paint sample doesn't drag midrange toward paint average.
-        paint = _shrunk_zone_prob(paint_pg_fgm, paint_pg_fga, gp, zone_prior.get("paint"))
-        midrange_pg_fgm = mid_pg_fga * (s.mid_fg_pct or 0.0)  # rebuild for clarity
-        midrange = _shrunk_zone_prob(midrange_pg_fgm, mid_pg_fga, gp, zone_prior.get("midrange"))
-        if pre_negation:
-            # Invert sim's PR#8 negation once at load time so the sim treats these
-            # values as raw make probs (not double-counted post-neg data). See
-            # `_pre_negation_prob` doc + Session 2 causal proof.
-            rim = _pre_negation_prob(rim, _ZONE_FOUL_MISS_RATE["rim"])
-            three = _pre_negation_prob(three, _ZONE_FOUL_MISS_RATE["three"])
-            if paint_mid_split:
-                # Split path: each 2P sub-zone gets its own f_miss inversion.
-                paint = _pre_negation_prob(paint, _ZONE_FOUL_MISS_RATE["paint"])
-                midrange = _pre_negation_prob(midrange, _ZONE_FOUL_MISS_RATE["midrange"])
-                # nonrim is unused on the read side under the split; skip the inversion
-                # (keeps `nonrim_fg_prob` as an unused raw-shrunk value for compat).
-            else:
-                nonrim = _pre_negation_prob(nonrim, _ZONE_FOUL_MISS_RATE["nonrim"])
-        if rim is not None:
-            players[-1]["rim_fg_prob"] = rim
-        if nonrim is not None:
-            players[-1]["nonrim_fg_prob"] = nonrim
-        if paint is not None:
-            players[-1]["paint_fg_prob"] = paint
-        if midrange is not None:
-            players[-1]["midrange_fg_prob"] = midrange
-        if three is not None:
-            players[-1]["three_fg_prob"] = three
-        # Non-rim (paint+mid) share of this player's 2pt attempts (observed) —
-        # replaces the hardcoded 0.4 mid/interior split in shot selection. Shrunk
-        # toward the era's league share so low-volume players regress to their norm.
-        two_pt_att = ((s.ra_fga or 0.0) + nonrim_fga) * gp
-        if two_pt_att and zone_prior["nonrim_frac"] is not None:
-            players[-1]["mid_shot_rate"] = round(
-                (nonrim_fga * gp + zone_prior["nonrim_frac"] * _ZONE_SHRINK_PRIOR_ATTEMPTS)
-                / (two_pt_att + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
-        # Probe #10: per-player share of nonrim attempts that are paint (non-RA).
-        # Shrunk against league `paint_share_of_nonrim` so thin-sample players regress
-        # to the league mean. Read by `_select_sub_type` only under the split flag —
-        # positioned as the SOLE random draw for paint vs midrange within nonrim
-        # (no layered floater_rate on top).
-        paint_att = paint_pg_fga * gp
-        nonrim_att_total = nonrim_fga * gp
-        prior_share = zone_prior.get("paint_share_of_nonrim")
-        if nonrim_att_total and prior_share is not None:
-            players[-1]["paint_shot_rate"] = round(
-                (paint_att + prior_share * _ZONE_SHRINK_PRIOR_ATTEMPTS)
-                / (nonrim_att_total + _ZONE_SHRINK_PRIOR_ATTEMPTS), 4)
+        d = _player_base(p, a, t, s)
+        _add_observed_rates(d, s)
+        _add_zone_rates(d, s, t, zone_prior, pre_negation, paint_mid_split)
         # Only include when real data exists — M3d sub-type selection falls back
         # to positional defaults via .get() when the key is absent.
         if t.corner_three_rate is not None:
-            players[-1]["corner_three_rate"] = t.corner_three_rate
-        players[-1]["player_variance"] = player_variance(players[-1])
+            d["corner_three_rate"] = t.corner_three_rate
+        d["player_variance"] = player_variance(d)
+        players.append(d)
 
     for i, p in enumerate(players):
         p["is_starter"] = i < 5

@@ -235,6 +235,12 @@ class _GameSim:
         away_pace = (self.away_stats or {}).get("pace", self.cfg.league_avg_pace)
         self.expected_possessions = round((home_pace + away_pace) / 2) * 2
 
+        self._init_lineups()
+        self._init_state()
+
+    def _init_lineups(self) -> None:
+        """Per-game form factors, rotations and defensive baselines. RNG draws happen here in a
+        fixed order (form factors, home rotation, away rotation, tip), so do not reorder."""
         # Per-game form factors — drawn once at game start, held for full game.
         # When use_player_variance is off, all factors default to 1.0 (no effect).
         if self.cfg.use_player_variance:
@@ -262,6 +268,8 @@ class _GameSim:
         self.home_by_min = sorted(self.home_players, key=lambda p: p["minutes"], reverse=True)
         self.away_by_min = sorted(self.away_players, key=lambda p: p["minutes"], reverse=True)
 
+    def _init_state(self) -> None:
+        """Chunking, event buffers, game state, foul-out set and the pace-derived clock mean."""
         self.chunk_duration = GAME_MINUTES / self.steps if self.steps else None
         self.next_threshold = [self.chunk_duration]
         self.chunks: list = []
@@ -425,7 +433,6 @@ class _GameSim:
         behavior_profile: object = None,
         defense_in_bonus: bool = False,
     ):
-        # gs is a captured object; mutating its attributes needs no `nonlocal`.
         self.gs.game_clock += sec_per_poss
         elapsed_minutes = self.gs.game_clock / 60
         self.gs.period_index = current_q_idx
@@ -511,11 +518,7 @@ class _GameSim:
         if is_fastbreak:
             for tev in typed:
                 tev["is_fastbreak"] = True
-        self._typed_all.extend(typed)
-        if self.steps:
-            self.current_chunk_events.extend(typed)
-        elif self.capture_descriptions:
-            self.all_events.extend(typed)
+        self._publish_events(typed)
 
         self._maybe_snapshot(elapsed_minutes, current_q_idx)
         return fouled_out_pid, event
@@ -527,7 +530,6 @@ class _GameSim:
         different initial conditions (length, jump ball, closing lineups via the
         minute clamp). Every possession-level mechanic applies in any period.
         """
-        # gs is captured; attribute mutation needs no `nonlocal`.
         quarter_clock = float(period_seconds)
         current_is_home = period_tip_is_home
         self.gs.home_quarter_fouls = 0   # team fouls reset each period (bonus tracking)
@@ -538,249 +540,30 @@ class _GameSim:
         next_is_fastbreak = False
 
         while quarter_clock > 0:
-            # Strategic foul check — final period only (Q4 or any OT): intentional
-            # fouling is an end-of-GAME tactic. (Accounting run caught this firing
-            # at the end of Q1-Q3 too: 83% of games had foul sequences vs ~25% real.)
-            if self.cfg.use_strategic_foul and q_idx >= 3 and quarter_clock <= self.cfg.strategic_foul_clock_threshold:
-                lead = self.gs.home_score - self.gs.away_score
-                trailing_is_home = lead < 0
-                if current_is_home != trailing_is_home:
-                    margin = abs(lead)
-                    if self.cfg.strategic_foul_margin_min <= margin <= self.cfg.strategic_foul_margin_max:
-                        if self.rng.random() < self.cfg.strategic_foul_probability:
-                            offense_on_court = [
-                                p for p in (self.home_players if current_is_home else self.away_players)
-                                if p["id"] in (self.home_ids if current_is_home else self.away_ids)
-                                and p["id"] not in self.fouled_out
-                            ]
-                            from app.services.possession import _free_throw_prob
-                            target = min(offense_on_court, key=_free_throw_prob)
-                            ft_prob = _free_throw_prob(target)
-                            fta = 2
-                            ftm = sum(1 for _ in range(fta) if self.rng.random() < ft_prob)
-                            foul_time = max(2.0, min(8.0, self.rng.gauss(4.0, 1.0)))
-                            quarter_clock = max(0.0, quarter_clock - foul_time)
-                            self.gs.game_clock += foul_time
-                            self.diag.record_possession("strategic_foul", foul_time)
-                            self.gs.possession_number += 1
-                            # Pick a defender to display as the fouler. Foul-rate
-                            # weighted so the choice mirrors the normal non-shooting
-                            # foul selection in possession.py. Both FOUL and FT
-                            # events flow through apply_typed_event below —
-                            # `apply_typed_event` is the sole accounting sink, so
-                            # PF, FTA/FTM, and points all reach the box and the
-                            # score via the same event stream (no bypass paths).
-                            defense_on_court = [
-                                p for p in (self.away_players if current_is_home else self.home_players)
-                                if p["id"] in (self.away_ids if current_is_home else self.home_ids)
-                                and p["id"] not in self.fouled_out
-                            ]
-                            # Deterministic pick: the defender most willing to foul (matches
-                            # the coaching pattern of sending a bench player with fouls to
-                            # spare). Draws no RNG.
-                            fouler = max(defense_on_court,
-                                         key=lambda p: (p.get("foul_rate", 0.09), p["id"]))
-                            hdr = dict(
-                                possession=self.gs.possession_number,
-                                quarter=q_idx + 1,
-                                game_clock_seconds=int(quarter_clock),
-                                is_home=not current_is_home,  # defender's team
-                            )
-                            strategic_events = [
-                                {**hdr, "type": "FOUL", "player_id": fouler["id"], "pts": 0,
-                                 "foul_kind": "non_shooting", "fouled_on": target["id"],
-                                 "intentional": True, "strategic": True},
-                            ]
-                            ft_hdr = dict(hdr, is_home=current_is_home)  # shooter's team
-                            for i in range(fta):
-                                strategic_events.append({
-                                    **ft_hdr, "type": "FT", "player_id": target["id"],
-                                    "pts": 1 if i < ftm else 0,
-                                    "attempt": i + 1, "of": fta, "made": i < ftm,
-                                    "strategic": True,
-                                })
-                            if self.name_map is not None:
-                                for tev in strategic_events:
-                                    tev["description"] = describe_typed_event(tev, self.name_map)
-                            # Route strategic events through the sole accounting
-                            # sink. FOUL credits PF; FT events credit FTA/FTM/pts
-                            # on the target and their summed pts drive the score
-                            # update below. sum(ev_pts) == ftm by construction,
-                            # so this is score-invariant vs the previous direct
-                            # `gs.home_score += ftm` path — same numbers, one
-                            # pipeline.
-                            strategic_fouled_out_pid: Optional[int] = None
-                            strategic_pts = 0
-                            for tev in strategic_events:
-                                ev_pts, ev_fo = apply_typed_event(self.box, tev)
-                                strategic_pts += ev_pts
-                                if ev_fo is not None:
-                                    strategic_fouled_out_pid = ev_fo
-                            if current_is_home:
-                                self.gs.home_score += strategic_pts
-                                self.gs.quarter_scores["home"][q_idx] += strategic_pts
-                            else:
-                                self.gs.away_score += strategic_pts
-                                self.gs.quarter_scores["away"][q_idx] += strategic_pts
-                            if strategic_fouled_out_pid:
-                                self.fouled_out.add(strategic_fouled_out_pid)   # immediate — next lookups filter them out
-                                current_minute = min(
-                                    GAME_MINUTES - 1,
-                                    q_idx * 12 + int((period_seconds - quarter_clock) / 60),
-                                )
-                                if strategic_fouled_out_pid in self.home_by_id:
-                                    patch_rotation(self.home_rotation, strategic_fouled_out_pid, self.home_by_min, current_minute + 1, self.box)
-                                else:
-                                    patch_rotation(self.away_rotation, strategic_fouled_out_pid, self.away_by_min, current_minute + 1, self.box)
-                            self._typed_all.extend(strategic_events)
-                            if self.steps:
-                                self.current_chunk_events.extend(strategic_events)
-                            elif self.capture_descriptions:
-                                self.all_events.extend(strategic_events)
-                            self._maybe_snapshot(self.gs.game_clock / 60, q_idx)
-                            current_is_home = not current_is_home
-                            oreb_depth = 0
-                            next_is_fastbreak = False
-                            continue
+            foul_clock = self._strategic_foul(q_idx, period_seconds, quarter_clock, current_is_home)
+            if foul_clock is not None:
+                quarter_clock = foul_clock
+                current_is_home = not current_is_home
+                oreb_depth = 0
+                next_is_fastbreak = False
+                continue
 
-            # Sample possession time
-            if next_is_fastbreak:
-                poss_category = "fastbreak"
-                poss_time = max(3.0, min(12.0, self.rng.gauss(self.cfg.fastbreak_time_mean, self.cfg.fastbreak_time_std)))
-            elif oreb_depth > 0:
-                poss_category = "second_chance"
-                poss_time = max(3.0, min(14.0, self.rng.gauss(self.cfg.second_chance_time_mean, self.cfg.second_chance_time_std)))
-            else:
-                poss_category = "halfcourt"
-                poss_time = max(5.0, min(24.0, self.rng.gauss(self.mean_poss_time_clock, self.cfg.halfcourt_time_std)))
-
-            # Endgame incentive pacing (gap 1.2): inside the window, possession
-            # time reflects incentives — trailing plays fast, leading milks.
-            # Uncompensated in the pace budget on purpose: like strategic fouls,
-            # extra endgame possessions are state-dependent and should emerge.
-            if self.cfg.use_endgame_pacing and poss_category == "halfcourt":
-                lg_ctx = build_context(q_idx, quarter_clock, self.gs.home_score, self.gs.away_score, current_is_home, self.cfg)
-                override = possession_time_override(lg_ctx, self.cfg, self.rng)
-                if override is not None:
-                    self.diag.endgame_time_delta += poss_time - override
-                    poss_time = override
-                    poss_category = "endgame"
-
-            # End-of-period hold-for-last-shot (2026-08-17). Real Q1-Q3 last-made
-            # FGs cluster in the final 5s (~33% of them) — sim was at ~15% of
-            # that rate. When quarter_clock enters the window, extend halfcourt
-            # possession time so the shot leaves the intended few seconds. Only
-            # LENGTHENS poss_time — if endgame_pacing already stretched it (Q4
-            # milk), we keep the longer value.
-            if (self.cfg.use_hold_last_shot
-                    and poss_category in ("halfcourt", "endgame")
-                    and self.cfg.hold_last_shot_leave_max < quarter_clock <= self.cfg.hold_last_shot_clock_max):
-                leave = self.rng.uniform(self.cfg.hold_last_shot_leave_min, self.cfg.hold_last_shot_leave_max)
-                hold_time = quarter_clock - leave
-                if hold_time > poss_time:
-                    poss_time = hold_time
-            poss_time = min(poss_time, quarter_clock)
+            poss_category, poss_time = self._sample_possession_time(
+                q_idx, quarter_clock, current_is_home, next_is_fastbreak, oreb_depth)
             quarter_clock -= poss_time
 
             # OT (q_idx >= 4) clamps to minute 47 — closing lineups stay on the floor
             current_minute = min(GAME_MINUTES - 1, q_idx * 12 + int((period_seconds - quarter_clock) / 60))
 
-            # Rotation mode: reactive to game state, schedule as baseline. Each
-            # team decides independently whether to concede (asymmetric
-            # incentives — see late_game.should_concede).
-            if self.cfg.use_garbage_rotation:
-                margin_abs = abs(self.gs.home_score - self.gs.away_score)
-                home_leads = self.gs.home_score >= self.gs.away_score
-                was_any = self.gs.home_conceded or self.gs.away_conceded
-                self.gs.home_conceded = should_concede(
-                    home_leads, margin_abs, quarter_clock, q_idx, self.cfg, self.gs.home_conceded)
-                self.gs.away_conceded = should_concede(
-                    not home_leads, margin_abs, quarter_clock, q_idx, self.cfg, self.gs.away_conceded)
-                if (self.gs.home_conceded or self.gs.away_conceded) and not was_any:
-                    self.diag.record_garbage_entry(margin_abs)
-                if self.gs.home_conceded or self.gs.away_conceded:
-                    self.diag.record_garbage_possession()
-            # OT closing lineup takes precedence over garbage: real coaches
-            # close OT with their best five regardless of margin. See
-            # project-star-mpg-margin-bucket (real OT Jokić 44.83 vs sim 34.37).
-            is_ot = q_idx >= 4
-            # EXPERIMENT Fix #3a (2026-09-02): Q4 close-late star concentration.
-            # Real coaches close a tight Q4 with their best five — analogous to OT_CLOSE.
-            # Trigger: q_idx == 3 (Q4) AND |margin| ≤ 5 AND clock ≤ 300s (last 5 min).
-            # Priority: OT_CLOSE > CLOSE_LATE > GARBAGE > SCHEDULED.
-            is_close_late = (
-                _ENABLE_CLOSE_LATE and q_idx == 3
-                and abs(self.gs.home_score - self.gs.away_score) <= 5
-                and quarter_clock <= 300.0
-            )
-            home_mode = (MODE_OT_CLOSE if is_ot
-                         else (MODE_CLOSE_LATE if is_close_late
-                               else (MODE_GARBAGE if self.gs.home_conceded else MODE_SCHEDULED)))
-            away_mode = (MODE_OT_CLOSE if is_ot
-                         else (MODE_CLOSE_LATE if is_close_late
-                               else (MODE_GARBAGE if self.gs.away_conceded else MODE_SCHEDULED)))
-            home_active_ids = resolve_lineup(
-                self.home_rotation, current_minute, self.home_by_min, self.box,
-                home_mode,
-                foul_trouble_subs=self.cfg.use_foul_trouble_subs)
-            away_active_ids = resolve_lineup(
-                self.away_rotation, current_minute, self.away_by_min, self.box,
-                away_mode,
-                foul_trouble_subs=self.cfg.use_foul_trouble_subs)
-            # Enforce the foul-out invariant: rotation lookups schedule the
-            # replacement for `current_minute + 1`, so the same-minute lookup
-            # (or OT's clamped-back-to-47 lookup) can still return a player
-            # who fouled out this minute. Filter here so downstream sees
-            # the physically-legal 5-on-court set. See project-bug-7-fouls-jokic.
-            if self.fouled_out:
-                home_active_ids = [pid for pid in home_active_ids if pid not in self.fouled_out]
-                away_active_ids = [pid for pid in away_active_ids if pid not in self.fouled_out]
-
-            # Emit SUB events for the transition INTO this possession. Tagged
-            # with the just-completed possession's number (gs.possession_number
-            # is not yet incremented for this iteration) so SUBs sit at the
-            # tail of the completing possession's chunk, and box-score
-            # accumulation for the possession about to resolve unambiguously
-            # belongs to the NEW lineup.
-            _subs = self._emit_subs(
-                home_active_ids, away_active_ids,
-                quarter=q_idx + 1,
-                clock_seconds=int(quarter_clock),
-            )
-            if _subs:
-                if self.name_map is not None:
-                    for sev in _subs:
-                        sev["description"] = describe_typed_event(sev, self.name_map)
-                self._typed_all.extend(_subs)
-                if self.steps:
-                    self.current_chunk_events.extend(_subs)
-                elif self.capture_descriptions:
-                    self.all_events.extend(_subs)
+            home_mode, away_mode, home_active_ids, away_active_ids = self._resolve_lineups(
+                q_idx, quarter_clock, current_minute)
+            self._emit_lineup_subs(home_active_ids, away_active_ids, q_idx, quarter_clock)
 
             in_mismatch = self.gs.home_conceded != self.gs.away_conceded
             pre_poss_margin = abs(self.gs.home_score - self.gs.away_score)
 
-            team_defense_factor = 1.0
-            if self.cfg.use_team_defense:
-                defending_stats = self.away_stats if current_is_home else self.home_stats
-                if defending_stats:
-                    raw = defending_stats["def_rating"] / self.league_avg_def
-                    team_defense_factor = 1.0 + (raw - 1.0) * self.cfg.team_defense_coefficient
-
-            # Lineup quality: season def_rating describes the normal rotation;
-            # the factor below moves with the five actually defending.
-            if self.cfg.use_lineup_quality:
-                if current_is_home:
-                    def_lineup = [self.away_by_id[pid] for pid in away_active_ids if pid in self.away_by_id]
-                    def_baseline = self.away_def_baseline
-                    def_mode = away_mode
-                else:
-                    def_lineup = [self.home_by_id[pid] for pid in home_active_ids if pid in self.home_by_id]
-                    def_baseline = self.home_def_baseline
-                    def_mode = home_mode
-                lq = compute_lineup_quality(def_lineup, def_baseline)
-                team_defense_factor *= lq["defense"]
-                self.diag.record_lineup_defense(def_mode, lq["defense"])
+            team_defense_factor = self._team_defense_factor(
+                current_is_home, home_active_ids, away_active_ids, home_mode, away_mode)
 
             active_home_gs = {pid: self.home_player_gs[pid] for pid in home_active_ids if pid in self.home_player_gs}
             active_away_gs = {pid: self.away_player_gs[pid] for pid in away_active_ids if pid in self.away_player_gs}
@@ -842,81 +625,362 @@ class _GameSim:
             if in_mismatch:
                 self.diag.record_mismatch(abs(self.gs.home_score - self.gs.away_score) - pre_poss_margin)
 
-            poss_minutes = poss_time / 60.0
-            for pid in home_active_ids:
-                if pid in self.home_player_gs:
-                    self.home_player_gs[pid].minutes_played += poss_minutes
-            for pid in away_active_ids:
-                if pid in self.away_player_gs:
-                    self.away_player_gs[pid].minutes_played += poss_minutes
-            for foul_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
-                if foul_pid is None:
-                    continue
-                if foul_pid in self.home_player_gs:
-                    self.home_player_gs[foul_pid].fouls += 1
-                elif foul_pid in self.away_player_gs:
-                    self.away_player_gs[foul_pid].fouls += 1
+            self._record_possession_aftermath(
+                event, home_active_ids, away_active_ids, poss_time, current_is_home,
+                quarter_clock, fouled_out_pid, current_minute)
 
-            # team fouls this period (bonus tracking) — only DEFENSIVE fouls count. A
-            # shooting/bonus foul has fouled_by != turnover_by (offensive fouls set both
-            # to the ball handler); a pre-bonus non-shooting foul is always defensive.
-            if self.cfg.use_bonus_system:
-                def_committed = int(
-                    event.get("fouled_by") is not None
-                    and event.get("fouled_by") != event.get("turnover_by")
-                ) + int(event.get("nonshooting_foul_by") is not None)
-                in_last2 = quarter_clock <= self.cfg.last2min_clock
-                if current_is_home:
-                    self.gs.away_quarter_fouls += def_committed
-                    if in_last2:
-                        self.gs.away_last2_fouls += def_committed
-                else:
-                    self.gs.home_quarter_fouls += def_committed
-                    if in_last2:
-                        self.gs.home_last2_fouls += def_committed
+            quarter_clock = self._pre_bonus_foul_time(event, quarter_clock)
+            oreb_depth, current_is_home, next_is_fastbreak = self._next_possession_state(
+                event, current_is_home, oreb_depth)
 
-            if fouled_out_pid:
-                self.fouled_out.add(fouled_out_pid)   # immediate — next lookups filter them out
-                if fouled_out_pid in self.home_by_id:
-                    patch_rotation(self.home_rotation, fouled_out_pid, self.home_by_min, current_minute + 1, self.box)
-                else:
-                    patch_rotation(self.away_rotation, fouled_out_pid, self.away_by_min, current_minute + 1, self.box)
-
-            next_is_fastbreak = False
-            # Pre-bonus non-shooting foul is now an in-possession event (see
-            # possession._select_action + _restart_offensive_phase). The
-            # statistical possession does NOT terminate on the foul; the offense
-            # keeps the ball and play resumes within the same resolve_possession
-            # call. What the game_simulator still owns is the CLOCK time that
-            # the foul + inbound consumes — deducted inline here so the total
-            # clock accounting per pre-bonus stat_poss matches the pre-refactor
-            # (halfcourt time + foul_reset_time).
-            if event.get("nonshooting_foul_by") is not None:
-                extra = max(3.0, min(14.0, self.rng.gauss(self.cfg.foul_reset_time_mean, self.cfg.foul_reset_time_std)))
-                extra = min(extra, quarter_clock)
-                quarter_clock -= extra
-                # Attribute the extra time to the foul_reset diagnostic bucket but
-                # do NOT increment the possession COUNT — this is time consumed
-                # WITHIN the same statistical possession (not a new possession).
-                self.diag.time["foul_reset"] += extra
-                self.diag.pre_bonus_fouls += 1
-            rebounded_by = event.get("rebounded_by")
-            offense_ids = self.home_ids if current_is_home else self.away_ids
-            is_oreb = (
-                self.cfg.use_second_chance
-                and rebounded_by is not None
-                and rebounded_by in offense_ids
-                and event.get("shot_type") is not None
-                and not event.get("made")
+    def _strategic_foul(self, q_idx: int, period_seconds: float, quarter_clock: float,
+                        current_is_home: bool) -> Optional[float]:
+        """Intentional-foul sequence for the trailing team's opponent. Returns the new
+        quarter_clock when a foul sequence ran (the caller then flips possession and
+        resets OREB/fastbreak state), or None when it did not fire."""
+        # Strategic foul check — final period only (Q4 or any OT): intentional
+        # fouling is an end-of-GAME tactic. (Accounting run caught this firing
+        # at the end of Q1-Q3 too: 83% of games had foul sequences vs ~25% real.)
+        if not (self.cfg.use_strategic_foul and q_idx >= 3
+                and quarter_clock <= self.cfg.strategic_foul_clock_threshold):
+            return None
+        lead = self.gs.home_score - self.gs.away_score
+        trailing_is_home = lead < 0
+        if current_is_home == trailing_is_home:
+            return None
+        margin = abs(lead)
+        if not (self.cfg.strategic_foul_margin_min <= margin <= self.cfg.strategic_foul_margin_max):
+            return None
+        if not (self.rng.random() < self.cfg.strategic_foul_probability):
+            return None
+        offense_on_court = [
+            p for p in (self.home_players if current_is_home else self.away_players)
+            if p["id"] in (self.home_ids if current_is_home else self.away_ids)
+            and p["id"] not in self.fouled_out
+        ]
+        from app.services.possession import _free_throw_prob
+        target = min(offense_on_court, key=_free_throw_prob)
+        ft_prob = _free_throw_prob(target)
+        fta = 2
+        ftm = sum(1 for _ in range(fta) if self.rng.random() < ft_prob)
+        foul_time = max(2.0, min(8.0, self.rng.gauss(4.0, 1.0)))
+        quarter_clock = max(0.0, quarter_clock - foul_time)
+        self.gs.game_clock += foul_time
+        self.diag.record_possession("strategic_foul", foul_time)
+        self.gs.possession_number += 1
+        # Pick a defender to display as the fouler. Foul-rate
+        # weighted so the choice mirrors the normal non-shooting
+        # foul selection in possession.py. Both FOUL and FT
+        # events flow through apply_typed_event below —
+        # `apply_typed_event` is the sole accounting sink, so
+        # PF, FTA/FTM, and points all reach the box and the
+        # score via the same event stream (no bypass paths).
+        defense_on_court = [
+            p for p in (self.away_players if current_is_home else self.home_players)
+            if p["id"] in (self.away_ids if current_is_home else self.home_ids)
+            and p["id"] not in self.fouled_out
+        ]
+        # Deterministic pick: the defender most willing to foul (matches
+        # the coaching pattern of sending a bench player with fouls to
+        # spare). Draws no RNG.
+        fouler = max(defense_on_court,
+                     key=lambda p: (p.get("foul_rate", 0.09), p["id"]))
+        hdr = dict(
+            possession=self.gs.possession_number,
+            quarter=q_idx + 1,
+            game_clock_seconds=int(quarter_clock),
+            is_home=not current_is_home,  # defender's team
+        )
+        strategic_events = [
+            {**hdr, "type": "FOUL", "player_id": fouler["id"], "pts": 0,
+             "foul_kind": "non_shooting", "fouled_on": target["id"],
+             "intentional": True, "strategic": True},
+        ]
+        ft_hdr = dict(hdr, is_home=current_is_home)  # shooter's team
+        for i in range(fta):
+            strategic_events.append({
+                **ft_hdr, "type": "FT", "player_id": target["id"],
+                "pts": 1 if i < ftm else 0,
+                "attempt": i + 1, "of": fta, "made": i < ftm,
+                "strategic": True,
+            })
+        if self.name_map is not None:
+            for tev in strategic_events:
+                tev["description"] = describe_typed_event(tev, self.name_map)
+        # Route strategic events through the sole accounting
+        # sink. FOUL credits PF; FT events credit FTA/FTM/pts
+        # on the target and their summed pts drive the score
+        # update below. sum(ev_pts) == ftm by construction,
+        # so this is score-invariant vs the previous direct
+        # `gs.home_score += ftm` path — same numbers, one
+        # pipeline.
+        strategic_fouled_out_pid: Optional[int] = None
+        strategic_pts = 0
+        for tev in strategic_events:
+            ev_pts, ev_fo = apply_typed_event(self.box, tev)
+            strategic_pts += ev_pts
+            if ev_fo is not None:
+                strategic_fouled_out_pid = ev_fo
+        if current_is_home:
+            self.gs.home_score += strategic_pts
+            self.gs.quarter_scores["home"][q_idx] += strategic_pts
+        else:
+            self.gs.away_score += strategic_pts
+            self.gs.quarter_scores["away"][q_idx] += strategic_pts
+        if strategic_fouled_out_pid:
+            self.fouled_out.add(strategic_fouled_out_pid)   # immediate — next lookups filter them out
+            current_minute = min(
+                GAME_MINUTES - 1,
+                q_idx * 12 + int((period_seconds - quarter_clock) / 60),
             )
-            if is_oreb and oreb_depth < self.cfg.oreb_chain_cap:
-                oreb_depth += 1
+            if strategic_fouled_out_pid in self.home_by_id:
+                patch_rotation(self.home_rotation, strategic_fouled_out_pid, self.home_by_min, current_minute + 1, self.box)
             else:
-                oreb_depth = 0
-                current_is_home = not current_is_home
-                if (self.cfg.use_fast_break and event.get("steal_by") is not None
-                        and self.rng.random() < self.cfg.steal_fastbreak_prob):
-                    next_is_fastbreak = True
+                patch_rotation(self.away_rotation, strategic_fouled_out_pid, self.away_by_min, current_minute + 1, self.box)
+        self._publish_events(strategic_events)
+        self._maybe_snapshot(self.gs.game_clock / 60, q_idx)
+        return quarter_clock
+
+    def _sample_possession_time(self, q_idx: int, quarter_clock: float, current_is_home: bool,
+                                next_is_fastbreak: bool, oreb_depth: int) -> tuple:
+        """Draw this possession's clock cost. Returns (category, seconds), already clamped
+        to the time left in the period."""
+        if next_is_fastbreak:
+            poss_category = "fastbreak"
+            poss_time = max(3.0, min(12.0, self.rng.gauss(self.cfg.fastbreak_time_mean, self.cfg.fastbreak_time_std)))
+        elif oreb_depth > 0:
+            poss_category = "second_chance"
+            poss_time = max(3.0, min(14.0, self.rng.gauss(self.cfg.second_chance_time_mean, self.cfg.second_chance_time_std)))
+        else:
+            poss_category = "halfcourt"
+            poss_time = max(5.0, min(24.0, self.rng.gauss(self.mean_poss_time_clock, self.cfg.halfcourt_time_std)))
+
+        # Endgame incentive pacing (gap 1.2): inside the window, possession
+        # time reflects incentives — trailing plays fast, leading milks.
+        # Uncompensated in the pace budget on purpose: like strategic fouls,
+        # extra endgame possessions are state-dependent and should emerge.
+        if self.cfg.use_endgame_pacing and poss_category == "halfcourt":
+            lg_ctx = build_context(q_idx, quarter_clock, self.gs.home_score, self.gs.away_score, current_is_home, self.cfg)
+            override = possession_time_override(lg_ctx, self.cfg, self.rng)
+            if override is not None:
+                self.diag.endgame_time_delta += poss_time - override
+                poss_time = override
+                poss_category = "endgame"
+
+        # End-of-period hold-for-last-shot (2026-08-17). Real Q1-Q3 last-made
+        # FGs cluster in the final 5s (~33% of them) — sim was at ~15% of
+        # that rate. When quarter_clock enters the window, extend halfcourt
+        # possession time so the shot leaves the intended few seconds. Only
+        # LENGTHENS poss_time — if endgame_pacing already stretched it (Q4
+        # milk), we keep the longer value.
+        if (self.cfg.use_hold_last_shot
+                and poss_category in ("halfcourt", "endgame")
+                and self.cfg.hold_last_shot_leave_max < quarter_clock <= self.cfg.hold_last_shot_clock_max):
+            leave = self.rng.uniform(self.cfg.hold_last_shot_leave_min, self.cfg.hold_last_shot_leave_max)
+            hold_time = quarter_clock - leave
+            if hold_time > poss_time:
+                poss_time = hold_time
+        poss_time = min(poss_time, quarter_clock)
+        return poss_category, poss_time
+
+    def _resolve_lineups(self, q_idx: int, quarter_clock: float, current_minute: int) -> tuple:
+        """Update concession state, pick each team's rotation mode, and resolve the five on
+        court. Returns (home_mode, away_mode, home_active_ids, away_active_ids)."""
+        # Rotation mode: reactive to game state, schedule as baseline. Each
+        # team decides independently whether to concede (asymmetric
+        # incentives — see late_game.should_concede).
+        if self.cfg.use_garbage_rotation:
+            margin_abs = abs(self.gs.home_score - self.gs.away_score)
+            home_leads = self.gs.home_score >= self.gs.away_score
+            was_any = self.gs.home_conceded or self.gs.away_conceded
+            self.gs.home_conceded = should_concede(
+                home_leads, margin_abs, quarter_clock, q_idx, self.cfg, self.gs.home_conceded)
+            self.gs.away_conceded = should_concede(
+                not home_leads, margin_abs, quarter_clock, q_idx, self.cfg, self.gs.away_conceded)
+            if (self.gs.home_conceded or self.gs.away_conceded) and not was_any:
+                self.diag.record_garbage_entry(margin_abs)
+            if self.gs.home_conceded or self.gs.away_conceded:
+                self.diag.record_garbage_possession()
+        # OT closing lineup takes precedence over garbage: real coaches
+        # close OT with their best five regardless of margin. See
+        # project-star-mpg-margin-bucket (real OT Jokić 44.83 vs sim 34.37).
+        is_ot = q_idx >= 4
+        # EXPERIMENT Fix #3a (2026-09-02): Q4 close-late star concentration.
+        # Real coaches close a tight Q4 with their best five — analogous to OT_CLOSE.
+        # Trigger: q_idx == 3 (Q4) AND |margin| ≤ 5 AND clock ≤ 300s (last 5 min).
+        # Priority: OT_CLOSE > CLOSE_LATE > GARBAGE > SCHEDULED.
+        is_close_late = (
+            _ENABLE_CLOSE_LATE and q_idx == 3
+            and abs(self.gs.home_score - self.gs.away_score) <= 5
+            and quarter_clock <= 300.0
+        )
+        home_mode = (MODE_OT_CLOSE if is_ot
+                     else (MODE_CLOSE_LATE if is_close_late
+                           else (MODE_GARBAGE if self.gs.home_conceded else MODE_SCHEDULED)))
+        away_mode = (MODE_OT_CLOSE if is_ot
+                     else (MODE_CLOSE_LATE if is_close_late
+                           else (MODE_GARBAGE if self.gs.away_conceded else MODE_SCHEDULED)))
+        home_active_ids = resolve_lineup(
+            self.home_rotation, current_minute, self.home_by_min, self.box,
+            home_mode,
+            foul_trouble_subs=self.cfg.use_foul_trouble_subs)
+        away_active_ids = resolve_lineup(
+            self.away_rotation, current_minute, self.away_by_min, self.box,
+            away_mode,
+            foul_trouble_subs=self.cfg.use_foul_trouble_subs)
+        # Enforce the foul-out invariant: rotation lookups schedule the
+        # replacement for `current_minute + 1`, so the same-minute lookup
+        # (or OT's clamped-back-to-47 lookup) can still return a player
+        # who fouled out this minute. Filter here so downstream sees
+        # the physically-legal 5-on-court set. See project-bug-7-fouls-jokic.
+        if self.fouled_out:
+            home_active_ids = [pid for pid in home_active_ids if pid not in self.fouled_out]
+            away_active_ids = [pid for pid in away_active_ids if pid not in self.fouled_out]
+        return home_mode, away_mode, home_active_ids, away_active_ids
+
+    def _emit_lineup_subs(self, home_active_ids: list, away_active_ids: list,
+                          q_idx: int, quarter_clock: float) -> None:
+        """Emit SUB events for the transition INTO this possession. Tagged with the
+        just-completed possession's number (gs.possession_number is not yet incremented for
+        this iteration) so SUBs sit at the tail of the completing possession's chunk, and
+        box-score accumulation for the possession about to resolve unambiguously belongs to
+        the NEW lineup."""
+        subs = self._emit_subs(
+            home_active_ids, away_active_ids,
+            quarter=q_idx + 1,
+            clock_seconds=int(quarter_clock),
+        )
+        if subs:
+            if self.name_map is not None:
+                for sev in subs:
+                    sev["description"] = describe_typed_event(sev, self.name_map)
+            self._publish_events(subs)
+
+    def _team_defense_factor(self, current_is_home: bool, home_active_ids: list, away_active_ids: list,
+                             home_mode: str, away_mode: str) -> float:
+        """Season def_rating relative to the league (dampened), times the lineup-quality factor
+        for the five actually defending."""
+        team_defense_factor = 1.0
+        if self.cfg.use_team_defense:
+            defending_stats = self.away_stats if current_is_home else self.home_stats
+            if defending_stats:
+                raw = defending_stats["def_rating"] / self.league_avg_def
+                team_defense_factor = 1.0 + (raw - 1.0) * self.cfg.team_defense_coefficient
+
+        # Lineup quality: season def_rating describes the normal rotation;
+        # the factor below moves with the five actually defending.
+        if self.cfg.use_lineup_quality:
+            if current_is_home:
+                def_lineup = [self.away_by_id[pid] for pid in away_active_ids if pid in self.away_by_id]
+                def_baseline = self.away_def_baseline
+                def_mode = away_mode
+            else:
+                def_lineup = [self.home_by_id[pid] for pid in home_active_ids if pid in self.home_by_id]
+                def_baseline = self.home_def_baseline
+                def_mode = home_mode
+            lq = compute_lineup_quality(def_lineup, def_baseline)
+            team_defense_factor *= lq["defense"]
+            self.diag.record_lineup_defense(def_mode, lq["defense"])
+        return team_defense_factor
+
+    def _record_possession_aftermath(self, event: dict, home_active_ids: list, away_active_ids: list,
+                                     poss_time: float, current_is_home: bool, quarter_clock: float,
+                                     fouled_out_pid: Optional[int], current_minute: int) -> None:
+        """Per-player game state (minutes, fouls), period team-foul counters for the bonus,
+        and the immediate rotation patch for a player who just fouled out."""
+        poss_minutes = poss_time / 60.0
+        for pid in home_active_ids:
+            if pid in self.home_player_gs:
+                self.home_player_gs[pid].minutes_played += poss_minutes
+        for pid in away_active_ids:
+            if pid in self.away_player_gs:
+                self.away_player_gs[pid].minutes_played += poss_minutes
+        for foul_pid in (event.get("fouled_by"), event.get("nonshooting_foul_by")):
+            if foul_pid is None:
+                continue
+            if foul_pid in self.home_player_gs:
+                self.home_player_gs[foul_pid].fouls += 1
+            elif foul_pid in self.away_player_gs:
+                self.away_player_gs[foul_pid].fouls += 1
+
+        # team fouls this period (bonus tracking) — only DEFENSIVE fouls count. A
+        # shooting/bonus foul has fouled_by != turnover_by (offensive fouls set both
+        # to the ball handler); a pre-bonus non-shooting foul is always defensive.
+        if self.cfg.use_bonus_system:
+            def_committed = int(
+                event.get("fouled_by") is not None
+                and event.get("fouled_by") != event.get("turnover_by")
+            ) + int(event.get("nonshooting_foul_by") is not None)
+            in_last2 = quarter_clock <= self.cfg.last2min_clock
+            if current_is_home:
+                self.gs.away_quarter_fouls += def_committed
+                if in_last2:
+                    self.gs.away_last2_fouls += def_committed
+            else:
+                self.gs.home_quarter_fouls += def_committed
+                if in_last2:
+                    self.gs.home_last2_fouls += def_committed
+
+        if fouled_out_pid:
+            self.fouled_out.add(fouled_out_pid)   # immediate — next lookups filter them out
+            if fouled_out_pid in self.home_by_id:
+                patch_rotation(self.home_rotation, fouled_out_pid, self.home_by_min, current_minute + 1, self.box)
+            else:
+                patch_rotation(self.away_rotation, fouled_out_pid, self.away_by_min, current_minute + 1, self.box)
+
+    def _pre_bonus_foul_time(self, event: dict, quarter_clock: float) -> float:
+        """Clock consumed by a pre-bonus non-shooting foul + inbound. Returns the new quarter_clock."""
+        # Pre-bonus non-shooting foul is now an in-possession event (see
+        # possession._select_action + _restart_offensive_phase). The
+        # statistical possession does NOT terminate on the foul; the offense
+        # keeps the ball and play resumes within the same resolve_possession
+        # call. What the game_simulator still owns is the CLOCK time that
+        # the foul + inbound consumes — deducted inline here so the total
+        # clock accounting per pre-bonus stat_poss matches the pre-refactor
+        # (halfcourt time + foul_reset_time).
+        if event.get("nonshooting_foul_by") is not None:
+            extra = max(3.0, min(14.0, self.rng.gauss(self.cfg.foul_reset_time_mean, self.cfg.foul_reset_time_std)))
+            extra = min(extra, quarter_clock)
+            quarter_clock -= extra
+            # Attribute the extra time to the foul_reset diagnostic bucket but
+            # do NOT increment the possession COUNT — this is time consumed
+            # WITHIN the same statistical possession (not a new possession).
+            self.diag.time["foul_reset"] += extra
+            self.diag.pre_bonus_fouls += 1
+        return quarter_clock
+
+    def _next_possession_state(self, event: dict, current_is_home: bool, oreb_depth: int) -> tuple:
+        """Who has the ball next. An offensive rebound continues the same possession (chain capped
+        by oreb_chain_cap); otherwise possession flips and a steal may start a fast break.
+        Returns (oreb_depth, current_is_home, next_is_fastbreak)."""
+        next_is_fastbreak = False
+        rebounded_by = event.get("rebounded_by")
+        offense_ids = self.home_ids if current_is_home else self.away_ids
+        is_oreb = (
+            self.cfg.use_second_chance
+            and rebounded_by is not None
+            and rebounded_by in offense_ids
+            and event.get("shot_type") is not None
+            and not event.get("made")
+        )
+        if is_oreb and oreb_depth < self.cfg.oreb_chain_cap:
+            oreb_depth += 1
+        else:
+            oreb_depth = 0
+            current_is_home = not current_is_home
+            if (self.cfg.use_fast_break and event.get("steal_by") is not None
+                    and self.rng.random() < self.cfg.steal_fastbreak_prob):
+                next_is_fastbreak = True
+        return oreb_depth, current_is_home, next_is_fastbreak
+
+    def _publish_events(self, events: list) -> None:
+        """Route events into the always-on typed stream and, per mode, the chunk or full event list."""
+        self._typed_all.extend(events)
+        if self.steps:
+            self.current_chunk_events.extend(events)
+        elif self.capture_descriptions:
+            self.all_events.extend(events)
+
 
     def run(self) -> dict:
 

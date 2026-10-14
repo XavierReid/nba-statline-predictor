@@ -94,9 +94,12 @@ Key concepts:
 
 ## Layer 4 — Game orchestration (`app/services/game_simulator.py`)
 
-`simulate_game` runs periods through one loop (`_run_clock_period`) — regulation
-quarters and OT are the same code with different initial conditions (720s vs
-300s, new jump ball, closing lineups). Within each period, per possession:
+`simulate_game` is a thin wrapper over `_GameSim`, which holds one game's mutable
+state and runs periods through one loop (`_GameSim._run_clock_period`) —
+regulation quarters and OT are the same code with different initial conditions
+(720s vs 300s, new jump ball, closing lineups). The loop is an outline over
+single-purpose methods (`_strategic_foul`, `_sample_possession_time`,
+`_resolve_lineups`, `_apply_possession`, ...). Within each period, per possession:
 
 1. **Strategic foul check** (final period, trailing defense, margin 3–8)
 2. **Possession time** sampled by category (halfcourt / fastbreak / second
@@ -175,7 +178,9 @@ computeStandings, TeamStandings — used by both Season Sim and MyLeague drill-i
 
 Every mechanic sits behind a `SimConfig` boolean so it can be isolated for
 testing and calibration. Presets: `baseline` (legacy fixed-possession engine),
-`drama-m1/m2/m3` (cumulative feature sets), `drama-m3-no-subtypes` (isolation).
+`drama-m3` (single-game realism stack), `drama-m3-season` (season / league /
+MyLeague: availability on, roster depth 15), `drama-m3-no-subtypes` (isolation).
+The earlier `drama-m1/m2` presets were folded into `drama-m3` and no longer exist.
 Tuning constants carry provenance comments (value, date, sample, preset,
 re-measurement trigger) — measured, not hand-set.
 

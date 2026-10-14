@@ -82,7 +82,7 @@ The engine is organized into layers. Each layer has one job and doesn't reach up
 
 ### `app/services/game_simulator.py` — the orchestrator
 
-Contains `simulate_game()`. Walks the clock through 4 regulation quarters + any OTs. Inside each period it loops `while quarter_clock > 0`: samples a possession time (halfcourt / fastbreak / second-chance / etc.), calls `resolve_possession` to figure out what happened, translates the outcome into typed events, and applies those events to the box. It doesn't KNOW what a shot is or how to pick a defender — it just runs the clock and orchestrates.
+Contains `simulate_game()`, a thin wrapper over the `_GameSim` class that owns one game's state. Walks the clock through 4 regulation quarters + any OTs. Inside each period it loops `while quarter_clock > 0`: samples a possession time (halfcourt / fastbreak / second-chance / etc.), calls `resolve_possession` to figure out what happened, translates the outcome into typed events, and applies those events to the box. It doesn't KNOW what a shot is or how to pick a defender — it just runs the clock and orchestrates.
 
 ### `app/services/possession.py` — the heart
 

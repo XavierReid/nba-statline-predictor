@@ -1,5 +1,9 @@
 # Simulation Gaps & Limitations
 
+> **Historical snapshot (status as of 2026-07-24).** Many gaps below have since been fixed,
+> falsified or closed (e.g. the rotation scheduler and Q2 substitution deadzone, foul and
+> pre-negation work, nonrim split). Later outcomes live in RFC.md and the project memory notes.
+
 Structural review of the game engine vs real NBA basketball, written at the close of M3
 (M3a–M3e complete). This is the working document for the post-M3 calibration diagnostic:
 each gap gets a status that moves through `open → investigating → confirmed/dismissed → fixed`.

@@ -824,15 +824,22 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
         _pre_pairs = _myleague_unavailable_pairs_at(db, sim_id, real_game.game_date)
         _pre_out_home = sum(1 for (t, _p) in _pre_pairs if t == real_game.home_team_id)
         _pre_out_away = sum(1 for (t, _p) in _pre_pairs if t == real_game.away_team_id)
+    # Trades: use the ownership in force on this game's date, as advance_to did.
+    _overlay = None
+    if sim.scope == "myleague":
+        from app.services.roster_at_date import myleague_overlay_at
+        _overlay = myleague_overlay_at(db, sim_id, sim.season, real_game.game_date) or None
     home_players = load_roster(
         db, real_game.home_team_id, sim.season,
         depth=cfg.roster_depth + _pre_out_home,
         pre_negation=cfg.use_pre_negation_probs,
+        overlay=_overlay,
     )
     away_players = load_roster(
         db, real_game.away_team_id, sim.season,
         depth=cfg.roster_depth + _pre_out_away,
         pre_negation=cfg.use_pre_negation_probs,
+        overlay=_overlay,
     )
 
     # M-4 fix: MyLeague drill-in must fold events at this game's date so
@@ -852,6 +859,7 @@ def season_game_detail(sim_id: int, game_id: str, db: Session = Depends(get_db))
         home_team_id=real_game.home_team_id,
         away_team_id=real_game.away_team_id,
         unavailable_player_ids=unavailable_ids or None,
+        roster_overlay=_overlay,
     )
 
     home_ids = {p["id"] for p in home_players}
@@ -935,15 +943,22 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
         _pre_pairs = _myleague_unavailable_pairs_at(db, sim_id, real_game.game_date)
         _pre_out_home = sum(1 for (t, _p) in _pre_pairs if t == real_game.home_team_id)
         _pre_out_away = sum(1 for (t, _p) in _pre_pairs if t == real_game.away_team_id)
+    # Trades: use the ownership in force on this game's date, as advance_to did.
+    _overlay = None
+    if sim.scope == "myleague":
+        from app.services.roster_at_date import myleague_overlay_at
+        _overlay = myleague_overlay_at(db, sim_id, sim.season, real_game.game_date) or None
     home_players = load_roster(
         db, real_game.home_team_id, sim.season,
         depth=cfg.roster_depth + _pre_out_home,
         pre_negation=cfg.use_pre_negation_probs,
+        overlay=_overlay,
     )
     away_players = load_roster(
         db, real_game.away_team_id, sim.season,
         depth=cfg.roster_depth + _pre_out_away,
         pre_negation=cfg.use_pre_negation_probs,
+        overlay=_overlay,
     )
 
     # M-4 fix: same events-fold as the game-detail endpoint above so PBP
@@ -963,6 +978,7 @@ def season_game_events(sim_id: int, game_id: str, db: Session = Depends(get_db))
         home_team_id=real_game.home_team_id,
         away_team_id=real_game.away_team_id,
         unavailable_player_ids=unavailable_ids or None,
+        roster_overlay=_overlay,
     )
 
     home_ids = {p["id"] for p in home_players}

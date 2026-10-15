@@ -35,6 +35,7 @@ from app.services.myleague_state import (
     filter_available_players,
     ALLOWED_EVENT_TYPES,
 )
+from app.services.roster_at_date import trade_overlay_at_date
 from app.services.season_simulator import _game_seed, _persist_game
 from app.services.sim_config import SimConfig
 
@@ -292,16 +293,18 @@ def _make_roster_loader(db: Session, season: str, config: SimConfig):
     extra players from the pool so the sim still gets `config.roster_depth` active guys —
     matches how real coaches promote bench players when starters are out. Cache is keyed
     by (team_id, out_count) since different games may have different OUT counts (e.g.
-    later in the season after more events)."""
+    later in the season after more events). Trades add the ownership overlay to the key:
+    the same team has a different roster before and after a trade."""
     cache: dict = {}
 
-    def base_roster(team_id: int, out_count: int = 0) -> list:
-        key = (team_id, out_count)
+    def base_roster(team_id: int, out_count: int = 0, overlay=None) -> list:
+        key = (team_id, out_count, overlay.key() if overlay else None)
         if key not in cache:
             cache[key] = load_roster(
                 db, team_id, season,
                 depth=config.roster_depth + out_count,
                 pre_negation=config.use_pre_negation_probs,
+                overlay=overlay or None,
             )
         return cache[key]
 
@@ -419,18 +422,20 @@ def advance_to(
     )
 
     base_roster = _make_roster_loader(db, sim.season, config)
+    trade_base_cache: dict = {}
 
     completed_this_advance = 0
     for game in games:
-        # Availability at THIS game's date (deterministic per game).
+        # Availability and team ownership at THIS game's date (deterministic per game).
         unavailable = apply_events(events, game.game_date)
+        overlay = trade_overlay_at_date(db, sim.season, events, game.game_date, trade_base_cache)
         home_out = sum(1 for (t, _p) in unavailable if t == game.home_team_id)
         away_out = sum(1 for (t, _p) in unavailable if t == game.away_team_id)
         home_players = filter_available_players(
-            base_roster(game.home_team_id, home_out), game.home_team_id, unavailable,
+            base_roster(game.home_team_id, home_out, overlay), game.home_team_id, unavailable,
         )
         away_players = filter_available_players(
-            base_roster(game.away_team_id, away_out), game.away_team_id, unavailable,
+            base_roster(game.away_team_id, away_out, overlay), game.away_team_id, unavailable,
         )
         if len(home_players) < 5 or len(away_players) < 5:
             # Not enough eligible players — skip (surfaces later as a
@@ -450,6 +455,7 @@ def advance_to(
             config=config, db=db,
             home_team_id=game.home_team_id, away_team_id=game.away_team_id,
             unavailable_player_ids=unavailable_ids,
+            roster_overlay=overlay or None,
         )
         _persist_game(db, simulation_id, game, result, home_players, away_players)
         completed_this_advance += 1

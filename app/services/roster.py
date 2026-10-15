@@ -12,10 +12,11 @@ The possession engine is unaware of which mode produced a roster; it just gets a
 of players. `load_roster()` picks the mode from the season (see CURRENT_ROSTER_SEASONS).
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Mapping, Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from app.models.player import Player
 from app.models.player_attributes import PlayerAttributes
@@ -103,6 +104,28 @@ def player_variance(player: dict) -> float:
     return 0.03
 
 
+@dataclass(frozen=True)
+class RosterOverlay:
+    """Team-ownership changes layered over a season's base rosters (MyLeague trades).
+
+    Only OWNERSHIP moves: a player's identity, attributes and stats are untouched, so a
+    traded player loads exactly the data he would have on his old team. `overrides` maps
+    player_id -> the team that holds him now (only players whose team differs from the
+    base); `base_team_of` maps those same players to the team they started on, which pins
+    the one season-stats row to use when a player has several (real-life midseason trades).
+    An empty overlay is falsy and loads exactly like no overlay at all.
+    """
+    overrides: Mapping[int, int] = field(default_factory=dict)
+    base_team_of: Mapping[int, int] = field(default_factory=dict)
+
+    def __bool__(self) -> bool:
+        return bool(self.overrides)
+
+    def key(self) -> frozenset:
+        """Hashable identity, for roster caches."""
+        return frozenset(self.overrides.items())
+
+
 class RosterProvider(ABC):
     """Owns roster construction. Subclasses differ ONLY in how team membership is
     resolved; everything else (ratings, tendencies, FT prob, minute normalization)
@@ -112,8 +135,24 @@ class RosterProvider(ABC):
     def _team_membership(self, team_id: int):
         """SQLAlchemy filter selecting this team's players for the season."""
 
+    @abstractmethod
+    def _moved_in(self, player_id: int, base_team_id: int):
+        """Filter selecting one player acquired from `base_team_id` by trade."""
+
+    def _membership_with_overlay(self, team_id: int, overlay: Optional[RosterOverlay]):
+        """Base membership, minus every player an overlay moves, plus the ones moved here."""
+        base = self._team_membership(team_id)
+        if not overlay:
+            return base
+        moved_in = [
+            self._moved_in(pid, overlay.base_team_of[pid])
+            for pid, owner in sorted(overlay.overrides.items()) if owner == team_id
+        ]
+        return or_(and_(base, Player.id.notin_(sorted(overlay.overrides))), *moved_in)
+
     def load(self, db: Session, team_id: int, season: str, depth: int = 10,
-             pre_negation: bool = False, paint_mid_split: bool = False) -> list[dict]:
+             pre_negation: bool = False, paint_mid_split: bool = False,
+             overlay: Optional[RosterOverlay] = None) -> list[dict]:
         """Load the top `depth` players by minutes for a team in a given season.
 
         Minutes are games-weighted (see _build_roster) so each player keeps their real
@@ -131,7 +170,7 @@ class RosterProvider(ABC):
             .join(PlayerAttributes, PlayerAttributes.player_id == Player.id)
             .join(PlayerTendencies, PlayerTendencies.player_id == Player.id)
             .join(PlayerSeasonStats, PlayerSeasonStats.player_id == Player.id)
-            .where(self._team_membership(team_id))
+            .where(self._membership_with_overlay(team_id, overlay))
             .where(PlayerAttributes.season == season)
             .where(PlayerTendencies.season == season)
             .where(PlayerSeasonStats.season == season)
@@ -152,11 +191,17 @@ class CurrentRosterProvider(RosterProvider):
     def _team_membership(self, team_id: int):
         return Player.team_id == team_id
 
+    def _moved_in(self, player_id: int, base_team_id: int):
+        return Player.id == player_id
+
 
 class HistoricalRosterProvider(RosterProvider):
     """Season-accurate roster — membership from the season's own stats."""
     def _team_membership(self, team_id: int):
         return PlayerSeasonStats.team_id == team_id
+
+    def _moved_in(self, player_id: int, base_team_id: int):
+        return and_(Player.id == player_id, PlayerSeasonStats.team_id == base_team_id)
 
 
 def roster_provider_for(season: str) -> RosterProvider:
@@ -166,17 +211,20 @@ def roster_provider_for(season: str) -> RosterProvider:
 
 
 def load_roster(db: Session, team_id: int, season: str, depth: int = 10,
-                pre_negation: bool = False, paint_mid_split: bool = False) -> list[dict]:
+                pre_negation: bool = False, paint_mid_split: bool = False,
+                overlay: Optional[RosterOverlay] = None) -> list[dict]:
     """Public entry point — delegates to the roster provider for the season.
 
     `pre_negation=True` applies the pre-negation transform to per-player zone FG%s.
     `paint_mid_split=True` (Probe #10) also splits the aggregate `nonrim` zone into
     per-player `paint_fg_prob` / `midrange_fg_prob` / `paint_shot_rate`, with
     pre-negation applied to each sub-zone independently.
+    `overlay` (MyLeague trades) changes team ownership only; None/empty is byte-identical.
     """
     return roster_provider_for(season).load(db, team_id, season, depth,
                                             pre_negation=pre_negation,
-                                            paint_mid_split=paint_mid_split)
+                                            paint_mid_split=paint_mid_split,
+                                            overlay=overlay)
 
 
 def _league_zone_prior(db: Session, season: str) -> dict:

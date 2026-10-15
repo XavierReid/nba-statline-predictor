@@ -432,13 +432,16 @@ def _build_next_game_preview(db, sim_id, upcoming_rows, abbr_by_id) -> NextGameP
     # Rosters — top 8 by mpg, availability-filtered.
     stored = (db.get(SimulationRun, sim_id).parameters or {}).get("sim_config")
     cfg = SimConfig(**stored) if stored else SimConfig()
+    # Rosters at the game's date, so a trade effective by then is reflected.
+    from app.services.roster_at_date import myleague_overlay_at
+    overlay = myleague_overlay_at(db, sim_id, st.season, next_gd) or None
     controlled_roster_full = load_roster(
         db, controlled_id, st.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs, overlay=overlay,
     )
     opponent_roster_full = load_roster(
         db, opponent_id, st.season,
-        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs,
+        depth=cfg.roster_depth, pre_negation=cfg.use_pre_negation_probs, overlay=overlay,
     )
     controlled_avail = filter_available_players(controlled_roster_full, controlled_id, unavailable)
     opponent_avail = filter_available_players(opponent_roster_full, opponent_id, unavailable)

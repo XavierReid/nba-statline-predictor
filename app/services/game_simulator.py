@@ -75,7 +75,7 @@ def _league_avg_def_rating(db, season: str, fallback: float) -> float:
 
 def _select_game_rosters(
     home_players: list, away_players: list, cfg, rng, season, db,
-    home_team_id, away_team_id, unavailable_player_ids,
+    home_team_id, away_team_id, unavailable_player_ids, roster_overlay=None,
 ) -> tuple:
     """Resolve tonight's rosters. Returns (home_pool, away_pool, home_active, away_active).
 
@@ -93,12 +93,16 @@ def _select_game_rosters(
         depth = getattr(cfg, "roster_depth", 10)
         if db is not None and season and len(home_players) < depth and home_team_id and away_team_id:
             from app.services.roster import load_roster
+            # The overlay (MyLeague trades) must reach this reload too, or it would put
+            # traded-away players back on their old team and drop the ones acquired.
             hp = load_roster(db, home_team_id, season, depth=depth,
                              pre_negation=cfg.use_pre_negation_probs,
-                             paint_mid_split=cfg.use_paint_mid_split)
+                             paint_mid_split=cfg.use_paint_mid_split,
+                             overlay=roster_overlay)
             ap = load_roster(db, away_team_id, season, depth=depth,
                              pre_negation=cfg.use_pre_negation_probs,
-                             paint_mid_split=cfg.use_paint_mid_split)
+                             paint_mid_split=cfg.use_paint_mid_split,
+                             overlay=roster_overlay)
             if hp:
                 home_pool = hp
             if ap:
@@ -185,6 +189,7 @@ class _GameSim:
         away_team_id: Optional[int] = None,
         db: Optional[object] = None,
         unavailable_player_ids: Optional[set] = None,
+        roster_overlay: Optional[object] = None,
     ) -> None:
         self.home_players = home_players
         self.away_players = away_players
@@ -198,7 +203,7 @@ class _GameSim:
 
         self.home_pool, self.away_pool, self.home_players, self.away_players = _select_game_rosters(
             self.home_players, self.away_players, self.cfg, self.rng, self.season, db,
-            home_team_id, away_team_id, unavailable_player_ids,
+            home_team_id, away_team_id, unavailable_player_ids, roster_overlay,
         )
 
         # Era-anchored league normalization for the foul model. Built from the FULL
@@ -1042,6 +1047,7 @@ def simulate_game(
     away_team_id: Optional[int] = None,
     db: Optional[object] = None,
     unavailable_player_ids: Optional[set] = None,
+    roster_overlay: Optional[object] = None,
 ) -> dict:
     """Simulate one full game including any overtime periods.
 
@@ -1062,4 +1068,5 @@ def simulate_game(
         away_team_id=away_team_id,
         db=db,
         unavailable_player_ids=unavailable_player_ids,
+        roster_overlay=roster_overlay,
     ).run()

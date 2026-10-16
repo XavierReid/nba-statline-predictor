@@ -28,14 +28,23 @@ from app.models.simulation import SimulatedGame, SimulationRun
 from app.services.game_simulator import load_roster, simulate_game
 from app.services.league_simulator import season_bounds, validate_season_schedule
 from app.services.myleague_state import (
+    AVAILABILITY_EVENT_TYPES,
+    EVENT_TRADE,
+    InconsistentTradeError,
+    MalformedTradeError,
     MyLeagueEventPayload,
     SeasonState,
     apply_events,
     build_state,
     filter_available_players,
-    ALLOWED_EVENT_TYPES,
+    fold_team_overrides,
+    parse_trade,
 )
-from app.services.roster_at_date import trade_overlay_at_date
+from app.services.roster_at_date import (
+    canonical_base_team_of,
+    load_event_payloads,
+    trade_overlay_at_date,
+)
 from app.services.season_simulator import _game_seed, _persist_game
 from app.services.sim_config import SimConfig
 
@@ -51,6 +60,27 @@ class RetroactiveEventError(MyLeagueError):
 
 class MonotonicTimeError(MyLeagueError):
     """Raised when advance_to's target date < current_calendar_date."""
+
+
+# Each team must keep at least this many players (with season stats) after every trade.
+MIN_ROSTER_AFTER_TRADE = 10
+
+
+class TradeRejected(MyLeagueError):
+    """A TRADE failed validation. `code` is a stable machine-readable reason (the UI and the
+    CPU evaluator key off it); the message is the human-readable explanation. Nothing is
+    written when this is raised."""
+    MALFORMED = "MALFORMED"
+    DUPLICATE_TRADE_ID = "DUPLICATE_TRADE_ID"
+    AFTER_DEADLINE = "AFTER_DEADLINE"
+    NOT_CONTROLLED_TEAM = "NOT_CONTROLLED_TEAM"
+    SAME_DAY_RETRADE = "SAME_DAY_RETRADE"
+    OWNERSHIP = "OWNERSHIP"
+    ROSTER_MINIMUM = "ROSTER_MINIMUM"
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +195,28 @@ def load_state(db: Session, simulation_id: int) -> SeasonState:
 # Event append with retroactive-mutation guard
 # ---------------------------------------------------------------------------
 
+def _reject_if_retroactive(db: Session, simulation_id: int, applied_at_date: date) -> None:
+    """Historical-immutability check. Locked rule: reject any event whose
+    applied_at_date is <= the game_date of any already-simulated game in this run.
+    Rationale: even if the new event would "legitimately" only apply to unsimulated games
+    on that date, the state fold at date D would then show a player as OUT (or on another
+    team) while the completed game on D shows otherwise — history+state disagree. Simpler
+    to keep the invariant "history is what the fold at completion time produced."
+    """
+    completed_dates = db.execute(
+        select(Game.game_date)
+        .join(SimulatedGame, SimulatedGame.game_id == Game.id)
+        .where(SimulatedGame.simulation_id == simulation_id)
+    ).scalars().all()
+    offending = [d for d in completed_dates if d >= applied_at_date]
+    if offending:
+        raise RetroactiveEventError(
+            f"event with applied_at_date={applied_at_date} would affect "
+            f"{len(offending)} already-simulated game(s) starting at "
+            f"{min(offending)}"
+        )
+
+
 def append_event(
     db: Session,
     *,
@@ -181,7 +233,12 @@ def append_event(
     history mutable — instead we surface a hard error so callers know to
     time-travel is a separate architectural feature (not M-1a).
     """
-    if event_type not in ALLOWED_EVENT_TYPES:
+    if event_type == EVENT_TRADE:
+        raise MyLeagueError(
+            "TRADE events are validated and committed through append_trade_event, "
+            "not the generic event path"
+        )
+    if event_type not in AVAILABILITY_EVENT_TYPES:
         raise MyLeagueError(f"unknown event_type {event_type!r}")
     sim = db.get(SimulationRun, simulation_id)
     if not sim or sim.scope != "myleague":
@@ -190,25 +247,7 @@ def append_event(
         select(MyLeagueState).where(MyLeagueState.simulation_id == simulation_id)
     ).scalar_one()
 
-    # Historical-immutability check. Locked rule: reject any event whose
-    # applied_at_date is <= the game_date of any already-simulated game
-    # in this run. Rationale: even if the new event would "legitimately"
-    # only apply to unsimulated games on that date, the state fold at
-    # date D would then show a player as OUT while the completed game on
-    # D shows them playing — history+state disagree. Simpler to keep the
-    # invariant "history is what the fold at completion time produced."
-    completed_dates = db.execute(
-        select(Game.game_date)
-        .join(SimulatedGame, SimulatedGame.game_id == Game.id)
-        .where(SimulatedGame.simulation_id == simulation_id)
-    ).scalars().all()
-    offending = [d for d in completed_dates if d >= applied_at_date]
-    if offending:
-        raise RetroactiveEventError(
-            f"event with applied_at_date={applied_at_date} would affect "
-            f"{len(offending)} already-simulated game(s) starting at "
-            f"{min(offending)}"
-        )
+    _reject_if_retroactive(db, simulation_id, applied_at_date)
 
     # --- M-4 availability event constraints -----------------------------
     #
@@ -242,13 +281,21 @@ def append_event(
                 f"mutation is not supported"
             )
         from app.models.player_season_stats import PlayerSeasonStats
-        rostered = db.execute(
-            select(PlayerSeasonStats.player_id)
-            .where(PlayerSeasonStats.player_id == player_id)
-            .where(PlayerSeasonStats.team_id == team_id)
-            .where(PlayerSeasonStats.season == sim.season)
-            .limit(1)
-        ).scalar_one_or_none()
+        # A traded player is rostered where the trade put him on that date, not where the
+        # season-stats row says he started.
+        overlay = trade_overlay_at_date(
+            db, sim.season, load_event_payloads(db, state_row.id), applied_at_date,
+        )
+        if player_id in overlay.overrides:
+            rostered = True if overlay.overrides[player_id] == team_id else None
+        else:
+            rostered = db.execute(
+                select(PlayerSeasonStats.player_id)
+                .where(PlayerSeasonStats.player_id == player_id)
+                .where(PlayerSeasonStats.team_id == team_id)
+                .where(PlayerSeasonStats.season == sim.season)
+                .limit(1)
+            ).scalar_one_or_none()
         if rostered is None:
             raise MyLeagueError(
                 f"player_id={player_id} is not rostered on team_id={team_id} "
@@ -260,6 +307,138 @@ def append_event(
         event_type=event_type,
         applied_at_date=applied_at_date,
         payload_json=payload,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def trade_deadline(db: Session, season: str) -> date:
+    """Last date a trade may take effect: the season's first game date plus two thirds of the
+    schedule's actual date range (whole days, integer arithmetic, so it is deterministic and
+    era-agnostic). Computed from the Game rows, never from a hardcoded calendar."""
+    start, end = season_bounds(season)
+    first, last = db.execute(
+        select(func.min(Game.game_date), func.max(Game.game_date))
+        .where(Game.game_date >= start, Game.game_date <= end)
+    ).one()
+    if first is None:
+        raise MyLeagueError(f"no schedule found for season {season!r}")
+    return first + timedelta(days=(2 * (last - first).days) // 3)
+
+
+def _base_member_ids(db: Session, season: str, team_id: int) -> set:
+    from app.models.player_season_stats import PlayerSeasonStats
+    return set(db.execute(
+        select(PlayerSeasonStats.player_id)
+        .where(PlayerSeasonStats.season == season, PlayerSeasonStats.team_id == team_id)
+    ).scalars().all())
+
+
+def append_trade_event(
+    db: Session,
+    *,
+    simulation_id: int,
+    applied_at_date: date,
+    payload: dict,
+) -> MyLeagueEvent:
+    """Validate a TRADE and append it to the log, atomically: every check runs before the
+    single insert, so a rejected trade writes nothing. Raises TradeRejected (stable `code`)
+    or RetroactiveEventError.
+
+    This is the structural gate only. The CPU's accept/reject decision is a separate step
+    that callers run first when a team is controlled; god-mode runs (no controlled team)
+    have no CPU check. v1 scope, on purpose and not by omission: no CPU-to-CPU trades, and
+    when a team is controlled the trade must involve it.
+
+    Checks, in order: payload shape; unused trade_id; not retroactive; not after the
+    deadline; involves the controlled team; no player already traded on that date; every
+    player is held by his from_team (validated against the WHOLE history, so a trade that
+    would break an already-scheduled later one is refused too); and each of the two teams
+    keeps >= MIN_ROSTER_AFTER_TRADE players on the trade date and on every later trade date.
+    """
+    sim = db.get(SimulationRun, simulation_id)
+    if not sim or sim.scope != "myleague":
+        raise MyLeagueError(f"simulation {simulation_id} is not a myleague run")
+    state_row = db.execute(
+        select(MyLeagueState).where(MyLeagueState.simulation_id == simulation_id)
+    ).scalar_one()
+
+    try:
+        trade_id, moves = parse_trade(payload)
+    except MalformedTradeError as e:
+        raise TradeRejected(TradeRejected.MALFORMED, str(e))
+    canonical = {"trade_id": trade_id, "moves": [
+        {"player_id": m.player_id, "from_team_id": m.from_team_id, "to_team_id": m.to_team_id}
+        for m in moves
+    ]}
+    events = load_event_payloads(db, state_row.id)
+    prior_trades = [e for e in events if e.event_type == EVENT_TRADE]
+
+    if any(e.payload.get("trade_id") == trade_id for e in prior_trades):
+        raise TradeRejected(TradeRejected.DUPLICATE_TRADE_ID, f"trade_id {trade_id!r} is already used")
+
+    _reject_if_retroactive(db, simulation_id, applied_at_date)
+
+    deadline = trade_deadline(db, sim.season)
+    if applied_at_date > deadline:
+        raise TradeRejected(
+            TradeRejected.AFTER_DEADLINE,
+            f"trade dated {applied_at_date} is after the trade deadline {deadline}",
+        )
+
+    teams = {m.from_team_id for m in moves} | {m.to_team_id for m in moves}
+    controlled = state_row.controlled_team_id
+    if controlled is not None and controlled not in teams:
+        raise TradeRejected(
+            TradeRejected.NOT_CONTROLLED_TEAM,
+            f"controlled team {controlled} is not part of this trade; trades between other "
+            f"teams are not supported",
+        )
+
+    moving = {m.player_id for m in moves}
+    same_day = {
+        m.player_id for e in prior_trades if e.applied_at_date == applied_at_date
+        for m in parse_trade(e.payload)[1]
+    } & moving
+    if same_day:
+        raise TradeRejected(
+            TradeRejected.SAME_DAY_RETRADE,
+            f"player(s) {sorted(same_day)} already traded on {applied_at_date}",
+        )
+
+    # Ownership + roster minimum are judged against the full history including this trade.
+    all_events = events + [MyLeagueEventPayload(EVENT_TRADE, applied_at_date, canonical)]
+    all_pids = {m.player_id for e in all_events if e.event_type == EVENT_TRADE
+                for m in parse_trade(e.payload)[1]}
+    base = canonical_base_team_of(db, sim.season, all_pids)
+    horizon = max(e.applied_at_date for e in all_events)
+    try:
+        fold_team_overrides(all_events, horizon, base)
+    except InconsistentTradeError as e:
+        raise TradeRejected(TradeRejected.OWNERSHIP, str(e))
+
+    check_dates = sorted({applied_at_date} | {
+        e.applied_at_date for e in prior_trades if e.applied_at_date > applied_at_date
+    })
+    members = {t: _base_member_ids(db, sim.season, t) for t in teams}
+    for d in check_dates:
+        overrides = fold_team_overrides(all_events, d, base)
+        for t in sorted(teams):
+            size = len(members[t] - overrides.keys()) + sum(1 for owner in overrides.values() if owner == t)
+            if size < MIN_ROSTER_AFTER_TRADE:
+                raise TradeRejected(
+                    TradeRejected.ROSTER_MINIMUM,
+                    f"team {t} would have {size} players on {d}; the minimum is "
+                    f"{MIN_ROSTER_AFTER_TRADE}",
+                )
+
+    ev = MyLeagueEvent(
+        myleague_state_id=state_row.id,
+        event_type=EVENT_TRADE,
+        applied_at_date=applied_at_date,
+        payload_json=canonical,
     )
     db.add(ev)
     db.commit()

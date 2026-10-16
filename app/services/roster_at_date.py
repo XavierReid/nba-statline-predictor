@@ -23,7 +23,7 @@ from app.models.myleague import MyLeagueEvent, MyLeagueState
 from app.models.player import Player
 from app.models.player_season_stats import PlayerSeasonStats
 from app.services.myleague_state import (
-    ALLOWED_EVENT_TYPES,
+    AVAILABILITY_EVENT_TYPES,
     EVENT_SET_AVAILABLE,
     EVENT_SET_UNAVAILABLE,
     EVENT_TRADE,
@@ -203,7 +203,7 @@ def resolve_team_roster_at_date(
     for e in events:
         if e.applied_at_date > as_of_date:
             break
-        if e.event_type not in ALLOWED_EVENT_TYPES:
+        if e.event_type not in AVAILABILITY_EVENT_TYPES:
             continue
         pid = e.payload.get("player_id")
         if e.payload.get("team_id") is None or pid is None:

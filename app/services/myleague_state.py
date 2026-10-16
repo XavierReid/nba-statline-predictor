@@ -24,8 +24,9 @@ M-6a (trades, design lock project-session-m6-design-lock):
                      "moves": [{"player_id", "from_team_id", "to_team_id"}, ...] }
   One atomic event between exactly two teams, any number of players. It changes
   team OWNERSHIP only; player identity and data are never touched. TRADE is folded
-  here but is deliberately NOT in ALLOWED_EVENT_TYPES yet: the write path
-  (myleague_engine.append_event) stays closed until its validation lands.
+  here, and may exist in the log (ALLOWED_EVENT_TYPES), but is written ONLY through
+  myleague_engine.append_trade_event, which validates it; the generic append_event
+  path accepts availability events only.
   v1 scope, on purpose and not by omission: there are no CPU-to-CPU trades and no
   CPU trade checks when a run has no controlled team.
 """
@@ -40,10 +41,12 @@ from typing import Dict, FrozenSet, List, Mapping, Optional, Tuple
 EVENT_SET_UNAVAILABLE = "SET_UNAVAILABLE"
 EVENT_SET_AVAILABLE = "SET_AVAILABLE"
 
-ALLOWED_EVENT_TYPES = frozenset({EVENT_SET_UNAVAILABLE, EVENT_SET_AVAILABLE})
-
-# Folded by the pure functions below but not yet accepted on the write path.
 EVENT_TRADE = "TRADE"
+
+# Availability events: the only kind the generic append_event path accepts.
+AVAILABILITY_EVENT_TYPES = frozenset({EVENT_SET_UNAVAILABLE, EVENT_SET_AVAILABLE})
+# Every kind that may exist in the log. TRADE is written via append_trade_event only.
+ALLOWED_EVENT_TYPES = AVAILABILITY_EVENT_TYPES | {EVENT_TRADE}
 
 
 class MalformedTradeError(ValueError):
@@ -222,7 +225,7 @@ def apply_events(
                 if m.player_id in team_of:
                     team_of[m.player_id] = m.to_team_id
             continue
-        if ev.event_type not in ALLOWED_EVENT_TYPES:
+        if ev.event_type not in AVAILABILITY_EVENT_TYPES:
             # Forward-compat: unknown event types are ignored by the fold
             # rather than raising, so a partially-migrated schema doesn't
             # crash older code paths. Persistence layer validates on write.

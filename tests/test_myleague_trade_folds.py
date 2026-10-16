@@ -17,6 +17,7 @@ from app.services.myleague_state import (
     EVENT_SET_UNAVAILABLE,
     EVENT_TRADE,
     ALLOWED_EVENT_TYPES,
+    AVAILABILITY_EVENT_TYPES,
     InconsistentTradeError,
     MalformedTradeError,
     MyLeagueEventPayload,
@@ -255,9 +256,11 @@ def test_non_trade_events_are_ignored_by_the_ownership_fold():
     assert fold_team_overrides(events, D, BASE) == {P1: B, P2: A}
 
 
-def test_trade_is_not_writable_yet_in_increment_1():
-    # Write path stays closed until increment 3 adds append_event validation.
-    assert EVENT_TRADE not in ALLOWED_EVENT_TYPES
+def test_trade_may_exist_in_the_log_but_is_not_an_availability_event():
+    # TRADE is loggable, but only append_trade_event writes it (the generic path is
+    # availability-only); the availability fold must never treat it as one.
+    assert EVENT_TRADE in ALLOWED_EVENT_TYPES
+    assert EVENT_TRADE not in AVAILABILITY_EVENT_TYPES
 
 
 # ---------------------------------------------------------------------------

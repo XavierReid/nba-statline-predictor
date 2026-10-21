@@ -148,3 +148,42 @@ averaging sets A and B; Delta_B in G6c SE ~0.6). Nothing else in the protocol ch
 the variants, the selection and freeze rules and the pass criteria stand as committed in the
 protocol commit. The smoke test also confirmed: results are bit-for-bit reproducible, and a
 removal does not change per-game possession counts (217.8 vs 218.1), as Section 5 assumed.
+
+---
+# RESULTS
+
+## R1. Development results (15 dev teams, 2024-25; the holdout has NOT been touched)
+
+Measured: 15 teams x 2 seed sets x 11 conditions x 1500 games (838 s). `results/measure_dev.json`,
+`results/dev_report.json`, `results/frozen_model.json` (the pre-registered rule's output).
+
+**Ground truth quality.** Repeat reliability (Spearman, set A vs set B): singles r=0.749 (noise
+ceiling 0.926), packages r=0.857 (ceiling 0.961); mean SE 0.39 points per condition. The measurement
+is informative enough to judge a model.
+
+**Mean simulated impact of removing a player (points of margin per game, 15 dev teams):**
+rank 1: +1.08, rank 2: +1.65, rank 3: +0.71, rank 5: +0.67, rank 8: +0.37; packages {1,2}: +3.66,
+{2,5,8}: +3.35, {1,8}: +2.23, {3,5}: +1.55, {5,8}: +1.45. **In this engine one player barely moves a
+team** (a star is worth ~1-2 points, versus ~5+ in the real league).
+Redistribution, interaction and replacement-level audits are in `dev_report.json`; interaction is
++0.59 points (sd 0.93): removing several players costs slightly more than the sum of removing each.
+The additive reference (summing each member's separately *measured* impact) predicts package impact
+with rho 0.864, so an additive per-player value is not the limiting factor.
+
+**Pre-registered selection (applied exactly as written).**
+* Stage 1 (k=1, single-player rho): shrink=F/avail=F 0.462; F/T 0.469; T/F 0.465; T/T 0.469 ->
+  differences <= 0.007, so the tie rule picks **shrink on, availability off**.
+* Stage 2 (package rho by k): 1.0: 0.538, 1.25: 0.535, 1.5: 0.534, 1.75: 0.524, 2.0: 0.511,
+  2.5: 0.496, 3.0: 0.486 -> **k\* = 1.0**. Convexity is *not* supported on the development data;
+  package rho falls monotonically as k rises. (Single-player rho is, as expected, identical for every k.)
+
+**Against the pass criteria (development data):** G6a single-player rho = 0.465 (< 0.60, ceiling
+0.926); G6b package rho = 0.538 (< 0.60). The Game Score formula, as registered, does not meet
+G6a/G6b on the data it was fit on.
+
+**Exploratory diagnostic (post-hoc, dev only, NOT a registered test; picked best-of-12 so inflated).**
+Spearman of each stat with the simulated single-player impact (n=75): TS% above league 0.600;
+Game Score 0.462; PPG 0.381; REB 0.346; MPG 0.310; usage 0.273; STL+BLK 0.228; real +/- 0.205;
+AST 0.131. Hypothesis: the engine fixes possessions per game, so a scorer's volume is simply
+redistributed when he sits, and what the simulator rewards is efficiency per possession used rather
+than raw production. Untested on the holdout.

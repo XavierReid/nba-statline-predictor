@@ -1,0 +1,28 @@
+{
+ "frozen_from": "dev teams, 2024-25, results/measure_dev.json \u2014 chosen by the pre-registered rules",
+ "shrink": true,
+ "availability": false,
+ "k_star": 1.0,
+ "candidates": [
+  {
+   "label": "linear",
+   "k": 1.0,
+   "beta": 0.17627366836738342
+  },
+  {
+   "label": "modest",
+   "k": 1.5,
+   "beta": 0.057671335441897544
+  },
+  {
+   "label": "best_fit",
+   "k": 1.0,
+   "beta": 0.17627366836738342
+  }
+ ],
+ "dev_replacement_level": 4.792666666666666,
+ "dev_rho": {
+  "single_stage1": 0.46881934566145095,
+  "package_stage2": 0.5381792318634424
+ }
+}

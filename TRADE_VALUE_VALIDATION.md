@@ -57,11 +57,13 @@ players under 10 MPG listed by name. Anomalies are reviewed by hand and reported
   top absorbers of minutes for sample removals and the mean team possessions in each condition.
 * **Pairing.** For each team, a fixed list of `G` games (opponent, home/away, seed) is generated once
   and reused for the baseline and every removal condition. Opponents cycle through the league's other
-  29 teams at full strength; venue alternates. Metric = team point margin per game.
+  29 teams at full strength; venue alternates. Metric = team point margin per game. (See Amendment 1:
+  reusing the *seed* removes almost no variance, because the random streams diverge as soon as the
+  rosters differ; the real pairing benefit is the shared opponent/venue schedule.)
 * **Impact** of removing set `S`: `I(S) = mean_g[margin_in(g) - margin_out_S(g)]` (positive = the
   team is worse without them), with the paired standard error.
 * **Repeat variance and noise ceiling.** Every measurement is made twice with independent seed sets
-  A and B (`G = 300` each). Reliability `r` = Spearman(A, B) over all conditions; the ceiling on any
+  A and B (`G = 1500` each; see Amendment 1). Reliability `r` = Spearman(A, B) over all conditions; the ceiling on any
   predictor's attainable correlation with the averaged estimate is `sqrt(2r / (1 + r))`
   (Spearman-Brown). Reported next to every rho. The analysis uses the A/B average.
 * **Individual vs interaction.** Singles are measured alone. For packages, `interaction(S) = I(S) -
@@ -115,7 +117,7 @@ The 30 teams are shuffled with seed `20261020` and split 15 development / 15 hol
   30 per type = 120 proposals, drawn with seed `77`; holdout teams 2024-25 (Holdout A) and the same
   recipe on 2016-17 (Holdout B), 120 each.
 * **Measured effect** = change in the CPU team's mean margin, `Delta_B = margin_after - margin_before`,
-  `G = 600` paired games per proposal, the trade applied with the shipped `RosterOverlay`
+  `G = 1500` paired games per proposal arm (see Amendment 1), the trade applied with the shipped `RosterOverlay`
   (`load_roster(overlay=...)`), which also exercises the production ownership machinery.
 * **Classes** (default `tau = 1.0` point/game; sensitivity at 0.5 and 1.5): *preserve* =
   `Delta_B >= -tau`; *beneficial* = `Delta_B >= +tau`; *harmful* = `Delta_B < -tau`. Each estimate's
@@ -134,3 +136,15 @@ The results section ends with: the recommended `(shrink, availability, k)` or "n
 passed/failed on which holdout, the strongest evidence against it, and what decision Xavier needs
 to make next. If the formula fails, the fallback is a per-season measured-impact table built with
 the Section 5 machinery; that is a separate decision, not part of this increment.
+
+## Amendment 1 — sample sizes (made after a 2-team smoke test, before any real measurement)
+
+A 150-game smoke test on two dev teams showed (a) the per-game margin has SD ~16.8 points, and (b)
+seed-pairing barely helps: paired SE 1.78 vs unpaired 1.94 points. At the originally planned
+`G = 300` a single condition's SE would be ~1.3 points against typical star effects of 3-6 points,
+which would make the noise ceiling uninformatively low. Changes, all made before any dev/holdout
+run: `G_MEASURE` 300 -> 1500 and `G_PROPOSAL` 600 -> 1500 (paired SE ~0.6 per seed set, ~0.43 after
+averaging sets A and B; Delta_B in G6c SE ~0.6). Nothing else in the protocol changed: the splits,
+the variants, the selection and freeze rules and the pass criteria stand as committed in the
+protocol commit. The smoke test also confirmed: results are bit-for-bit reproducible, and a
+removal does not change per-game possession counts (217.8 vs 218.1), as Section 5 assumed.

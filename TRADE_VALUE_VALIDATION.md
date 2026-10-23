@@ -187,3 +187,89 @@ Game Score 0.462; PPG 0.381; REB 0.346; MPG 0.310; usage 0.273; STL+BLK 0.228; r
 AST 0.131. Hypothesis: the engine fixes possessions per game, so a scorer's volume is simply
 redistributed when he sits, and what the simulator rewards is efficiency per possession used rather
 than raw production. Untested on the holdout.
+
+---
+## Amendment 2 — efficiency candidates (registered after R1; the holdout is still unopened)
+
+*Decision (Xavier, 2026-10-22):* value is **sim-coherent** (how much a player matters in this
+simulation); the engine's muted star impact is **banked as a separate limitation** and is never
+compensated for by inflating star values or tuning the acceptance rule. Hypotheses are generated on
+development data only; the holdout validates, and does not influence design.
+
+**Provenance, stated plainly.** The candidate idea comes from the exploratory R1 diagnostic on the
+development teams (TS% tracked simulated impact better than Game Score). That diagnostic was run
+*before* this amendment and is the only reason these candidates exist. Nothing here has been seen
+on the holdout. **No further candidates may be added after this amendment**; any new idea needs a
+new increment with fresh holdout data.
+
+### A2.1 Registered production specs (per game; no fitted weights)
+
+Per player-season, with `TSA = 2*(FGA + 0.44*FTA)`, `TS% = PTS / TSA` (league value if `TSA = 0`),
+`lgTS = sum(PTS*GP) / sum(TSA*GP)` over the season's league-wide rows, and
+`NS = 0.5*REB + STL + 0.7*AST + 0.7*BLK - 0.4*PF - TOV` (Hollinger's non-shooting terms, same REB convention):
+
+| id | spec | formula | role |
+|---|---|---|---|
+| GS | `game_score` | Hollinger Game Score | registered baseline |
+| TSP | `ts_points` | `(TS% - lgTS) * TSA` = efficiency x attempts | eligible |
+| TSP_NS | `ts_points_nonshooting` | `(TS% - lgTS) * TSA + NS` | eligible |
+| NS | `nonshooting` | `NS` | **attribution control, never selected** |
+
+*Playing time* is carried by the per-game attempts and counting stats (a 34-minute starter has more
+of both than a 12-minute reserve); *usage* by `TSA` (volume) multiplying efficiency; no separate
+minute or usage terms are added, because the dev diagnostic gave them no support (MPG 0.31,
+usage 0.27) and adding them would be fishing.
+
+### A2.2 Replacement level, shrinkage, availability, convexity
+
+* **Replacement** `X_R` = mean of the *same spec's* production over each team's 11th-13th men by MPG
+  (GP >= 10; teams with < 13 such players skipped), pooled across teams; value = `max(0, X' - X_R)^k`.
+  One implementation serves every spec (`replacement_level(score=...)`), so the calculation cannot
+  differ between candidates. A replacement-level audit per spec is part of the dev report.
+* **Shrink on, availability off** for every candidate (the Stage-1 result of R1; availability moved
+  rho by <= 0.007 and is dropped from the search).
+* **Convexity** stays empirical on the grid `{1, 1.25, 1.5, 1.75, 2, 2.5, 3}`; selected by the dev
+  rule only. R1 already found no support (k*=1.0 for Game Score); that is not assumed to carry over.
+
+### A2.3 Selection rule (applied once, on the development teams, before the holdout)
+
+1. **Spec**: among the eligible set {GS, TSP, TSP_NS} at `k = 1`, choose the highest **mean of the
+   dev single-player rho (G6a) and the dev package rho (G6b)**. A candidate must beat the current
+   best by more than 0.01 to displace it; ties keep the earlier one in the order GS, TSP, TSP_NS
+   (conservative: do not switch unless clearly better).
+2. **k**: for the selected spec, the grid value with the highest dev package rho; ties within 0.01 -> smaller k.
+3. Frozen to `results/frozen_model_v2.json` and **committed before any holdout measurement**.
+
+### A2.4 Decisive vs descriptive
+
+* **Decisive candidate** = the selected spec at `k*`, plus its `k = 1` and `k = 1.5` versions for the
+  convexity test (Section 8 rules unchanged). **Pass/fail is judged only here.**
+* **Descriptive** = every registered spec (including NS) at `k = 1`, reported for attribution.
+  If a descriptive candidate beats the decisive one on the holdout it is **not** promoted and the
+  holdout is **not** used to re-select; the finding is reported and would need fresh data.
+* If no decisive candidate passes G6a, G6b and G6c, the result is reported as **negative**, and the
+  options (ship a limited version, use measured impact directly, prioritise the engine work) go back
+  to Xavier. Nothing is selected after seeing holdout performance.
+
+### A2.5 Measured-impact benchmark ("oracle")
+
+Holdout measurements add single-player conditions for **every MPG rank 1-10** (the registered ranks
+{1,2,3,5,8} still define G6a/G6b; the other ranks are used only for the benchmark). From these:
+
+* **G6a/G6b reference:** the additive-measured predictor (sum of members' measured single impacts)
+  is reported next to every candidate, so "the formula" can be separated from "per-player additive
+  valuation".
+* **G6c oracle:** the same proposals judged by (i) the locked 1.1x ratio rule on clamped measured
+  impacts and (ii) a difference rule (accept iff sum of incoming measured impact >= sum of outgoing).
+  Measured impacts have SE ~0.4; the oracle is a benchmark, not a rule to ship.
+
+### A2.6 Pass criteria and reporting (unchanged; restated so they are frozen)
+
+G6a >= 0.60 single-player rho, G6b >= 0.60 package rho (holdout A and B, with noise ceiling and
+fraction of ceiling), convexity supported only if k* or 1.5 beats k=1 by >= 0.03 with a team-clustered
+95% interval excluding 0, and G6c: `P(preserve | accepted) >= 0.85`, lift >= +0.10, acceptance rate in
+[10%, 70%], `P(accepted | beneficial) >= 0.40` (tau = 1.0 point/game; sensitivity at 0.5 and 1.5).
+G6c reports accepted-trade success rate, rejected beneficial trades, acceptance rate, the
+accept-all / reject-all / random-at-same-rate baselines, and results by trade type with the
+star-for-depth types called out. Correlation alone never constitutes success.
+Scope: no endpoint, UI, or production trade-behaviour change until the frozen holdout results are reviewed.

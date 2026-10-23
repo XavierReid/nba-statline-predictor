@@ -6,14 +6,21 @@ evidence. Pure functions only: no DB, no RNG, no I/O.
 
 Value of a player-season, from PlayerSeasonStats alone (never `overall_rating`, guardrail #1):
 
-    production  G  = Hollinger Game Score per game
-    replacement R  = mean G of the league's 11th-13th men (data-derived, per season)
-    value          = (max(0, G' - R)) ** k * availability
+    production  X  = one of the registered specs (below), per game
+    replacement R  = mean X of the league's 11th-13th men (data-derived, per season, same for every spec)
+    value          = (max(0, X' - R)) ** k * availability
 
-where G' optionally shrinks thin samples toward R, and availability optionally scales by the
-share of the team's games the player appeared in. `k`, shrink and availability are the
-variants the protocol compares; every component is returned by `explain()` so a value can be
-audited by hand.
+where X' optionally shrinks thin samples toward R, and availability optionally scales by the
+share of the team's games the player appeared in. Registered production specs
+(TRADE_VALUE_VALIDATION.md, Amendment 2):
+
+    game_score             Hollinger Game Score (volume-heavy baseline)
+    ts_points              (TS% - league TS%) * true-shooting attempts: efficiency x attempts
+    ts_points_nonshooting  ts_points + the non-shooting Game Score terms
+    nonshooting            non-shooting terms only (attribution control, never selected)
+
+`k`, shrink and availability are the other variants the protocol compares; every component is
+returned by `explain()` so a value can be audited by hand.
 """
 from dataclasses import dataclass, field
 from statistics import mean
@@ -25,6 +32,13 @@ GAME_SCORE_WEIGHTS = {
     "points": 1.0, "fgm": 0.4, "fga": -0.7, "ft_missed": -0.4, "rebounds": 0.5,
     "steals": 1.0, "assists": 0.7, "blocks": 0.7, "pf_per_game": -0.4, "turnovers": -1.0,
 }
+
+SPEC_GAME_SCORE = "game_score"
+SPEC_TS_POINTS = "ts_points"
+SPEC_TS_POINTS_NS = "ts_points_nonshooting"
+SPEC_NONSHOOTING = "nonshooting"
+SPECS = (SPEC_GAME_SCORE, SPEC_TS_POINTS, SPEC_TS_POINTS_NS, SPEC_NONSHOOTING)
+FT_ATTEMPT_WEIGHT = 0.44           # standard true-shooting free-throw attempt weight
 
 REPLACEMENT_WINDOW = (11, 13)      # 1-indexed MPG ranks on each team, inclusive
 REPLACEMENT_MIN_GP = 10            # cameo rows must not define "replacement"
@@ -55,6 +69,21 @@ def game_score(stats) -> float:
     )
 
 
+def true_shooting_attempts(stats) -> float:
+    """TSA per game: 2 * (FGA + 0.44 * FTA); the denominator of TS%."""
+    return 2.0 * (_num(stats, "fga") + FT_ATTEMPT_WEIGHT * _num(stats, "fta"))
+
+
+def nonshooting_score(stats) -> float:
+    """Hollinger's non-shooting Game Score terms per game (same rebound convention as game_score)."""
+    w = GAME_SCORE_WEIGHTS
+    return (
+        w["rebounds"] * _num(stats, "rebounds") + w["steals"] * _num(stats, "steals")
+        + w["assists"] * _num(stats, "assists") + w["blocks"] * _num(stats, "blocks")
+        + w["pf_per_game"] * _num(stats, "pf_per_game") + w["turnovers"] * _num(stats, "turnovers")
+    )
+
+
 @dataclass(frozen=True)
 class PlayerProduction:
     """One player-season, reduced to what the value model reads."""
@@ -63,6 +92,9 @@ class PlayerProduction:
     games_played: int
     mpg: float
     game_score: float
+    points: float = 0.0          # per game
+    tsa: float = 0.0             # true-shooting attempts per game
+    nonshooting: float = 0.0     # non-shooting Game Score terms per game
 
     @classmethod
     def from_stats(cls, stats) -> "PlayerProduction":
@@ -72,7 +104,31 @@ class PlayerProduction:
             games_played=int(_num(stats, "games_played")),
             mpg=_num(stats, "minutes_per_game"),
             game_score=game_score(stats),
+            points=_num(stats, "points"),
+            tsa=true_shooting_attempts(stats),
+            nonshooting=nonshooting_score(stats),
         )
+
+
+def league_true_shooting(players: Iterable["PlayerProduction"]) -> float:
+    """League TS% for the season: total points over total true-shooting attempts (GP-weighted)."""
+    pts = sum(p.points * p.games_played for p in players)
+    tsa = sum(p.tsa * p.games_played for p in players)
+    return pts / tsa if tsa > 0 else 0.0
+
+
+def production_score(p: "PlayerProduction", spec: str, league_ts: float) -> float:
+    """Per-game production under a registered spec (before replacement level)."""
+    if spec == SPEC_GAME_SCORE:
+        return p.game_score
+    ts_added = (p.points / p.tsa - league_ts) * p.tsa if p.tsa > 0 else 0.0    # = points - league_ts * tsa
+    if spec == SPEC_TS_POINTS:
+        return ts_added
+    if spec == SPEC_TS_POINTS_NS:
+        return ts_added + p.nonshooting
+    if spec == SPEC_NONSHOOTING:
+        return p.nonshooting
+    raise ValueError(f"unknown production spec {spec!r}")
 
 
 @dataclass(frozen=True)
@@ -87,6 +143,7 @@ def replacement_level(
     players: Iterable[PlayerProduction],
     window: Tuple[int, int] = REPLACEMENT_WINDOW,
     min_gp: int = REPLACEMENT_MIN_GP,
+    score=None,
 ) -> ReplacementLevel:
     """Mean Game Score of each team's `window` ranks by MPG, pooled across teams.
 
@@ -96,6 +153,7 @@ def replacement_level(
     by player_id, so the result is deterministic.
     """
     lo, hi = window
+    score = score or (lambda p: p.game_score)
     by_team: Dict[int, List[PlayerProduction]] = {}
     for p in players:
         if p.games_played >= min_gp:
@@ -106,7 +164,7 @@ def replacement_level(
         ranked = sorted(plist, key=lambda p: (-p.mpg, p.player_id))
         if len(ranked) < hi:
             continue
-        chunk = [p.game_score for p in ranked[lo - 1:hi]]
+        chunk = [score(p) for p in ranked[lo - 1:hi]]
         pooled.extend(chunk)
         team_means[team_id] = mean(chunk)
     if not pooled:
@@ -122,17 +180,23 @@ class ValueModel:
     replacement: float
     shrink_games: float = SHRINK_GAMES
     team_games: Mapping[int, int] = field(default_factory=dict)   # team_id -> max GP on that team
+    spec: str = SPEC_GAME_SCORE
+    league_ts: float = 0.0
+
+    def score(self, p: PlayerProduction) -> float:
+        return production_score(p, self.spec, self.league_ts)
 
     def explain(self, p: PlayerProduction) -> Dict[str, float]:
         """Every component of the value, so it can be checked by hand."""
+        score = self.score(p)
         gp_weight = p.games_played / (p.games_played + self.shrink_games) if self.shrink else 1.0
-        shrunk = self.replacement + (p.game_score - self.replacement) * gp_weight
+        shrunk = self.replacement + (score - self.replacement) * gp_weight
         above = max(0.0, shrunk - self.replacement)
         team_gp = self.team_games.get(p.team_id, 0)
         avail = min(1.0, p.games_played / team_gp) if (self.availability and team_gp > 0) else 1.0
         return {
-            "game_score": p.game_score, "replacement": self.replacement, "gp_weight": gp_weight,
-            "shrunk_game_score": shrunk, "above_replacement": above, "k": self.k,
+            "game_score": p.game_score, "score": score, "replacement": self.replacement,
+            "gp_weight": gp_weight, "shrunk_game_score": shrunk, "above_replacement": above, "k": self.k,
             "availability": avail, "value": (above ** self.k) * avail,
         }
 
@@ -143,15 +207,17 @@ class ValueModel:
 def build_value_model(
     players: Sequence[PlayerProduction], *, k: float = 1.0, shrink: bool = False,
     availability: bool = False, window: Tuple[int, int] = REPLACEMENT_WINDOW,
-    min_gp: int = REPLACEMENT_MIN_GP,
+    min_gp: int = REPLACEMENT_MIN_GP, spec: str = SPEC_GAME_SCORE,
 ) -> ValueModel:
-    """Derive the season's replacement level and team game counts, then fix the variant."""
+    """Derive the season's league TS%, replacement level (for this spec) and team game counts,
+    then fix the variant. Replacement level is computed identically for every spec."""
     team_games: Dict[int, int] = {}
     for p in players:
         team_games[p.team_id] = max(team_games.get(p.team_id, 0), p.games_played)
-    rl = replacement_level(players, window, min_gp)
-    return ValueModel(k=k, shrink=shrink, availability=availability,
-                      replacement=rl.value, team_games=team_games)
+    lg_ts = league_true_shooting(players)
+    rl = replacement_level(players, window, min_gp, score=lambda p: production_score(p, spec, lg_ts))
+    return ValueModel(k=k, shrink=shrink, availability=availability, replacement=rl.value,
+                      team_games=team_games, spec=spec, league_ts=lg_ts)
 
 
 # ------------------------------------------------------------------ the locked CPU rule

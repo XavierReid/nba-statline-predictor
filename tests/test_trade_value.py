@@ -2,8 +2,10 @@
 import pytest
 
 from app.services.trade_value import (
-    ACCEPT, VALUE_SHORTFALL, ZERO_VALUE_TRADE,
-    PlayerProduction, build_value_model, cpu_verdict, game_score, replacement_level,
+    ACCEPT, SPEC_GAME_SCORE, SPEC_NONSHOOTING, SPEC_TS_POINTS, SPEC_TS_POINTS_NS, SPECS,
+    VALUE_SHORTFALL, ZERO_VALUE_TRADE, PlayerProduction, build_value_model, cpu_verdict,
+    game_score, league_true_shooting, nonshooting_score, production_score, replacement_level,
+    true_shooting_attempts,
 )
 
 
@@ -150,3 +152,78 @@ def test_every_verdict_has_a_stable_code_and_a_readable_message():
 def test_verdict_is_deterministic():
     args = ([(1, 7.0), (2, 2.0)], [(3, 8.0)])
     assert cpu_verdict(*args) == cpu_verdict(*args)
+
+
+# ----------------------------------------------- registered production specs (Amendment 2)
+
+STATS = dict(player_id=1, team_id=1, games_played=70, minutes_per_game=30.0, points=20.0, fgm=8.0,
+             fga=16.0, fta=6.0, ftm=4.0, rebounds=8.0, steals=1.0, assists=5.0, blocks=1.0,
+             pf_per_game=2.0, turnovers=3.0)
+
+
+def test_true_shooting_attempts_and_nonshooting_by_hand():
+    assert true_shooting_attempts(STATS) == pytest.approx(2 * (16 + 0.44 * 6))            # 37.28
+    assert nonshooting_score(STATS) == pytest.approx(4.0 + 1.0 + 3.5 + 0.7 - 0.8 - 3.0)   # 5.4
+    # shooting terms + non-shooting terms recompose the full Game Score
+    shooting = 20.0 + 0.4 * 8 - 0.7 * 16 - 0.4 * (6 - 4)
+    assert game_score(STATS) == pytest.approx(shooting + nonshooting_score(STATS))
+
+
+def test_from_stats_carries_the_spec_inputs():
+    p = PlayerProduction.from_stats(STATS)
+    assert p.points == 20.0 and p.tsa == pytest.approx(37.28) and p.nonshooting == pytest.approx(5.4)
+    assert p.game_score == pytest.approx(game_score(STATS))
+
+
+def test_league_true_shooting_is_games_weighted_points_over_attempts():
+    a = PlayerProduction(1, 1, 80, 30.0, 0.0, points=20.0, tsa=20.0)      # TS 1.00
+    b = PlayerProduction(2, 1, 20, 30.0, 0.0, points=10.0, tsa=20.0)      # TS 0.50
+    assert league_true_shooting([a, b]) == pytest.approx((20 * 80 + 10 * 20) / (20 * 80 + 20 * 20))
+
+
+def test_ts_points_is_efficiency_times_attempts_and_equals_points_minus_league_rate_times_tsa():
+    p = PlayerProduction(1, 1, 60, 30.0, 0.0, points=20.0, tsa=30.0)      # TS% 0.667
+    assert production_score(p, SPEC_TS_POINTS, 0.55) == pytest.approx((20 / 30 - 0.55) * 30)
+    assert production_score(p, SPEC_TS_POINTS, 0.55) == pytest.approx(20 - 0.55 * 30)
+    # a player who never shoots has no shooting value (not a divide-by-zero)
+    assert production_score(PlayerProduction(2, 1, 60, 5.0, 0.0, tsa=0.0), SPEC_TS_POINTS, 0.55) == 0.0
+
+
+def test_spec_composition_and_unknown_spec():
+    p = PlayerProduction(1, 1, 60, 30.0, 12.0, points=20.0, tsa=30.0, nonshooting=4.0)
+    ts = production_score(p, SPEC_TS_POINTS, 0.55)
+    assert production_score(p, SPEC_TS_POINTS_NS, 0.55) == pytest.approx(ts + 4.0)
+    assert production_score(p, SPEC_NONSHOOTING, 0.55) == 4.0
+    assert production_score(p, SPEC_GAME_SCORE, 0.55) == 12.0
+    with pytest.raises(ValueError):
+        production_score(p, "nope", 0.55)
+
+
+def _spec_league():
+    out, pid = [], 0
+    for t in (1, 2, 3):
+        for r in range(1, 15):
+            pid += 1
+            out.append(PlayerProduction(pid, t, 60, 40.0 - 2 * r, 20.0 - r, points=(24 - r) * 1.0,
+                                        tsa=22.0 - r, nonshooting=3.0 - 0.1 * r))
+    return out
+
+
+@pytest.mark.parametrize("spec", SPECS)
+def test_replacement_level_is_computed_the_same_way_for_every_spec(spec):
+    players = _spec_league()
+    m = build_value_model(players, spec=spec)
+    # ranks 11-13 on every team, scored under this spec, pooled
+    ranked = sorted([p for p in players if p.team_id == 1], key=lambda p: -p.mpg)[10:13]
+    want = sum(production_score(p, spec, m.league_ts) for p in ranked) / 3
+    assert m.replacement == pytest.approx(want)               # all three teams are identical here
+    assert m.spec == spec
+
+
+def test_value_under_each_spec_is_zero_at_replacement_and_positive_above_it():
+    players = _spec_league()
+    for spec in SPECS:
+        m = build_value_model(players, spec=spec)
+        scores = sorted(m.score(p) for p in players)
+        assert m.value(next(p for p in players if m.score(p) == scores[0])) == 0.0
+        assert m.value(next(p for p in players if m.score(p) == scores[-1])) > 0.0

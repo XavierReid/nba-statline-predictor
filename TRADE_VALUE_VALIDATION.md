@@ -309,3 +309,82 @@ k=1 (linear), k=1.5 (modest), k=1.0 (best-fit, identical to linear). Baseline: g
 
 Holdout run plan (frozen): `run_measure --split holdoutA|holdoutB` (adds ranks 1-10 for the oracle),
 then `run_holdout` and `run_g6c` for each split. No parameter above is revisited afterwards.
+
+## R3. Holdout results (frozen model `9fa84021077cf027`; nothing was re-tuned after seeing them)
+
+Holdout A = 15 unseen teams, 2024-25. Holdout B = the same 15 teams in the unseen 2016-17 season.
+Each: 15 teams x 2 seed sets x 16 conditions x 1500 games, plus G6c = 120 proposals x 2 arms x 1500
+games. Decisive model: **ts_points, k=1** (k=1.5 and k\*=1.0 reported alongside). Files:
+`measure_holdout{A,B}.json`, `holdout{A,B}_report_v2.json`, `g6c_holdout{A,B}_{raw,report_v2}.json`.
+
+### Gate results (frozen bars; 95% team-clustered intervals in brackets)
+
+| gate | holdout A (2024-25) | holdout B (2016-17) | bar | met on both? |
+|---|---|---|---|---|
+| G6a single-player rho | **0.394** [0.08, 0.67] (44% of ceiling 0.90) | 0.697 [0.50, 0.84] (73% of 0.96) | >= 0.60 | **No** (A) |
+| G6b package rho | **0.541** [0.29, 0.75] (55% of 0.98) | 0.657 [0.47, 0.79] (67% of 0.98) | >= 0.60 | **No** (A) |
+| convexity (k=1.5 vs 1, package rho) | +0.008 [-0.016, +0.044] | -0.001 [-0.017, +0.016] | >= +0.03, CI > 0 | not supported |
+| G6c P(preserve \| accepted) | 0.95 [0.90, 1.00] | 0.94 [0.86, 1.00] | >= 0.85 | yes |
+| G6c lift over base rate | +0.15 [+0.07, +0.24] | +0.20 [+0.10, +0.34] | >= +0.10 | yes |
+| G6c acceptance rate | 52% [39, 65] | 43% [30, 57] | 10-70% | yes |
+| G6c P(accepted \| beneficial) | 0.88 [0.72, 0.97] | 0.75 [0.52, 0.93] | >= 0.40 | yes |
+
+**Formal outcome (A2.4): the decisive candidate does NOT pass all pre-registered gates** — G6a and
+G6b are below 0.60 on holdout A — so the result is reported as **negative on the strict criteria**,
+with a split decision: it passes every gate on holdout B and all of G6c on both holdouts.
+The two holdouts disagree on the ranking gates and their intervals overlap the bar on both sides
+(A: [0.08, 0.67] for G6a; B: [0.50, 0.84]); with 75 conditions per split the evidence cannot
+distinguish a true rho of ~0.55 from ~0.60. The threshold is a point-estimate bar and was not moved.
+
+### Against the baseline and the oracle (descriptive)
+
+* **ts_points beats Game Score in all four ranking comparisons** (G6a A 0.394 vs 0.365, B 0.697 vs
+  0.531; G6b A 0.541 vs 0.407, B 0.657 vs 0.576). In G6c the Game Score lift is +0.04 [-0.02, +0.12]
+  on A (indistinguishable from zero) and +0.15 [+0.05, +0.25] on B.
+* **Measured-impact oracle** (CPU rule on measured single-player impacts): lift A +0.09 [+0.03, +0.17],
+  B +0.18 [+0.10, +0.28] (ratio rule); +0.07 / +0.21 (difference rule). The formula is not worse than
+  the oracle on A and about equal on B (recall on B: formula 0.75, oracle 0.89-0.93, intervals
+  overlap). The additive-measured package predictor reaches rho 0.825 (A) / 0.781 (B): the
+  limiting factor is the formula's ranking, not additivity. Interaction (package minus sum of
+  singles) is +0.37 on B and -0.16 on A with sd ~1.1, i.e. no stable non-additivity.
+* Other registered specs (descriptive only, never promotable): ts_points_nonshooting G6a 0.365/0.649,
+  G6b 0.503/0.602; non-shooting control 0.206/0.389 and 0.282/0.365.
+
+### What G6c does and does not show
+
+* Calibration of predicted value change against the measured margin change is close to 1:1 on A
+  (quintiles: -1.05/-0.21/+0.08/+0.67/+1.63 predicted vs -1.16/-0.41/+0.22/+0.90/+1.74 measured) but
+  only at the extremes on B (-1.27/-0.34/0.00/+0.43/+1.42 vs -2.14/-0.25/-0.15/-0.10/+1.52; the
+  middle quintiles are flat).
+* **Most trades barely matter in this engine**: 57% (A) and 52% (B) of proposals are statistically
+  unresolvable (|change| < 2 SE), and 80% / 74% of all proposals do not hurt the CPU team. A rule
+  can look safe for that reason alone, which is why the lift over the base rate, not the raw success
+  rate, is the headline. Tau sensitivity (P(preserve|accepted), lift, recall): A 0.5: .89/.21/.80,
+  1.5: .98/.12/.95; B 0.5: .83/.21/.74, 1.5: .94/.09/.81.
+* **Star-for-depth is context dependent, not a general engine rule.** When the CPU gives its star for
+  2-3 depth players, the measured change averages +0.77 on A (the rule accepts 80% of these) but
+  **-1.51 on B** (the rule accepts 37%; accepted ones still average -0.72, P(preserve|accepted) 82%).
+  "A star is worth little in this engine" (Section R1) holds for 2024-25 rosters and is weaker in
+  2016-17. This is the banked engine limitation showing up unevenly; it was not compensated for.
+* Measurement noise: SE per proposal ~0.55; effects are 1-2 points. Classification at tau = 1.0 is
+  therefore fuzzy for roughly half the proposals.
+
+### Known limitations of this evidence
+
+Two seasons and 15 teams each; one rule threshold (1.1x) evaluated, not tuned; replacement level for
+ts_points is slightly negative (-0.23) and ~40% of 25+ MPG players have value 0 on efficiency alone;
+the spec ignores rebounding, passing and defense by construction; ground truth is a healthy-roster
+counterfactual in `DRAMA_M3`, not `DRAMA_M3_SEASON` with random availability; the oracle is itself
+noisy (SE ~0.4 per player). No CPU-to-CPU trades, endpoint, UI or production behaviour was touched.
+
+## R4. Options (decision for Xavier; none taken)
+
+1. **Ship a limited version** on the strength of G6c (both holdouts) and the efficiency spec beating
+   the baseline everywhere, with the strict-gate miss and the engine limitation disclosed. This
+   requires an explicit override of the pre-registered ranking bars.
+2. **Gather confirming evidence first**: register the identical criteria on one more unseen season
+   (and/or the remaining teams) *before* running it, keep the model frozen, and decide on the
+   combined holdouts. No tuning; costs ~35 min of compute per season.
+3. **Use the measured-impact table directly** (per-season with/without values): ground truth by
+   construction, but opaque and expensive, and it performed no better than the formula in G6c.
+4. **Prioritise the engine work** (muted/variable star impact) before trades matter, then re-validate.

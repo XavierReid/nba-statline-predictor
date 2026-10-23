@@ -317,7 +317,7 @@ def g6c_metrics(rows: List[dict], tau: float = 1.0, boot: bool = True) -> dict:
     if boot:
         by_team = defaultdict(list)
         for r in rows:
-            by_team[r["cpu_team"]].append(r)
+            by_team[r.get("cluster", r["cpu_team"])].append(r)
         for key in ("p_preserve_given_accepted", "lift_vs_base", "accept_rate", "p_accepted_given_beneficial"):
             out["overall"][key + "_ci"] = H.cluster_bootstrap(by_team, lambda rs, k=key: core(rs)[k], n_boot=1000)[1:]
     srt = sorted(rows, key=lambda r: r["dV"])

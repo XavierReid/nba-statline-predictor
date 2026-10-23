@@ -388,3 +388,44 @@ noisy (SE ~0.4 per player). No CPU-to-CPU trades, endpoint, UI or production beh
 3. **Use the measured-impact table directly** (per-season with/without values): ground truth by
    construction, but opaque and expensive, and it performed no better than the formula in G6c.
 4. **Prioritise the engine work** (muted/variable star impact) before trades matter, then re-validate.
+
+---
+## Amendment 3 — confirmation season and pooled decision rule (registered before the data exists)
+
+*Approved by Xavier, 2026-10-23, following the split decision in R3.* The frozen model
+(`frozen_model_v2.json`, sha256[:16] `9fa84021077cf027`) is **not changed**. No threshold, no
+candidate, and not the 1.1x acceptance rule is touched.
+
+**Disclosure of what was known when this rule was written.** Holdouts A and B had already been
+evaluated separately (A fails the two ranking bars, B passes them, G6c passes on both). The pooled
+A+B numbers had **not** been computed. The pooled rule below is the "decide on the combined
+holdouts" option that was proposed alongside the recommendation to gather confirming data; it was
+chosen with knowledge of the separate results.
+
+* **Confirmation season (C):** **2013-14, all 30 teams.** Chosen as the most recent complete
+  (1,230-game) season, other than the ones already used, that runs through the same roster
+  provider as holdouts A and B. 2025-26 was rejected because it uses the live-roster provider
+  (31 players' team differs between sources, 57 rows lack shot-location data), which would add a
+  second variable; 2019-20 and 2020-21 are truncated. None of the 30 teams' 2013-14 data has been
+  used for fitting (development used 15 teams of 2024-25 only).
+* **Measurement:** identical to the holdouts (`run_measure --split confirm`: 2 seed sets x 16
+  conditions x 1500 games per team; ranks 1-10 for the oracle). G6c: **60 proposals per type
+  (240)** because C has 30 teams; A and B keep their 120.
+* **Pooled estimand.** For G6a and G6b, concatenate the single-player (respectively package)
+  conditions of A, B and C, each scored by the frozen model under *its own season's* replacement
+  level and league TS%; Spearman over the pooled set; 95% interval by bootstrap with clusters =
+  (season, team), 2000 draws. For G6c, concatenate all proposals (A, B, C), apply the frozen rule,
+  and compute the same four criteria with clusters = (season, cpu team).
+* **Pre-registered verdict.** **PASS** iff pooled G6a rho >= 0.60 AND pooled G6b rho >= 0.60 AND
+  pooled G6c meets all four frozen criteria (P(preserve | accepted) >= 0.85, lift >= +0.10,
+  acceptance in [10%, 70%], P(accepted | beneficial) >= 0.40; tau = 1.0). Otherwise the
+  negative result stands. Per-split numbers (A, B, C) are always reported next to the pooled
+  ones; heterogeneity between them is reported and discussed but is **not** a gate.
+* **Consequences.** PASS makes the model *eligible* for a limited ship with the disclosures from
+  R3 (muted star impact; star-for-depth sign differs by season); the decision to ship remains
+  Xavier's. FAIL leaves the strict-gate negative in place and returns options 3 (measured-impact
+  table) and 4 (engine work first). Neither outcome changes anything in production by itself.
+* **Scope:** no endpoint, UI or production trade-behaviour change.
+
+Run plan: `run_measure --split confirm`, `run_holdout --split confirm`,
+`run_g6c --split confirm --per-type 60`, then `run_pooled` (A, B, C).

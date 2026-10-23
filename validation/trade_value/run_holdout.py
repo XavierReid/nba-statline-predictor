@@ -41,7 +41,7 @@ def evaluate(label, cfg, frozen, prods, idx, rows, singles, packs, by_team_s, by
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB", "dev"])
+    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB", "confirm", "dev"])
     ap.add_argument("--measure", default=None)
     ap.add_argument("--tag", default="")
     args = ap.parse_args()

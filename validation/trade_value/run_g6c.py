@@ -64,7 +64,7 @@ def make_proposals(ranked: dict, seed: int = PROPOSAL_SEED, per_type: int = PER_
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB", "dev"])
+    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB", "confirm", "dev"])
     ap.add_argument("--games", type=int, default=H.G_PROPOSAL)
     ap.add_argument("--per-type", type=int, default=PER_TYPE)
     ap.add_argument("--measure", default=None)

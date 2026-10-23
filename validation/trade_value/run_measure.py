@@ -14,7 +14,8 @@ from app.database import SessionLocal
 from app.models.player_season_stats import PlayerSeasonStats
 from validation.trade_value import harness as H
 
-SPLITS = {"dev": ("2024-25", 0), "holdoutA": ("2024-25", 1), "holdoutB": ("2016-17", 1)}
+SPLITS = {"dev": ("2024-25", 0), "holdoutA": ("2024-25", 1), "holdoutB": ("2016-17", 1),
+          "confirm": ("2013-14", 2)}      # Amendment 3: every team, unseen season
 
 
 def teams_with_stats(season: str) -> list:
@@ -32,7 +33,7 @@ def split_ids(split: str) -> tuple:
     season, which = SPLITS[split]
     ref = teams_with_stats("2024-25")            # the split is defined once, on the 2024-25 teams
     dev, hold = H.split_teams(ref)
-    members = hold if which else dev
+    members = sorted(ref) if which == 2 else (hold if which else dev)
     if season != "2024-25":
         members = [t for t in members if t in set(teams_with_stats(season))]
     return season, members, teams_with_stats(season)
@@ -51,7 +52,7 @@ def main():
         members = members[: args.teams]
     # G6a/G6b use the registered ranks; holdout splits also measure ranks 1-10 so the measured
     # individual-impact table can serve as the G6c oracle benchmark (Amendment 2, A2.5).
-    ranks = range(1, 11) if args.split.startswith("holdout") else H.RANKS_SINGLE
+    ranks = range(1, 11) if args.split.startswith(("holdout", "confirm")) else H.RANKS_SINGLE
     conditions = {f"S{r}": (r,) for r in ranks}
     conditions.update({"P" + "_".join(map(str, p)): p for p in H.PACKAGES})
     tasks = [

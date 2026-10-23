@@ -1,0 +1,69 @@
+{
+ "frozen_from": "dev teams, 2024-25, results/measure_dev.json, Amendment 2 rule (A2.3)",
+ "shrink": true,
+ "availability": false,
+ "selected_spec": "ts_points",
+ "k_star": 1.0,
+ "decisive_candidates": [
+  {
+   "label": "linear",
+   "spec": "ts_points",
+   "k": 1.0,
+   "beta": 2.0652281104679866
+  },
+  {
+   "label": "modest",
+   "spec": "ts_points",
+   "k": 1.5,
+   "beta": 1.6772253790526792
+  },
+  {
+   "label": "best_fit",
+   "spec": "ts_points",
+   "k": 1.0,
+   "beta": 2.0652281104679866
+  }
+ ],
+ "baseline": {
+  "label": "game_score_linear",
+  "spec": "game_score",
+  "k": 1.0,
+  "beta": 0.17627366836738342
+ },
+ "descriptive_specs_k1": {
+  "game_score": {
+   "spec": "game_score",
+   "k": 1.0,
+   "beta": 0.17627366836738342
+  },
+  "ts_points": {
+   "spec": "ts_points",
+   "k": 1.0,
+   "beta": 2.0652281104679866
+  },
+  "ts_points_nonshooting": {
+   "spec": "ts_points_nonshooting",
+   "k": 1.0,
+   "beta": 0.5401732590333985
+  },
+  "nonshooting": {
+   "spec": "nonshooting",
+   "k": 1.0,
+   "beta": 0.5863639948515822
+  }
+ },
+ "dev_replacement_level": {
+  "game_score": 4.792666666666666,
+  "ts_points": -0.2325655936218181,
+  "ts_points_nonshooting": 1.5398788508226262,
+  "nonshooting": 1.7724444444444445
+ },
+ "dev_rho": {
+  "spec_table_mean_single_package": {
+   "game_score": 0.5017496443812233,
+   "ts_points": 0.5959898969990683,
+   "ts_points_nonshooting": 0.4949872338849582,
+   "nonshooting": 0.2886987090055395
+  }
+ }
+}

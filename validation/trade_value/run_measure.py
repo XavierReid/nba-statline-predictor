@@ -49,7 +49,10 @@ def main():
     season, members, league = split_ids(args.split)
     if args.teams:
         members = members[: args.teams]
-    conditions = {f"S{r}": (r,) for r in H.RANKS_SINGLE}
+    # G6a/G6b use the registered ranks; holdout splits also measure ranks 1-10 so the measured
+    # individual-impact table can serve as the G6c oracle benchmark (Amendment 2, A2.5).
+    ranks = range(1, 11) if args.split.startswith("holdout") else H.RANKS_SINGLE
+    conditions = {f"S{r}": (r,) for r in ranks}
     conditions.update({"P" + "_".join(map(str, p)): p for p in H.PACKAGES})
     tasks = [
         {"season": season, "team_id": t, "opp_ids": [o for o in league if o != t], "games": args.games,

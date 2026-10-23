@@ -64,51 +64,71 @@ def make_proposals(ranked: dict, seed: int = PROPOSAL_SEED, per_type: int = PER_
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB"])
+    ap.add_argument("--split", required=True, choices=["holdoutA", "holdoutB", "dev"])
     ap.add_argument("--games", type=int, default=H.G_PROPOSAL)
     ap.add_argument("--per-type", type=int, default=PER_TYPE)
+    ap.add_argument("--measure", default=None)
+    ap.add_argument("--tag", default="")
     args = ap.parse_args()
-    raw = open(R + "frozen_model.json", "rb").read()
+    if args.split == "dev" and args.tag != "smoke":
+        raise SystemExit("--split dev is only for dry runs: pass --tag smoke")
+    raw = open(R + "frozen_model_v2.json", "rb").read()
     frozen = json.loads(raw)
-    meas = A.load_measure(R + f"measure_{args.split}.json")
+    meas = A.load_measure(args.measure or R + f"measure_{args.split}.json")
     season = meas["meta"]["season"]
     ranked = {int(t): v["ranked_ids"] for t, v in meas["teams"].items()}
     from validation.trade_value.run_measure import split_ids
     _, _, league_all = split_ids(args.split)
+    pre = f"{args.tag + '_' if args.tag else ''}{args.split}"
 
     proposals = make_proposals(ranked, per_type=args.per_type)
     tasks = [{**p, "season": season, "opp_ids": league_all, "games": args.games} for p in proposals]
-    raw_path = R + f"g6c_{args.split}_raw.json"
     results = sorted(H.run_pool(H.measure_proposal, tasks), key=lambda r: r["index"])
-    json.dump(results, open(raw_path, "w"))
+    json.dump(results, open(R + f"g6c_{pre}_raw.json", "w"))
 
     prods, _ = A.load_productions(season)
     idx = A.prod_index(prods)
-    report = {"season": season, "split": args.split, "games": args.games, "n_proposals": len(results),
-              "frozen_sha256": hashlib.sha256(raw).hexdigest()[:16], "models": {}}
-    for c in frozen["candidates"]:
-        m = build_value_model(prods, k=c["k"], shrink=frozen["shrink"], availability=frozen["availability"])
-        rows = A.g6c_rows(results, m, idx)
-        report["models"][c["label"]] = {"k": c["k"], "tau_1.0": A.g6c_metrics(rows, 1.0),
-                                        "tau_0.5": A.g6c_metrics(rows, 0.5, boot=False),
-                                        "tau_1.5": A.g6c_metrics(rows, 1.5, boot=False)}
-        o = report["models"][c["label"]]["tau_1.0"]["overall"]
-        o["pass"] = {
-            "preserve_given_accepted_ge_0.85": o["p_preserve_given_accepted"] >= 0.85,
-            "lift_ge_0.10": o["lift_vs_base"] >= 0.10,
-            "accept_rate_in_10_70": 0.10 <= o["accept_rate"] <= 0.70,
-            "recall_beneficial_ge_0.40": o["p_accepted_given_beneficial"] >= 0.40}
+    try:
+        recommended = json.load(open(R + f"{pre}_report_v2.json"))["recommended_model"]
+    except (OSError, KeyError):
+        recommended = None                      # holdout report not present: pass flags for every decisive model
+
+    def formula_rows(cfg):
+        m = build_value_model(prods, k=cfg["k"], shrink=frozen["shrink"], availability=frozen["availability"], spec=cfg["spec"])
+        return A.g6c_rows(results, m, idx)
+
+    valuers = {f"decisive:{c['label']}": (c, formula_rows(c)) for c in frozen["decisive_candidates"]}
+    valuers["baseline:game_score_k1"] = (frozen["baseline"], formula_rows(frozen["baseline"]))
+    table = A.oracle_table(meas)
+    for mode in ("ratio", "diff"):
+        orows = A.g6c_rows_oracle(results, table, mode)
+        if orows is not None:
+            valuers[f"oracle:measured_{mode}"] = ({"spec": "measured", "k": None}, orows)
+
+    report = {"season": season, "split": args.split, "tag": args.tag, "games": args.games,
+              "n_proposals": len(results), "frozen_sha256": hashlib.sha256(raw).hexdigest()[:16],
+              "recommended_model": recommended, "valuers": {}}
+    for name, (cfg, rows) in valuers.items():
+        mm = {"spec": cfg["spec"], "k": cfg["k"], "tau_1.0": A.g6c_metrics(rows, 1.0),
+              "tau_0.5": A.g6c_metrics(rows, 0.5, boot=False), "tau_1.5": A.g6c_metrics(rows, 1.5, boot=False)}
+        o = mm["tau_1.0"]["overall"]
+        o["pass"] = {"preserve_given_accepted_ge_0.85": o["p_preserve_given_accepted"] >= 0.85,
+                     "lift_ge_0.10": o["lift_vs_base"] >= 0.10,
+                     "accept_rate_in_10_70": 0.10 <= o["accept_rate"] <= 0.70,
+                     "recall_beneficial_ge_0.40": o["p_accepted_given_beneficial"] >= 0.40}
         o["pass_all"] = all(o["pass"].values())
-    with open(R + f"g6c_{args.split}_report.json", "w") as f:
+        report["valuers"][name] = mm
+    with open(R + f"g6c_{pre}_report_v2.json", "w") as f:
         json.dump(report, f, indent=1)
 
-    print(f"G6c {args.split} season {season}: {len(results)} proposals x {args.games} games/arm; frozen sha {report['frozen_sha256']}")
-    for label, mm in report["models"].items():
+    print(f"G6c {pre}: season {season}, {len(results)} proposals x {args.games} games/arm, frozen sha {report['frozen_sha256']}, recommended={recommended}")
+    for name, mm in report["valuers"].items():
         o = mm["tau_1.0"]["overall"]
-        print(f"\n[{label} k={mm['k']}] accept {o['accept_rate']:.0%} | base P(preserve) {o['base_rate_preserve']:.0%} | "
-              f"P(preserve|acc) {o['p_preserve_given_accepted']:.0%} lift {o['lift_vs_base']:+.0%} | "
+        star = "  <== judged" if name == f"decisive:{recommended}" else ""
+        print(f"\n[{name}]{star}\n  accept {o['accept_rate']:.0%} | base P(preserve) {o['base_rate_preserve']:.0%} | "
+              f"P(pres|acc) {o['p_preserve_given_accepted']:.0%} lift {o['lift_vs_base']:+.0%} | "
               f"P(benef|rej) {o['p_beneficial_given_rejected']:.0%} | P(acc|benef) {o['p_accepted_given_beneficial']:.0%} | "
-              f"rho(dV,delta) {o['spearman_dV_vs_delta']:.2f} | unresolvable {o['share_unresolvable_2se']:.0%} | PASS_ALL={o['pass_all']}")
+              f"rho(dV,delta) {o['spearman_dV_vs_delta']:.2f} | unresolvable {o['share_unresolvable_2se']:.0%} | pass_all={o['pass_all']}")
         for ty, v in mm["tau_1.0"]["by_type"].items():
             print(f"    {ty:15s} n={v['n']:3d} accept {v['accept_rate']:.0%} P(pres|acc) {v['p_preserve_given_accepted']:.0%} "
                   f"mean delta acc {v['mean_delta_accepted']:+.2f} rej {v['mean_delta_rejected']:+.2f}")

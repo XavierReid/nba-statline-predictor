@@ -273,3 +273,39 @@ G6c reports accepted-trade success rate, rejected beneficial trades, acceptance 
 accept-all / reject-all / random-at-same-rate baselines, and results by trade type with the
 star-for-depth types called out. Correlation alone never constitutes success.
 Scope: no endpoint, UI, or production trade-behaviour change until the frozen holdout results are reviewed.
+
+## R2. Amendment 2 — development selection and FREEZE (holdout still unopened)
+
+Applied the A2.3 rule once to `results/measure_dev.json` (15 dev teams, 2024-25; shrink on,
+availability off). `results/frozen_model_v2.json` (sha256[:16] = `9fa84021077cf027`) is committed together
+with the holdout scripts *before* any holdout measurement exists.
+
+| spec (k=1) | dev single rho | dev package rho | mean | eligible |
+|---|---|---|---|---|
+| game_score (baseline) | 0.465 | 0.538 | 0.502 | yes |
+| **ts_points** | **0.596** | **0.596** | **0.596** | **yes — selected** |
+| ts_points_nonshooting | 0.554 | 0.436 | 0.495 | yes |
+| nonshooting (control) | 0.304 | 0.274 | 0.289 | no |
+
+**Selected spec: `ts_points`; `k\*` = 1.0.** Package rho across the k grid for ts_points is flat
+and, if anything, falls: 1.0: 0.596, 1.25: 0.591, 1.5: 0.594, 1.75: 0.593, 2.0: 0.591, 2.5: 0.588,
+3.0: 0.587. Convexity is again not supported on development data. Decisive candidates: ts_points at
+k=1 (linear), k=1.5 (modest), k=1.0 (best-fit, identical to linear). Baseline: game_score k=1.
+
+**Replacement-level audit notes (read before interpreting results).**
+* `ts_points` replacement level is **-0.23** (the 11th-13th men are slightly *below* league-average
+  efficiency); the per-team means have SD 0.34. For `game_score` it is 4.79 (SD 1.30).
+* `ts_points` value is nearly **independent of playing time** (rank correlation with MPG 0.22,
+  versus 0.92 for game_score): efficiency x attempts is small for everyone. About 40% of players with
+  25+ MPG have value 0 (inefficient starters are below replacement on efficiency), and 44% of
+  <5 MPG players do too. Highest-valued player under 10 MPG: M. Brown 1.25.
+* Adding Hollinger's non-shooting terms *reduced* package rho (0.596 -> 0.436); the control
+  (non-shooting alone) is weak (0.30/0.27). So the efficiency spec deliberately ignores rebounding,
+  passing and defense; its failure modes there are not corrected for.
+* A dry run of the full pipeline on *development* data reproduces these numbers (and, in-sample,
+  ts_points has single/package rho 0.596 with 95% intervals ~[0.42, 0.75] over 75 conditions): a true
+  rho near 0.60 would fall below the 0.60 bar roughly half the time, which is a property of the
+  frozen threshold and sample size, not something this protocol changes.
+
+Holdout run plan (frozen): `run_measure --split holdoutA|holdoutB` (adds ranks 1-10 for the oracle),
+then `run_holdout` and `run_g6c` for each split. No parameter above is revisited afterwards.

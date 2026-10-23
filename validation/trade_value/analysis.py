@@ -4,7 +4,7 @@ import json
 import math
 import statistics as st
 from collections import defaultdict
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import select
 
@@ -12,12 +12,17 @@ from app.database import SessionLocal
 from app.models.player import Player
 from app.models.player_season_stats import PlayerSeasonStats
 from app.services.trade_value import (
-    PlayerProduction, ValueModel, build_value_model, cpu_verdict, replacement_level,
+    SPEC_GAME_SCORE, SPEC_NONSHOOTING, SPEC_TS_POINTS, SPEC_TS_POINTS_NS,
+    PlayerProduction, ValueModel, build_value_model, cpu_verdict, league_true_shooting,
+    production_score, replacement_level,
 )
 from validation.trade_value import harness as H
 
 K_GRID = (1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
 TIE = 0.01
+REGISTERED_SINGLES = ("S1", "S2", "S3", "S5", "S8")      # G6a/G6b; other ranks feed the oracle only
+ELIGIBLE_SPECS = (SPEC_GAME_SCORE, SPEC_TS_POINTS, SPEC_TS_POINTS_NS)   # selection order (Amendment 2)
+ALL_SPECS = ELIGIBLE_SPECS + (SPEC_NONSHOOTING,)         # the last is an attribution control
 
 
 # ------------------------------------------------------------------------------ data
@@ -56,7 +61,9 @@ def condition_rows(meas: dict) -> List[dict]:
             ia, sa = _impact(t["A"]["base"]["margins"], t["A"][name]["margins"])
             ib, sb = _impact(t["B"]["base"]["margins"], t["B"][name]["margins"])
             rows.append({
-                "team": int(tid), "cond": name, "kind": "single" if name.startswith("S") else "package",
+                "team": int(tid), "cond": name,
+                "kind": ("package" if name.startswith("P")
+                         else "single" if name in REGISTERED_SINGLES else "extra"),
                 "removed": t["A"][name]["removed"], "impA": ia, "impB": ib,
                 "imp": (ia + ib) / 2, "se": math.sqrt(sa ** 2 + sb ** 2) / 2,
             })
@@ -66,7 +73,7 @@ def condition_rows(meas: dict) -> List[dict]:
 def reliability(rows: List[dict]) -> dict:
     out = {}
     for kind in ("single", "package", "all"):
-        sel = [r for r in rows if kind == "all" or r["kind"] == kind]
+        sel = [r for r in rows if (r["kind"] in ("single", "package") if kind == "all" else r["kind"] == kind)]
         r_ab = H.spearman([r["impA"] for r in sel], [r["impB"] for r in sel])
         out[kind] = {"n": len(sel), "r_AB": r_ab, "ceiling": H.noise_ceiling(r_ab),
                      "mean_se": st.mean(r["se"] for r in sel)}
@@ -110,16 +117,17 @@ def model_values(rows: List[dict], model: ValueModel, idx) -> List[float]:
     return [sum(model.value(idx[(pid, r["team"])]) for pid in r["removed"]) for r in rows]
 
 
-def variant_scores(rows, prods, k, shrink, avail) -> dict:
-    model = build_value_model(prods, k=k, shrink=shrink, availability=avail)
+def variant_scores(rows, prods, k, shrink, avail, spec=SPEC_GAME_SCORE) -> dict:
+    model = build_value_model(prods, k=k, shrink=shrink, availability=avail, spec=spec)
     idx = prod_index(prods)
     s = [r for r in rows if r["kind"] == "single"]
     p = [r for r in rows if r["kind"] == "package"]
+    reg = s + p
     return {
         "rho_single": H.spearman(model_values(s, model, idx), [r["imp"] for r in s]),
         "rho_package": H.spearman(model_values(p, model, idx), [r["imp"] for r in p]),
-        "rho_all": H.spearman(model_values(rows, model, idx), [r["imp"] for r in rows]),
-        "beta": H.ols_through_origin(model_values(rows, model, idx), [r["imp"] for r in rows]),
+        "rho_all": H.spearman(model_values(reg, model, idx), [r["imp"] for r in reg]),
+        "beta": H.ols_through_origin(model_values(reg, model, idx), [r["imp"] for r in reg]),
     }
 
 
@@ -136,9 +144,26 @@ def select_stage1(rows, prods) -> dict:
     return {"table": table, "best_rho": best, "shrink": choice[0], "availability": choice[1]}
 
 
-def select_stage2(rows, prods, shrink, avail) -> dict:
+def select_spec(rows, prods, shrink=True, avail=False) -> dict:
+    """Amendment 2, step 1: among the eligible specs at k=1, the highest mean of dev single-player
+    and dev package rho. A candidate must beat the current best by MORE than TIE to displace it;
+    ties keep the earlier spec in ELIGIBLE_SPECS. The attribution control is scored, never chosen."""
+    table = {}
+    for spec in ALL_SPECS:
+        v = variant_scores(rows, prods, 1.0, shrink, avail, spec)
+        v["mean_single_package"] = (v["rho_single"] + v["rho_package"]) / 2
+        v["eligible"] = spec in ELIGIBLE_SPECS
+        table[spec] = v
+    best = ELIGIBLE_SPECS[0]
+    for spec in ELIGIBLE_SPECS[1:]:
+        if table[spec]["mean_single_package"] > table[best]["mean_single_package"] + TIE:
+            best = spec
+    return {"table": table, "selected": best}
+
+
+def select_stage2(rows, prods, shrink, avail, spec=SPEC_GAME_SCORE) -> dict:
     """k by dev PACKAGE Spearman; ties within 0.01 -> smaller k."""
-    table = {str(k): variant_scores(rows, prods, k, shrink, avail) for k in K_GRID}
+    table = {str(k): variant_scores(rows, prods, k, shrink, avail, spec) for k in K_GRID}
     best = max(v["rho_package"] for v in table.values())
     k_star = min(k for k in K_GRID if table[str(k)]["rho_package"] >= best - TIE)
     return {"table": table, "best_rho_package": best, "k_star": k_star}
@@ -146,18 +171,20 @@ def select_stage2(rows, prods, shrink, avail) -> dict:
 
 # --------------------------------------------------------------------------- audits
 
-def replacement_audit(prods: List[PlayerProduction], names: Dict[int, str]) -> dict:
-    rl = replacement_level(prods)
+def replacement_audit(prods: List[PlayerProduction], names: Dict[int, str], spec: str = SPEC_GAME_SCORE) -> dict:
+    lg_ts = league_true_shooting(prods)
+    score = lambda p: production_score(p, spec, lg_ts)
+    rl = replacement_level(prods, score=score)
     means = list(rl.team_means.values())
     sens = {}
     for label, win, gp in (("ranks 11-13, GP>=10 (used)", (11, 13), 10), ("ranks 10-14", (10, 14), 10),
                            ("ranks 12-15", (12, 15), 10), ("ranks 11-13, GP>=20", (11, 13), 20),
                            ("ranks 11-13, GP>=1", (11, 13), 1)):
         try:
-            sens[label] = replacement_level(prods, win, gp).value
+            sens[label] = replacement_level(prods, win, gp, score=score).value
         except ValueError:
             sens[label] = None
-    model = build_value_model(prods)
+    model = build_value_model(prods, spec=spec)
     buckets = defaultdict(list)
     for p in prods:
         if p.games_played < 10:
@@ -170,11 +197,12 @@ def replacement_audit(prods: List[PlayerProduction], names: Dict[int, str]) -> d
     low = sorted(((model.value(p), p) for p in prods if p.mpg < 10 and p.games_played >= 10),
                  key=lambda vp: (-vp[0], vp[1].player_id))[:5]
     return {
+        "spec": spec, "league_ts": lg_ts,
         "replacement": rl.value, "teams_used": rl.teams_used, "n_players": rl.n_players,
         "team_mean_sd": st.stdev(means), "team_mean_min": min(means), "team_mean_max": max(means),
         "sensitivity": sens, "by_mpg_bucket": table,
         "highest_valued_under_10_mpg": [{"name": names.get(p.player_id, "?"), "mpg": round(p.mpg, 1),
-                                         "gp": p.games_played, "game_score": round(p.game_score, 1),
+                                         "gp": p.games_played, "score": round(model.score(p), 1),
                                          "value": round(v, 2)} for v, p in low],
         "corr_value_mpg": H.spearman([model.value(p) for p in prods if p.games_played >= 10],
                                      [p.mpg for p in prods if p.games_played >= 10]),
@@ -219,6 +247,42 @@ def g6c_rows(results: List[dict], model: ValueModel, idx) -> List[dict]:
         v = cpu_verdict(inc, out)
         rows.append({**r, "accepted": v.accepted, "code": v.code, "incoming": v.incoming,
                      "outgoing": v.outgoing, "dV": v.incoming - v.outgoing, "ratio": v.ratio})
+    return rows
+
+
+def oracle_table(meas: dict) -> Dict[int, Dict[int, float]]:
+    """Measured single-player impact (A/B average) per team and player, for every rank measured."""
+    table: Dict[int, Dict[int, float]] = {}
+    for tid, t in meas["teams"].items():
+        d = {}
+        for name, c in t["A"].items():
+            if name.startswith("S") and name != "base":
+                ia, _ = _impact(t["A"]["base"]["margins"], c["margins"])
+                ib, _ = _impact(t["B"]["base"]["margins"], t["B"][name]["margins"])
+                d[c["removed"][0]] = (ia + ib) / 2
+        table[int(tid)] = d
+    return table
+
+
+def g6c_rows_oracle(results: List[dict], table: Dict[int, Dict[int, float]], mode: str) -> Optional[List[dict]]:
+    """The same proposals judged with MEASURED impacts instead of a formula. `ratio` applies the
+    locked 1.1x rule to impacts clamped at 0; `diff` accepts iff incoming impact >= outgoing.
+    Returns None when some player in a proposal was not measured (e.g. a dry run on dev data)."""
+    rows = []
+    for r in results:
+        try:
+            inc = [(p, table[r["proposer"]][p]) for p in r["in_ids"]]
+            out = [(p, table[r["cpu_team"]][p]) for p in r["out_ids"]]
+        except KeyError:
+            return None
+        if mode == "ratio":
+            v = cpu_verdict([(p, max(0.0, x)) for p, x in inc], [(p, max(0.0, x)) for p, x in out])
+            rows.append({**r, "accepted": v.accepted, "code": v.code, "incoming": v.incoming,
+                         "outgoing": v.outgoing, "dV": v.incoming - v.outgoing, "ratio": v.ratio})
+        else:
+            tin, tout = sum(x for _, x in inc), sum(x for _, x in out)
+            rows.append({**r, "accepted": tin >= tout, "code": "ACCEPT" if tin >= tout else "VALUE_SHORTFALL",
+                         "incoming": tin, "outgoing": tout, "dV": tin - tout, "ratio": None})
     return rows
 
 

@@ -289,3 +289,152 @@ The **minimum viable path to a playable 2026-27** is Phases 0, 1 and 2. Phases 3
    licensing/engineering cost and unproven benefit?
 5. **Priority** against the M-6 trade work and the engine's muted star impact (the roster refresh is
    the only part with a calendar deadline: the season is already under way).
+
+---
+# Revision 2 (2026-10-23) — decisions, schema, migration, acceptance gates, sequence
+
+*Supersedes Sections 7-8 and the "decisions needed" list. Still a proposal: nothing below is
+implemented, and no production behaviour changes before the schema, migration plan and gates are
+approved.*
+
+## 10. Decisions recorded (Xavier, 2026-10-23)
+
+1. **Licensing:** private, non-commercial for the foreseeable future. NBA.com Terms s.9 restrictions
+   are documented (Section 3); **any public hosting, distribution or monetisation triggers a separate
+   licensing review.** Raw payloads live in `data/raw/` (gitignored) and are never committed.
+2. **Historical backfill approved**, isolated from production (database `nba_backfill`), with
+   coverage and identity validation reported before any conclusion is drawn.
+3. **MyLeague pinning:** a run's roster snapshot and rating set are pinned for its life. A refresh is
+   an explicit user action that creates new sealed snapshots; it never mutates an existing run.
+   Provenance is sufficient to reproduce a run from its original inputs and configuration.
+4. **Pre-NBA (college/international) data deferred.** Establish the draft/age/size/position baseline
+   first; add external data only if it improves held-out performance meaningfully and access/usage
+   are acceptable.
+5. **Priority:** after the confirmation run reaches its decision, the foundations and a minimum
+   viable 2026-27 take precedence over expanding M-6. The trade work's findings and next steps stay
+   in the backlog (`project-session-m6-design-lock`, `TRADE_VALUE_VALIDATION.md`).
+6. **Versioning and leakage prevention are non-negotiable foundations,** even if the first rookie
+   ratings are crude. A simple, honestly uncertain preseason estimate beats a sophisticated one that
+   secretly depends on future performance.
+
+## 11. Proposed schema (additive; no existing column changes meaning)
+
+**Provenance**
+* `data_fetches(id, endpoint, params jsonb, fetched_at, payload_sha256, row_count, store_path, status)`
+  — append-only. Raw payloads in the content-addressed store (prototyped in
+  `validation/ratings/rawstore.py`). Every derived row below carries `source_fetch_id`.
+* `season_seals(season PK, sealed_at, content_sha256, sealed_by)` — a sealed season's rows in
+  `player_season_stats`, `player_attributes`, `player_tendencies`, `team_season_stats`, `games`
+  cannot be UPDATEd/DELETEd (trigger) except via an explicit, logged unseal. This stops a re-ingest or
+  re-seed from silently rewriting history. The live season stays unsealed.
+
+**Players and rosters**
+* `player_bio(player_id PK, birth_date, height_in, weight_lb, school, country, draft_year, draft_round,
+  draft_pick, first_nba_season, source_fetch_id)` — **time-invariant facts only**. Position, team and
+  roster status are time-varying and live in snapshots.
+* `roster_snapshots(id, season, kind, as_of_date, content_sha256, source_fetch_ids int[], parent_id,
+  created_at, sealed_at)`; `roster_assignments(snapshot_id, player_id, team_id NULL, status
+  {standard, two_way, exhibit10, inactive, free_agent}, position, jersey)` with
+  `UNIQUE(snapshot_id, player_id)` and `CHECK(team_id IS NOT NULL OR status IN ('free_agent','inactive'))`.
+  Sealed snapshots are immutable (trigger). The transaction log is a **view** over the diff of
+  consecutive snapshots. `Player.team_id` and `CURRENT_ROSTER_SEASONS` stop being used by loaders.
+
+**Rating sets** (the three types are separate in the data model, not by naming)
+* `rating_sets(id, season, kind {observed, preseason, in_season}, information_cutoff date NOT NULL,
+  season_first_game date NOT NULL, season_last_game date NOT NULL, method_id, method_version,
+  input_manifest_sha256, parent_id, created_at, sealed_at)` with
+  `CHECK(kind <> 'preseason' OR information_cutoff < season_first_game)`,
+  `CHECK(kind <> 'in_season' OR (information_cutoff >= season_first_game AND information_cutoff < season_last_game))`,
+  `CHECK(kind <> 'observed' OR information_cutoff >= season_last_game)`.
+* `rating_set_inputs(rating_set_id, input_kind {season_stats, static_fact, roster_snapshot,
+  prior_rating_set, fitted_constants}, ref, season, data_through date NOT NULL, content_sha256)`.
+  **Trigger:** rejects an input with `data_through > information_cutoff`, rejects a
+  `prior_rating_set` input that is `observed` with season >= this set's season, and rejects any insert
+  after `sealed_at`.
+* `rating_set_attributes`, `rating_set_tendencies`, `rating_set_stat_lines` — created `LIKE` the legacy
+  `player_attributes` / `player_tendencies` / `player_season_stats` (so the loader math is unchanged),
+  plus `rating_set_id`, `rating_source {carry_forward, shrunk, rookie_prior, position_fallback}`,
+  `n_effective`, `uncertainty`. `rating_set_stat_lines` holds the **projected** per-game stat line
+  (minutes, games, shot zones, FT, ...) the loader needs when no real line exists. Sealed => immutable.
+* **Observed sets reuse the legacy tables.** One `rating_sets` row per existing season
+  (`observed-v1`) *points at* the legacy rows; nothing is copied, so the historical path is
+  byte-identical by construction.
+
+**Runs**
+* `simulation_runs` gains `roster_snapshot_id`, `rating_set_id`, `inputs_manifest jsonb`
+  (snapshot id+hash, rating set id+hash, raw fetch hashes, config, seed). A `NOT VALID` CHECK requires
+  both ids for new `myleague` runs while legacy rows stay NULL (documented "legacy-live").
+
+**Loader.** A `PlayerSource` abstraction resolves `rating_set_id`: `observed-v1` takes today's join
+unchanged; any other set reads the `rating_set_*` tables and **needs no current-season stats row**.
+Roster membership comes from the pinned snapshot, then the M-6 trade overlay applies on top.
+
+## 12. Migration and backfill strategy (expand, verify, switch, contract)
+
+1. **Rehearse off-production.** Restore a production dump to a scratch database; apply every step
+   there first and run all gates. Production is touched only after a clean rehearsal.
+2. **Expand (additive only):** create the new tables/columns/triggers; no reads change. Reversible
+   by dropping them.
+3. **Backfill without copying:** insert the `observed-v1` rating set per existing season, compute
+   `content_sha256` per season, then seal. Record counts before/after; abort on any mismatch.
+4. **Switch behind a flag:** the loader defaults to `observed-v1`; run the *byte-identical* gates
+   (Section 13, M5). Only on a clean pass is the flag the default.
+5. **Contract (later, optional):** tighten `NOT NULL`s and retire `Player.team_id`/
+   `CURRENT_ROSTER_SEASONS` usage. Deliberately last.
+6. **Backtest data stays in its own database** (`nba_backfill`) until validated; promoting those
+   seasons into production is a separate, explicit step.
+Rollback at every step before (5) is a drop of additive objects; a pre-migration `pg_dump` is taken.
+
+## 13. 2026-27 MVP acceptance gates (defined before implementation)
+
+| id | gate | how measured | pass |
+|---|---|---|---|
+| M1 | rosters validated | 30 teams; <= 15 standard + <= 3 two-way each; no player on two teams; every rostered player has bio; every 2026 draftee present or explicitly flagged unsigned; `PlayerIndex` vs `CommonTeamRoster` conflicts listed with a documented resolution | 0 unresolved conflicts |
+| M2 | every rostered player loads without a current-season stats row | `load_roster` count equals snapshot standard-roster count for all 30 teams on day zero | 0 silently dropped |
+| M3 | preseason ratings differentiated, fallbacks documented | per attribute: share exactly at default < 10% (excluding flagged fallbacks); SD >= 70% of the prior season's observed SD; Spearman vs prior-season observed >= 0.80 for returning veterans; every non-observed row has `rating_source` and `uncertainty` | all hold |
+| M4 | a sim starts with zero games | league sim and MyLeague run for 2026-27 start and complete the first week with no current-season stat rows; team-level inputs fall back to last season's regressed values (documented) | runs, no errors |
+| M5 | historical baselines unchanged | 198-hash `simulate_game` fence; box-score fixture; full test suite; 60-day MyLeague snapshot; full-league audit (same seeds) before vs after migration | byte/number identical |
+| M6 | no future information in preseason ratings | metamorphic canary (outputs bit-identical when season >= T data is garbled), manifest audit (`data_through` <= cutoff), negative tests proving the database rejects a deliberately leaky set | all pass |
+| M7 | provenance reproduces a run | rebuild a run's roster snapshot and rating set from the raw store via its `inputs_manifest`, re-run, compare box scores | byte-identical |
+| M8 | pinning | refresh creates a new snapshot/set; replaying a pre-refresh game afterwards is unchanged | identical |
+| M9 | evaluation discipline in place | `RATING_BACKTEST_PROTOCOL.md` committed, as-of layer and canary exist **before any fitting** | true |
+| M10 | honest disclosure | API exposes `rating_source`/`uncertainty`; rookies and fallbacks flagged | present |
+
+Explicitly **not** MVP gates: any accuracy claim. Those come from the backtest (Phase 4), and the MVP
+ships as "playable and honest, accuracy unmeasured" until then.
+
+## 14. Dependency-ordered implementation sequence
+
+| # | step | depends on | notes / gates |
+|---|---|---|---|
+| **1. Versioning and reproducibility foundations** | | | |
+| 1a | `data_fetches` + raw store wired into ingestion (opt-in) | none | prototype exists |
+| 1b | `season_seals` + `observed-v1` rating-set backfill + `PlayerSource` abstraction, default unchanged | 1a | **M5 must pass** |
+| 1c | `rating_sets`/`rating_set_inputs` with CHECKs and immutability/leak triggers; `rating_set_*` tables | 1b | negative tests (M6) |
+| 1d | run pinning columns + manifest; loader honours pinned ids | 1c | M7, M8 |
+| 1e | as-of layer + metamorphic canary harness | protocol (done) | must precede any fitting (M9) |
+| **2. Roster refresh and identity/assignment cleanup** | | | |
+| 2a | `player_bio` ingestion (data already fetched and discarded) | 1a | identity checks |
+| 2b | roster snapshots + assignments + refresh job + completeness validator + derived-transactions view | 1a, 2a | M1 |
+| 2c | loaders read snapshots (stop using `Player.team_id`/`CURRENT_ROSTER_SEASONS`); players without stats rows load | 1d, 2b | M2, M5 |
+| **3. Preseason rating initialisation incl. rookie fallbacks** | | | |
+| 3a | **baseline-0 method** (no fitted constants): last-season carry-forward mapped on the prior pool, position-proxy x draft-slot-bucket rookie prior, explicit fallback, basic minutes renormalisation | 1c, 2c | M3, M4, M10 |
+| 3b | generate and seal the 2026-27 preseason rating set + roster snapshot; start a run | 3a | M6, M7 |
+| **4. Historical backtesting and acceptance gates** | | | |
+| 4a | coverage/identity report on the backfilled seasons | backfill (running) | before any conclusion |
+| 4b | execute the protocol: fit V2-V5, R1-R2 on development targets; freeze; locked test once | 1e, 4a, 3a | pre-registered rules |
+| 4c | end-to-end preseason-vs-observed-vs-default standings test | 4b | quantifies the preseason accuracy gap |
+| 4d | adopt a fitted method only if it beats baseline-0 under the protocol's rule | 4b | otherwise baseline-0 stays |
+| **5. In-season updates** | | | |
+| 5a | pseudo-count blending replacing the volume gate; `in_season` sets with effective dates; explicit refresh | 4d, 1d | replay-stability tests |
+| **6. Optional advanced rookie projection** | | | |
+| 6a | age/size refinement (R2); external pre-NBA data only if licensed and backtest-proven | 4b | out of scope for now |
+
+**Minimum subset for a credible, playable 2026-27 that keeps the foundations intact:**
+1a-1e, 2a-2c, 3a-3b, plus step 4a, i.e. gates M1-M10. That delivers a playable season on day zero with
+reproducible, leak-proof, honestly-flagged ratings, and *no unmeasured accuracy claim*. Steps 4b-4d
+then upgrade the ratings with evidence; 5 and 6 follow.
+
+Rough size (PR-sized sessions): step 1 about 3-4; step 2 about 2-3; step 3 about 2; step 4 about 3.
+The MVP subset is about 8-10 sessions, none of which touches the trade-valuation work except the one
+dependency noted in Section 9 (projected production for the value model).

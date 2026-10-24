@@ -429,3 +429,57 @@ chosen with knowledge of the separate results.
 
 Run plan: `run_measure --split confirm`, `run_holdout --split confirm`,
 `run_g6c --split confirm --per-type 60`, then `run_pooled` (A, B, C).
+
+## R5. Confirmation season and pooled verdict (Amendment 3; frozen model `9fa84021077cf027`)
+
+Confirmation season C = 2013-14, all 30 teams (none used for fitting): 30 teams x 2 seed sets x 16
+conditions x 1500 games (2,301 s), plus G6c with 240 proposals x 2 arms x 1500 games.
+
+| split | G6a single rho | G6b package rho | noise ceilings (s/p) |
+|---|---|---|---|
+| holdout A (2024-25, unseen teams) | 0.394 [0.08, 0.67] | 0.541 [0.29, 0.75] | 0.90 / 0.98 |
+| holdout B (2016-17) | 0.697 [0.50, 0.84] | 0.657 [0.47, 0.79] | 0.96 / 0.98 |
+| confirmation C (2013-14) | 0.614 [0.49, 0.73] | 0.622 [0.43, 0.76] | 0.95 / 0.98 |
+| **POOLED (300 + 300 conditions)** | **0.593 [0.48, 0.69]** | **0.620 [0.51, 0.72]** | |
+| pooled Game Score baseline | 0.478 | 0.508 | |
+
+| pooled G6c (480 proposals) | result | bar | met |
+|---|---|---|---|
+| P(preserve \| accepted) | 0.95 [0.92, 0.98] | >= 0.85 | yes |
+| lift over base rate | +0.19 [+0.14, +0.25] | >= +0.10 | yes |
+| acceptance rate | 49% [42, 56] | 10-70% | yes |
+| P(accepted \| beneficial) | 0.85 [0.77, 0.92] | >= 0.40 | yes |
+
+Per split G6c: A 52% accept / 95% / +15 / 88%; B 43% / 94% / +20 / 75%; C 50% / 95% / +21 / 88%. All
+four criteria are met in each split and pooled. Convexity (k=1.5 vs 1): -0.001 [-0.022, +0.020] on C,
+also unsupported on A and B and on development: **never helpful in any of four evaluations**.
+
+### PRE-REGISTERED POOLED VERDICT: **FAIL (negative)**
+
+Pooled G6a = **0.593**, below the 0.60 bar by 0.007; pooled G6b (0.620) and pooled G6c pass. Under
+Amendment 3 the rule is conjunctive, so the verdict is negative. It is reported as it came out; the
+bar, the rule and the model were not revisited after seeing the data.
+
+### Context for the decision (descriptive, not a re-grading)
+
+* The miss is inside the noise: the pooled G6a interval [0.48, 0.69] contains 0.60. With 300 conditions
+  the standard error is about 0.05, so the data cannot distinguish a true rho of 0.59 from 0.62.
+* The shortfall comes from one split: holdout A (unseen teams in the modern 2024-25 season) is the only
+  one below the bar on either ranking gate; B and C are above it on both.
+* The efficiency formula beats Game Score in every comparison (pooled G6a 0.593 vs 0.478; G6b 0.620 vs
+  0.508; G6c lift +19 vs +12 on the confirmation season), and the measured-impact oracle is no better
+  than the formula at the decision level (confirmation: lift +22 / +17 vs +21).
+* G6c passes in every split. Star-for-depth: the CPU gives a star for depth in 59% of such proposals
+  (pooled) and the accepted ones average +0.68 points for the CPU in the simulator, with the sign differing
+  by season (+0.77 in 2024-25, -1.51 in 2016-17): the banked engine limitation, not compensated for.
+* Caveats from R3 still apply (about half of proposals statistically unresolvable; most trades barely
+  matter in this engine).
+
+### Consequences under the registered rule, and the options that remain
+
+FAIL leaves the strict-gate negative in place. **Nothing in production changes.** The remaining options,
+unchanged from R4: (1) a limited ship that explicitly overrides the registered G6a miss, which is
+Xavier's decision and would need the disclosures above; (3) use the measured-impact table directly;
+(4) prioritise the engine's player-impact modelling and re-validate. Option 2 (confirming data) has now
+been used. M-6a increments 1-3 (folds, overlay, validated trade write path) are independent of this
+verdict and remain in place; CPU acceptance (`trade_value.py`) stays unwired.

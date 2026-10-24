@@ -1,0 +1,231 @@
+{
+ "season": "2013-14",
+ "split": "confirm",
+ "tag": "",
+ "frozen_sha256": "9fa84021077cf027",
+ "selected_spec": "ts_points",
+ "reliability": {
+  "single": {
+   "n": 150,
+   "r_AB": 0.8347539928551043,
+   "ceiling": 0.953905449010304,
+   "mean_se": 0.35232714542415056
+  },
+  "package": {
+   "n": 150,
+   "r_AB": 0.9285993663721799,
+   "ceiling": 0.981314417269413,
+   "mean_se": 0.3562070143155365
+  },
+  "all": {
+   "n": 300,
+   "r_AB": 0.9011606698705339,
+   "ceiling": 0.9736585946202831,
+   "mean_se": 0.3542670798698435
+  }
+ },
+ "interaction": {
+  "n": 150,
+  "mean": 0.4180088888888889,
+  "sd": 0.9695845377833363,
+  "mean_abs_z": 1.3028892059569195,
+  "share_beyond_2se": 0.22666666666666666
+ },
+ "additive_measured_reference_rho_package": 0.8789741766300725,
+ "decisive": {
+  "linear": {
+   "spec": "ts_points",
+   "k": 1.0,
+   "replacement": -0.28559815593891286,
+   "G6a_rho_single": [
+    0.6137818484806044,
+    0.48810083034513047,
+    0.7256156859414424
+   ],
+   "G6a_fraction_of_ceiling": 0.643440971133371,
+   "G6b_rho_package": [
+    0.6215580086046518,
+    0.43448663428028395,
+    0.7579240482488875
+   ],
+   "G6b_fraction_of_ceiling": 0.6333933321128487,
+   "mae_points_frozen_beta": 1.0722800385305216,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": true,
+   "pass_G6b": true
+  },
+  "modest": {
+   "spec": "ts_points",
+   "k": 1.5,
+   "replacement": -0.28559815593891286,
+   "G6a_rho_single": [
+    0.6137818484806044,
+    0.48810083034513047,
+    0.7256156859414424
+   ],
+   "G6a_fraction_of_ceiling": 0.643440971133371,
+   "G6b_rho_package": [
+    0.6209886696530174,
+    0.43534853773982324,
+    0.7617648344861152
+   ],
+   "G6b_fraction_of_ceiling": 0.63281315216072,
+   "mae_points_frozen_beta": 1.1918340560333216,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": true,
+   "pass_G6b": true
+  },
+  "best_fit": {
+   "spec": "ts_points",
+   "k": 1.0,
+   "replacement": -0.28559815593891286,
+   "G6a_rho_single": [
+    0.6137818484806044,
+    0.48810083034513047,
+    0.7256156859414424
+   ],
+   "G6a_fraction_of_ceiling": 0.643440971133371,
+   "G6b_rho_package": [
+    0.6215580086046518,
+    0.43448663428028395,
+    0.7579240482488875
+   ],
+   "G6b_fraction_of_ceiling": 0.6333933321128487,
+   "mae_points_frozen_beta": 1.0722800385305216,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": true,
+   "pass_G6b": true
+  }
+ },
+ "baseline_game_score": {
+  "spec": "game_score",
+  "k": 1.0,
+  "replacement": 2.9922222222222223,
+  "G6a_rho_single": [
+   0.47632737128546426,
+   0.33957318157567135,
+   0.6004765376340262
+  ],
+  "G6a_fraction_of_ceiling": 0.4993444285066863,
+  "G6b_rho_package": [
+   0.5134361527178986,
+   0.36478684152033786,
+   0.6389213411218693
+  ],
+  "G6b_fraction_of_ceiling": 0.5232126866601801,
+  "mae_points_frozen_beta": 1.0672058821130381,
+  "mae_points_naive_mean": 1.341868148148148,
+  "pass_G6a": false,
+  "pass_G6b": false
+ },
+ "descriptive_specs_k1": {
+  "game_score": {
+   "spec": "game_score",
+   "k": 1.0,
+   "replacement": 2.9922222222222223,
+   "G6a_rho_single": [
+    0.47632737128546426,
+    0.33957318157567135,
+    0.6004765376340262
+   ],
+   "G6a_fraction_of_ceiling": 0.4993444285066863,
+   "G6b_rho_package": [
+    0.5134361527178986,
+    0.36478684152033786,
+    0.6389213411218693
+   ],
+   "G6b_fraction_of_ceiling": 0.5232126866601801,
+   "mae_points_frozen_beta": 1.0672058821130381,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": false,
+   "pass_G6b": false
+  },
+  "ts_points": {
+   "spec": "ts_points",
+   "k": 1.0,
+   "replacement": -0.28559815593891286,
+   "G6a_rho_single": [
+    0.6137818484806044,
+    0.48810083034513047,
+    0.7256156859414424
+   ],
+   "G6a_fraction_of_ceiling": 0.643440971133371,
+   "G6b_rho_package": [
+    0.6215580086046518,
+    0.43448663428028395,
+    0.7579240482488875
+   ],
+   "G6b_fraction_of_ceiling": 0.6333933321128487,
+   "mae_points_frozen_beta": 1.0722800385305216,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": true,
+   "pass_G6b": true
+  },
+  "ts_points_nonshooting": {
+   "spec": "ts_points_nonshooting",
+   "k": 1.0,
+   "replacement": 0.8192907329499758,
+   "G6a_rho_single": [
+    0.5879220627183627,
+    0.4642423717594258,
+    0.6915290101448645
+   ],
+   "G6a_fraction_of_ceiling": 0.6163315906501462,
+   "G6b_rho_package": [
+    0.5879781323614383,
+    0.45308002098094824,
+    0.706376698200441
+   ],
+   "G6b_fraction_of_ceiling": 0.5991740486168898,
+   "mae_points_frozen_beta": 1.0040629326295998,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": false,
+   "pass_G6b": false
+  },
+  "nonshooting": {
+   "spec": "nonshooting",
+   "k": 1.0,
+   "replacement": 1.1048888888888888,
+   "G6a_rho_single": [
+    0.310675141117383,
+    0.15682250635747694,
+    0.4510265598463495
+   ],
+   "G6a_fraction_of_ceiling": 0.3256875631014737,
+   "G6b_rho_package": [
+    0.3162433885950487,
+    0.17773747288310396,
+    0.45002311439849224
+   ],
+   "G6b_fraction_of_ceiling": 0.3222650997781339,
+   "mae_points_frozen_beta": 1.1895327369860467,
+   "mae_points_naive_mean": 1.341868148148148,
+   "pass_G6a": false,
+   "pass_G6b": false
+  }
+ },
+ "convexity_test": {
+  "modest": {
+   "rho_diff_vs_linear": -0.0005693389516344682,
+   "ci95": [
+    -0.022047284420440683,
+    0.020062996662474575
+   ],
+   "supported": false
+  },
+  "best_fit": {
+   "rho_diff_vs_linear": 0.0,
+   "ci95": [
+    0.0,
+    0.0
+   ],
+   "supported": false
+  }
+ },
+ "recommended_model": "linear",
+ "verdict": {
+  "model": "linear",
+  "G6a_pass": true,
+  "G6b_pass": true
+ }
+}

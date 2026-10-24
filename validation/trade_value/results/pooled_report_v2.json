@@ -1,0 +1,205 @@
+{
+ "frozen_sha256": "9fa84021077cf027",
+ "splits": {
+  "holdoutA": {
+   "season": "2024-25",
+   "G6a": [
+    0.3944468256986558,
+    0.08204709459802143,
+    0.6676590657083176
+   ],
+   "G6b": [
+    0.5414243272635877,
+    0.28652374164763655,
+    0.7521086645533468
+   ],
+   "ceilings": [
+    0.9007175144483727,
+    0.9818261308831998
+   ]
+  },
+  "holdoutB": {
+   "season": "2016-17",
+   "G6a": [
+    0.6974501874288372,
+    0.5020261515936469,
+    0.8376015794840678
+   ],
+   "G6b": [
+    0.6565052790426043,
+    0.4698030072047018,
+    0.7930850526518795
+   ],
+   "ceilings": [
+    0.9577765719332979,
+    0.9765745122160799
+   ]
+  },
+  "confirm": {
+   "season": "2013-14",
+   "G6a": [
+    0.6137818484806044,
+    0.48810083034513047,
+    0.7256156859414424
+   ],
+   "G6b": [
+    0.6215580086046518,
+    0.43448663428028395,
+    0.7579240482488875
+   ],
+   "ceilings": [
+    0.953905449010304,
+    0.981314417269413
+   ]
+  }
+ },
+ "pooled": {
+  "G6a": [
+   0.5931623132856233,
+   0.4814246037569331,
+   0.6903869653443627
+  ],
+  "G6b": [
+   0.6201598148701968,
+   0.5052726152824448,
+   0.7183221973574033
+  ],
+  "baseline_game_score": {
+   "G6a": 0.4784621477014578,
+   "G6b": 0.5078325878990452
+  },
+  "pass_G6a": false,
+  "pass_G6b": true,
+  "G6c": {
+   "tau": 1.0,
+   "overall": {
+    "n": 480,
+    "accept_rate": 0.4875,
+    "base_rate_preserve": 0.75625,
+    "p_preserve_given_accepted": 0.9487179487179487,
+    "lift_vs_base": 0.1924679487179487,
+    "p_harmful_given_accepted": 0.05128205128205128,
+    "p_beneficial_given_rejected": 0.08130081300813008,
+    "p_accepted_given_beneficial": 0.8507462686567164,
+    "mean_delta_accepted": 1.0276524216524217,
+    "mean_delta_rejected": -0.9402222222222222,
+    "spearman_dV_vs_delta": 0.6812420706786566,
+    "share_unresolvable_2se": 0.49375,
+    "p_preserve_given_accepted_ci": [
+     0.9190283400809717,
+     0.9768518518518519
+    ],
+    "lift_vs_base_ci": [
+     0.14221661762645366,
+     0.24884792626728114
+    ],
+    "accept_rate_ci": [
+     0.41683778234086244,
+     0.5595505617977528
+    ],
+    "p_accepted_given_beneficial_ci": [
+     0.7657657657657657,
+     0.9230769230769231
+    ],
+    "pass": {
+     "preserve_given_accepted_ge_0.85": true,
+     "lift_ge_0.10": true,
+     "accept_rate_in_10_70": true,
+     "recall_beneficial_ge_0.40": true
+    },
+    "pass_all": true
+   },
+   "by_type": {
+    "balanced_1v1": {
+     "n": 120,
+     "accept_rate": 0.4583333333333333,
+     "base_rate_preserve": 0.8,
+     "p_preserve_given_accepted": 0.9636363636363636,
+     "lift_vs_base": 0.16363636363636358,
+     "p_harmful_given_accepted": 0.03636363636363636,
+     "p_beneficial_given_rejected": 0.1076923076923077,
+     "p_accepted_given_beneficial": 0.8055555555555556,
+     "mean_delta_accepted": 1.1483636363636363,
+     "mean_delta_rejected": -0.5617128205128205,
+     "spearman_dV_vs_delta": 0.6860485896800906,
+     "share_unresolvable_2se": 0.5083333333333333
+    },
+    "balanced_2v2": {
+     "n": 120,
+     "accept_rate": 0.45,
+     "base_rate_preserve": 0.75,
+     "p_preserve_given_accepted": 0.9444444444444444,
+     "lift_vs_base": 0.19444444444444442,
+     "p_harmful_given_accepted": 0.05555555555555555,
+     "p_beneficial_given_rejected": 0.12121212121212122,
+     "p_accepted_given_beneficial": 0.7948717948717948,
+     "mean_delta_accepted": 1.2478765432098766,
+     "mean_delta_rejected": -0.817939393939394,
+     "spearman_dV_vs_delta": 0.7402817051259369,
+     "share_unresolvable_2se": 0.4583333333333333
+    },
+    "cpu_gets_star": {
+     "n": 120,
+     "accept_rate": 0.45,
+     "base_rate_preserve": 0.8,
+     "p_preserve_given_accepted": 0.9814814814814815,
+     "lift_vs_base": 0.18148148148148147,
+     "p_harmful_given_accepted": 0.018518518518518517,
+     "p_beneficial_given_rejected": 0.06060606060606061,
+     "p_accepted_given_beneficial": 0.875,
+     "mean_delta_accepted": 1.136679012345679,
+     "mean_delta_rejected": -0.6776464646464646,
+     "spearman_dV_vs_delta": 0.7145953159373416,
+     "share_unresolvable_2se": 0.55
+    },
+    "cpu_gives_star": {
+     "n": 120,
+     "accept_rate": 0.5916666666666667,
+     "base_rate_preserve": 0.675,
+     "p_preserve_given_accepted": 0.9154929577464789,
+     "lift_vs_base": 0.24049295774647883,
+     "p_harmful_given_accepted": 0.08450704225352113,
+     "p_beneficial_given_rejected": 0.02040816326530612,
+     "p_accepted_given_beneficial": 0.9629629629629629,
+     "mean_delta_accepted": 0.6837276995305165,
+     "mean_delta_rejected": -1.9607074829931972,
+     "spearman_dV_vs_delta": 0.6791873626025856,
+     "share_unresolvable_2se": 0.4583333333333333
+    }
+   },
+   "calibration_quintiles": [
+    {
+     "quintile": 1,
+     "n": 96,
+     "mean_dV": -1.2946923665399066,
+     "mean_delta": -1.8413680555555556
+    },
+    {
+     "quintile": 2,
+     "n": 96,
+     "mean_dV": -0.3122903258701135,
+     "mean_delta": -0.4103541666666667
+    },
+    {
+     "quintile": 3,
+     "n": 96,
+     "mean_dV": 0.048920082117159716,
+     "mean_delta": -0.04535416666666666
+    },
+    {
+     "quintile": 4,
+     "n": 96,
+     "mean_dV": 0.5444798489722751,
+     "mean_delta": 0.5043125
+    },
+    {
+     "quintile": 5,
+     "n": 96,
+     "mean_dV": 1.5815422169222426,
+     "mean_delta": 1.8883472222222222
+    }
+   ]
+  },
+  "PRE_REGISTERED_VERDICT_PASS": false
+ }
+}

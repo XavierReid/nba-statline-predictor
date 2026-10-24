@@ -129,3 +129,54 @@ stats, games, attributes, game logs, shot-location and defense coverage, bio and
 consistency across seasons (stable ids, name changes, duplicates, multi-team rows); and agreement with
 production for the overlapping seasons. Any season that is missing or unreliable is excluded or
 flagged here **before** it is used to draw a conclusion.
+
+---
+## Amendment 1 — what the backfill validation showed (made before any fitting)
+
+Source: `validation/ratings/results/backfill_validation.json` and a follow-up comparison of a fresh
+re-derivation (isolated database) against production's stored attributes for overlapping seasons.
+
+**F1. Ingested statistics are reproducible.** For the six seasons that overlap production
+(2013-14, 2016-17, 2019-20, 2020-21, 2024-25, 2025-26) every season-stat row, player set and game count
+matches exactly; shot-location inputs are identical in every checked season; the raw payload store
+verifies (117 payloads, 0 corrupt).
+
+**F2. Observed *attributes* are not a pure function of the stored statistics.** Re-deriving a season
+with the current code reproduces ten attributes **bit-for-bit** (three_point, free_throw, mid_range,
+passing, steal, block, offensive_rebound, defensive_rebound, plus the raw metrics behind them) but not:
+`overall_rating` (differs for ~50% of players), `perimeter_defense` / `interior_defense` (2024-25: mean
+absolute difference ~6 points, up to 38), `close_shot` / `layup` / `dunk` (small), and `clutch_rating`
+(up to 41). Causes found: (a) these ratings read `players.position`, a **mutable current-snapshot
+field**, so a past season's rating depends on today's label (the backfill database has none, production
+has them for active players); (b) tracking-defense inputs for the latest season differ between ingestion
+times (2024-25: ~550 of 569 rows, max 2.4 attempts per game), while older seasons are identical; (c)
+clutch data is not stored with the stats and could not be reconciled. This is direct evidence for the
+versioning requirement: **the stored attribute rows are the only faithful record of what a historical
+simulation used**, so `observed-v1` must point at them and never be re-derived.
+
+**F3. Season windows.** 2019-20 has only 971 games in the schedule table (the bubble restart falls after
+the 15 July season-window cutoff) while its player statistics include them (max 74 GP). 2020-21 has
+1,080 games (72 per team). All other seasons have 1,230 games and 82 games per team.
+
+**F4. Identity.** 1,706 distinct players across 13 seasons; 6 ids carry more than one name (renames)
+and 2 names are shared by more than one id (homonyms); bio data covers 100% of players with stats in
+every season. Ids are stable; names are not a key.
+
+### Changes to this protocol (binding from here on)
+
+1. **Primary targets are the reproducible quantities only:** the eight box-score attributes above, the
+   raw skill metrics, usage/tendencies, and minutes/games played. Decisions (adoption, selection,
+   the 3% rule) are made on these.
+2. **Flagged secondary targets:** `overall_rating`, `perimeter_defense`, `interior_defense`,
+   `close_shot`, `layup`, `dunk`, `clutch_rating`. Reported per category, never used to select or adopt
+   a method, with the reason stated.
+3. **Backtest targets are re-derived uniformly in the isolated database** (one code version, position
+   unknown for every player, recorded as `observed-bf1`), not taken from production's stored mix of code
+   versions. The backtest therefore measures prediction of a consistently defined target; its relation to
+   what production simulations used is documented, not assumed.
+4. **Position is an explicit, dated rating-set input.** Wherever a preseason rating needs a position, it
+   comes from a position input with provenance (the height/weight proxy for backtests; the roster
+   snapshot for live use), never from `players.position`.
+5. **2019-20 is excluded from schedule-based end-to-end tests** (its schedule table is truncated). It
+   remains a player-level development target (its statistics are complete). 2020-21 stays, flagged.
+6. The locked test set (2022-23 .. 2025-26) is unchanged.

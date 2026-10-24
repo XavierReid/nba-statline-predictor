@@ -1,0 +1,448 @@
+{
+ "seasons": {
+  "2013-14": {
+   "pss_rows": 482,
+   "pss_players": 482,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 482,
+   "tendencies": 482,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2014-04-16",
+   "game_logs": 25618,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.996",
+   "rated_players_passing_gate": 302,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 482,
+   "draft_raw_rows": 60
+  },
+  "2014-15": {
+   "pss_rows": 492,
+   "pss_players": 492,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 492,
+   "tendencies": 492,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2015-04-15",
+   "game_logs": 25981,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.996",
+   "rated_players_passing_gate": 329,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 492,
+   "draft_raw_rows": 60
+  },
+  "2015-16": {
+   "pss_rows": 476,
+   "pss_players": 476,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 476,
+   "tendencies": 476,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2016-04-13",
+   "game_logs": 26078,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.994",
+   "rated_players_passing_gate": 306,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 476,
+   "draft_raw_rows": 60
+  },
+  "2016-17": {
+   "pss_rows": 486,
+   "pss_players": 486,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 486,
+   "tendencies": 486,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2017-04-12",
+   "game_logs": 26139,
+   "shot_location_coverage": "0.998",
+   "defense_coverage": "0.996",
+   "rated_players_passing_gate": 320,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 486,
+   "draft_raw_rows": 60
+  },
+  "2017-18": {
+   "pss_rows": 540,
+   "pss_players": 540,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 540,
+   "tendencies": 540,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2018-04-11",
+   "game_logs": 26107,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.991",
+   "rated_players_passing_gate": 320,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 540,
+   "draft_raw_rows": 60
+  },
+  "2018-19": {
+   "pss_rows": 530,
+   "pss_players": 530,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 530,
+   "tendencies": 530,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2019-04-10",
+   "game_logs": 26101,
+   "shot_location_coverage": "0.996",
+   "defense_coverage": "0.987",
+   "rated_players_passing_gate": 323,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 530,
+   "draft_raw_rows": 60
+  },
+  "2019-20": {
+   "pss_rows": 529,
+   "pss_players": 529,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 529,
+   "tendencies": 529,
+   "team_season_stats": 30,
+   "games_final": 971,
+   "games_all": 971,
+   "games_last_date": "2020-03-11",
+   "game_logs": 20501,
+   "shot_location_coverage": "0.998",
+   "defense_coverage": "0.996",
+   "rated_players_passing_gate": 320,
+   "teams_with_>=82_final_games": 0,
+   "bio_raw_rows": 529,
+   "draft_raw_rows": 60
+  },
+  "2020-21": {
+   "pss_rows": 540,
+   "pss_players": 540,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 540,
+   "tendencies": 540,
+   "team_season_stats": 30,
+   "games_final": 1080,
+   "games_all": 1080,
+   "games_last_date": "2021-05-16",
+   "game_logs": 23054,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.994",
+   "rated_players_passing_gate": 345,
+   "teams_with_>=82_final_games": 0,
+   "bio_raw_rows": 540,
+   "draft_raw_rows": 60
+  },
+  "2021-22": {
+   "pss_rows": 605,
+   "pss_players": 605,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 605,
+   "tendencies": 605,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2022-04-10",
+   "game_logs": 26039,
+   "shot_location_coverage": "0.997",
+   "defense_coverage": "0.983",
+   "rated_players_passing_gate": 343,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 605,
+   "draft_raw_rows": 60
+  },
+  "2022-23": {
+   "pss_rows": 539,
+   "pss_players": 539,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 539,
+   "tendencies": 539,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2023-04-09",
+   "game_logs": 25894,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.991",
+   "rated_players_passing_gate": 323,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 539,
+   "draft_raw_rows": 58
+  },
+  "2023-24": {
+   "pss_rows": 572,
+   "pss_players": 572,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 572,
+   "tendencies": 572,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2024-04-14",
+   "game_logs": 26401,
+   "shot_location_coverage": "0.997",
+   "defense_coverage": "0.995",
+   "rated_players_passing_gate": 316,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 572,
+   "draft_raw_rows": 58
+  },
+  "2024-25": {
+   "pss_rows": 569,
+   "pss_players": 569,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 569,
+   "tendencies": 569,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2025-04-13",
+   "game_logs": 26306,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.998",
+   "rated_players_passing_gate": 340,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 569,
+   "draft_raw_rows": 58
+  },
+  "2025-26": {
+   "pss_rows": 582,
+   "pss_players": 582,
+   "pss_teams": 30,
+   "pss_tot_or_null_team_rows": 0,
+   "attributes": 582,
+   "tendencies": 582,
+   "team_season_stats": 30,
+   "games_final": 1230,
+   "games_all": 1230,
+   "games_last_date": "2026-04-12",
+   "game_logs": 26651,
+   "shot_location_coverage": "1.000",
+   "defense_coverage": "0.997",
+   "rated_players_passing_gate": 350,
+   "teams_with_>=82_final_games": 30,
+   "bio_raw_rows": 582,
+   "draft_raw_rows": 59
+  }
+ },
+ "identity": {
+  "players_total": 1706,
+  "ids_with_multiple_names": 6,
+  "multi_name_examples": {
+   "202685": [
+    "Jonas Valanciunas",
+    "Jonas Valan\u010di\u016bnas"
+   ],
+   "1626171": [
+    "Bobby Portis",
+    "Bobby Portis Jr."
+   ],
+   "1628427": [
+    "Vlatko Cancar",
+    "Vlatko \u010can\u010dar"
+   ],
+   "1630527": [
+    "Brandon Boston",
+    "Brandon Boston Jr."
+   ],
+   "1631311": [
+    "Lester Quinones",
+    "Lester Qui\u00f1ones"
+   ]
+  },
+  "names_shared_by_multiple_ids": 2,
+  "dup_name_examples": {
+   "Mike James": [
+    2229,
+    1628455
+   ],
+   "Tony Mitchell": [
+    203183,
+    203502
+   ]
+  },
+  "continuity": {
+   "2013-14": {
+    "n": 482,
+    "carried_from_prev": null,
+    "new": null
+   },
+   "2014-15": {
+    "n": 492,
+    "carried_from_prev": 395,
+    "new": 97
+   },
+   "2015-16": {
+    "n": 476,
+    "carried_from_prev": 396,
+    "new": 80
+   },
+   "2016-17": {
+    "n": 486,
+    "carried_from_prev": 386,
+    "new": 100
+   },
+   "2017-18": {
+    "n": 540,
+    "carried_from_prev": 392,
+    "new": 148
+   },
+   "2018-19": {
+    "n": 530,
+    "carried_from_prev": 412,
+    "new": 118
+   },
+   "2019-20": {
+    "n": 529,
+    "carried_from_prev": 400,
+    "new": 129
+   },
+   "2020-21": {
+    "n": 540,
+    "carried_from_prev": 435,
+    "new": 105
+   },
+   "2021-22": {
+    "n": 605,
+    "carried_from_prev": 450,
+    "new": 155
+   },
+   "2022-23": {
+    "n": 539,
+    "carried_from_prev": 433,
+    "new": 106
+   },
+   "2023-24": {
+    "n": 572,
+    "carried_from_prev": 450,
+    "new": 122
+   },
+   "2024-25": {
+    "n": 569,
+    "carried_from_prev": 447,
+    "new": 122
+   },
+   "2025-26": {
+    "n": 582,
+    "carried_from_prev": 464,
+    "new": 118
+   }
+  },
+  "bio_covers_share_of_stats_players": {
+   "2013-14": 1.0,
+   "2014-15": 1.0,
+   "2015-16": 1.0,
+   "2016-17": 1.0,
+   "2017-18": 1.0,
+   "2018-19": 1.0,
+   "2019-20": 1.0,
+   "2020-21": 1.0,
+   "2021-22": 1.0,
+   "2022-23": 1.0,
+   "2023-24": 1.0,
+   "2024-25": 1.0,
+   "2025-26": 1.0
+  }
+ },
+ "overlap_vs_production": {
+  "2013-14": {
+   "stat_rows_backfill": 482,
+   "stat_rows_production": 482,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 482,
+   "attribute_rows_identical": 232,
+   "final_games_backfill": 1230,
+   "final_games_production": 1230
+  },
+  "2016-17": {
+   "stat_rows_backfill": 486,
+   "stat_rows_production": 486,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 486,
+   "attribute_rows_identical": 210,
+   "final_games_backfill": 1230,
+   "final_games_production": 1230
+  },
+  "2019-20": {
+   "stat_rows_backfill": 529,
+   "stat_rows_production": 529,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 529,
+   "attribute_rows_identical": 255,
+   "final_games_backfill": 971,
+   "final_games_production": 971
+  },
+  "2020-21": {
+   "stat_rows_backfill": 540,
+   "stat_rows_production": 540,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 540,
+   "attribute_rows_identical": 244,
+   "final_games_backfill": 1080,
+   "final_games_production": 1080
+  },
+  "2024-25": {
+   "stat_rows_backfill": 569,
+   "stat_rows_production": 569,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 569,
+   "attribute_rows_identical": 268,
+   "final_games_backfill": 1230,
+   "final_games_production": 1230
+  },
+  "2025-26": {
+   "stat_rows_backfill": 582,
+   "stat_rows_production": 582,
+   "only_in_backfill": 0,
+   "only_in_production": 0,
+   "rows_with_any_key_stat_difference": 0,
+   "max_abs_diff_by_column": {},
+   "attribute_rows_compared": 582,
+   "attribute_rows_identical": 306,
+   "final_games_backfill": 1230,
+   "final_games_production": 1230
+  }
+ },
+ "raw_store": {
+  "checked": 117,
+  "bad": []
+ }
+}

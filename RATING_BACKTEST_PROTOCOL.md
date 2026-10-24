@@ -180,3 +180,178 @@ every season. Ids are stable; names are not a key.
 5. **2019-20 is excluded from schedule-based end-to-end tests** (its schedule table is truncated). It
    remains a player-level development target (its statistics are complete). 2020-21 stays, flagged.
 6. The locked test set (2022-23 .. 2025-26) is unchanged.
+
+---
+## Amendment 2 — evaluation contract (Xavier's review, 2026-10-23; before any fitting)
+
+*Supersedes the uncertainty wording in Section 7 and adds the end-to-end, minutes, availability,
+as-of and gate definitions. Nothing has been fitted.*
+
+### A2.1 Statistical dependence, and what four locked seasons can support
+
+Player-season rows are **not** independent. Three dependence structures are handled explicitly:
+repeated observations of one player (across seasons), shared roster/system within a team-season, and
+common shocks within a season. For every comparison "method M vs baseline B" the statistic is the
+**paired relative reduction in mean absolute error** (same player-seasons under both methods), and three
+interval estimates are reported:
+
+| id | resamples | captures |
+|---|---|---|
+| E1 | **players** (all of a player's seasons together), 2000 draws | repeated measures of the same player |
+| E2 | **(season, team) units**, 2000 draws | shared roster and system effects |
+| E3 | the **per-season** relative reductions: mean +/- t(df = n_seasons - 1) interval (3 d.f. on the 4 locked seasons, t = 3.18; 7 d.f. on the 8 development seasons, t = 2.36) | common season effects |
+
+The **primary interval is the widest of E1, E2, E3.** Row counts never feed the interval directly.
+The per-season table is always printed (every season's own reduction), and **leave-one-season-out**
+ranges are reported.
+
+**Stated limitation.** Four locked seasons give 3 d.f. for the season-level component, so a modest true
+improvement cannot be resolved there. Before the locked set is opened, the minimum detectable effect
+(MDE) for 4 seasons is computed from the development seasons' between-season spread and published. If
+the MDE exceeds the 3% threshold, the statement is simply that the locked set cannot support adoption of
+a small effect, and **the simpler baseline ships.** No interval is narrowed by counting correlated rows
+as independent samples.
+
+**Adoption requires all of:** (i) pooled relative reduction >= 3%; (ii) the primary (widest) interval
+excludes zero; (iii) the reduction is positive in >= 3 of the 4 locked seasons (and >= 6 of 8 development
+seasons, as development evidence); (iv) the category rule in A2.7. The locked set is the confirmation;
+the 8 development seasons (rolling origin) are reported alongside as the larger but selection-exposed
+sample, and are labelled as such.
+
+### A2.2 Rating accuracy is separate from simulation accuracy
+
+Predicting the pipeline's own attributes does not show realistic simulations. They are judged by
+**separate criteria** (A2.7, groups B and D). End-to-end evaluation uses **matched seeds and the real
+schedule** of season T (2019-20 excluded: truncated schedule table) and four arms:
+
+* **D** flat-default ratings: the roster and projected minutes of arm P, with every skill rating at the
+  pipeline's flat default (what the unmodified gate produces at season start);
+* **P** the frozen preseason model;
+* **O_r** observed season-T ratings with arm P's roster and projected minutes (isolates the *ratings*);
+* **O** observed season-T ratings and observed stat lines (today's historical pipeline).
+
+Metrics, per season and pooled, over N = 10 matched league runs: standings Spearman rho against the real
+standings, win-total spread (share of the real spread retained), head-to-head of the real best vs worst
+team (100 games), and player production (simulated vs real PPG/RPG/APG/MPG for the top-80 players by
+real minutes: MAE and rank correlation; star MPG). The remaining gap is quantified as
+(P - D) / (O_r - D) and (P - D) / (O - D) with interval from the run seeds.
+**O and O_r use season-T outcomes. They are look-ahead comparisons, not deployable forecasts, and not a
+guaranteed ceiling:** P could beat them on a metric (observed ratings carry that season's noise, and the
+engine has its own errors). They are reference points only.
+
+### A2.3 Minutes and roster reconstruction
+
+The 240-minute normalisation is a construction, not a validation. Reported for every season: player-level
+projected vs actual MPG (MAE for players with >= 10 games, bias by role/rank, rank correlation); team-level
+rotation shape (top-5/top-8 minute share vs actual); **extremes** (any projected MPG above 40 or below 0;
+share of players projected >= 15 MPG who actually played < 5; players who played >= 20 MPG but were
+projected < 10); and reconstruction quality.
+
+**Reconstruction.** Historical preseason rosters were never captured; the proxy is a player's team in his
+first appearance in season T (from game logs). Two variants are reported: **R-early** (first appearance
+within the team's first 10 games; the primary variant) and **R-all**. Diagnostics, per season: share of
+the reconstructed roster who are late arrivals (first appearance after game 10) and their minute share;
+**minutes played by players not on R-early** (unprojectable minutes, as a share of team minutes); and the
+fact that **players who were on the real preseason roster but never played are invisible** (the game logs
+list only players who appeared), so rosters are systematically missing deep-bench and injured players.
+These limitations are printed next to every V5 and end-to-end result and are never described as roster
+accuracy.
+
+### A2.4 Availability: a separate, minimal baseline
+
+Availability (probability and share of games played) is **in scope at the smallest validatable level** and
+is never inferred from expected minutes. Expected minutes per team game decompose as
+`P(plays) x MPG when playing`; each factor and the product are evaluated separately.
+
+* **A0** last season's games-played share (clipped to [0.05, 1]); league mean for players with no prior
+  season. No fitted constants.
+* **A1** A0 shrunk toward an (experience band) mean with a data-estimated weight.
+Targets: realised games-played share (MAE), calibration (decile reliability of predicted vs realised
+share), and Brier score for "plays >= 50% of team games". Injury timing, load management and in-season
+updates are out of scope. A1 is adopted only under the A2.1 rule; otherwise A0 ships.
+
+### A2.5 As-of correctness: when a fact was true vs when it was knowable
+
+Every input declares `data_through` (the date its content describes) **and** `knowable_from` (the earliest
+date the system could have had it), plus a fidelity class: **exact**, **retrospective proxy**, or
+**revision risk**. The leak rule is `knowable_from <= information_cutoff` (cutoff = the day before the
+first game of T). Input registry:
+
+| input | true time | knowable from | fidelity | note and sensitivity run |
+|---|---|---|---|---|
+| season-(T-1) box-score stats | last game of T-1 | day after it | exact | none |
+| season-(T-1) tracking defense, shot location | same | same | **revision risk** | latest-season values were revised after the fact (R-F2); sensitivity: box-score-only features |
+| season-(T-1) team stats | same | same | exact (low revision risk) | none |
+| birth date, draft year/round/pick | birth / draft night | draft night | exact (fetched retrospectively, immutable) | none |
+| height, weight | listing at season (T-1) | that preseason | **retrospective proxy** (fetched now for that season) | sensitivity: drop size features |
+| position | n/a | n/a | **forbidden**; size-derived proxy only | `players.position` is a current-snapshot field |
+| preseason roster membership | preseason | first-game date | **retrospective proxy** (first appearance, A2.3) | sensitivity: R-early vs R-all |
+| player id mapping | n/a | n/a | retrospective, stable (identity audit) | none |
+| transactions, injuries, depth charts | various | not captured | **not used** | cannot be backtested |
+
+The report lists, for every result, which non-exact input classes it depends on, and the sensitivity runs
+show how much changes without them. The metamorphic canary (A2.6) guarantees no season-T-or-later *data*
+is used; this registry covers what the canary cannot: whether the information used was knowable *then*.
+
+### A2.6 Production compatibility
+
+`observed-bf1` (the backtest target) is re-derived uniformly in the isolated database with one code version
+and position unknown for every player. It differs from the attributes production actually stored, as
+measured in `validation/ratings/results/observed_bf1_vs_production.json`: eight box-score attributes are
+identical; `overall_rating`, `perimeter_defense`, `interior_defense`, `close_shot`, `layup`, `dunk` and
+`clutch_rating` differ (R-F2). **No legacy data is overwritten or "cleaned" for the backtest:** production
+rows are untouched, historical run inputs remain reproducible from them (`observed-v1` points at the
+stored rows), and the backtest never writes to the production database. Backtest conclusions concern the
+consistent target; they are not claims about the stored historical ratings.
+
+### A2.7 Consolidated acceptance gates (HARD = blocks adoption/shipping; DIAG = reported, never selects)
+
+**A. Leakage and reproducibility**
+| gate | kind |
+|---|---|
+| A1 metamorphic canary: predictions bit-identical when all data of season >= T is replaced by garbage, for every target | HARD |
+| A2 as-of reader raises on any read of season >= T or of a forbidden input; negative tests (deliberately leaky predictors) are caught | HARD |
+| A3 input manifest audit: every input's `knowable_from` <= cutoff; no observed set of season >= T used | HARD |
+| A4 production data unchanged by backtest work (row hashes before/after) | HARD |
+| A5 raw-store integrity (hashes verify); the run reproducible from the manifest | HARD |
+| A6 proxy sensitivity runs executed and reported (A2.5) | DIAG |
+
+**B. Player-level rating and raw-metric prediction (primary targets: eight box-score attributes, raw skill
+metrics, usage/tendencies)**
+| gate | kind |
+|---|---|
+| B1 adoption: pooled MAE reduction >= 3% vs the baseline in the family, primary interval excludes 0, >= 3 of 4 locked seasons positive (A2.1) | HARD |
+| B2 category rule: no **critical category** (V1, Y1, R-A, R-B, L; each with >= 50 player-seasons) is worse than the baseline by more than 2% (point estimate); if one is, the method is **not adopted for that category** and the regression is shown beside the aggregate | HARD |
+| B3 secondary targets (overall, defense, close shot/layup/dunk, clutch) | DIAG |
+| B4 results for all categories and per season, including where the method loses | DIAG |
+
+**C. Minutes and availability**
+| gate | kind |
+|---|---|
+| C1 team minutes sum to 240 +/- 1 and no projected MPG < 0 or > 40 | HARD |
+| C2 V5 minutes adopted only under B1/B2-style rule for MPG MAE; availability A1 only if it beats A0 under the same rule | HARD |
+| C3 minutes plausibility report (extremes, false starters, missed rotation, unprojectable minutes, late arrivals, unobservable players) | DIAG, must accompany any result |
+| C4 availability calibration (decile reliability, Brier) | DIAG |
+
+**D. End-to-end simulation**
+| gate | kind |
+|---|---|
+| D1 P beats D on standings rho with matched seeds, pooled and in >= 3 of 4 locked seasons | HARD |
+| D2 P is not materially worse than D on standings spread, head-to-head or player-production error (point estimate worse by > 5% => flagged and blocks) | HARD |
+| D3 gap to O_r and O (fraction of the D-to-O gap closed), spread/H2H/player-production vs O | DIAG (look-ahead reference) |
+
+**E. Uncertainty calibration and category regressions**
+| gate | kind |
+|---|---|
+| E1 if intervals are published, empirical coverage of the stated 50% and 80% intervals within +/-10 percentage points, pooled | HARD (if published) |
+| E2 coverage per category, and any category whose regression B2 triggered | DIAG, shown beside aggregates |
+
+If a method improves the aggregate but fails B2, C or D2, the report leads with the failing item. The
+aggregate is never allowed to hide it.
+
+### A2.8 Freeze checklist (the locked set stays closed until every item is done)
+
+1. As-of reader, canary and negative tests pass (A1-A3). 2. Coverage and reconstruction diagnostics for
+all targets are reported (this amendment's data checks). 3. Development fitting and the MDE for 4 seasons
+are complete. 4. Method identifiers, fitted constants and their hashes are committed. 5. Only then is the
+locked set evaluated, once.

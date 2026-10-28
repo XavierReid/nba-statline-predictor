@@ -1,0 +1,137 @@
+{
+ "all_pass": true,
+ "results": {
+  "2014-15": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 482,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "15a3cff0c1d7c058351967cc2ef9631c448b1be3c4bf7fac96a26faaab8ebf20",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2015-16": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 492,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "87712ea26e2ce5153c691f2322976088b624f36c9bda6aa8a1aee6cabb89f288",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2016-17": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 476,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "391b3563a9b0281cf3a990bfd3645968f44e9a883b2368a45002403e61c82a7b",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2017-18": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 486,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "535f935bffe6c991b08492a64a016dbb2a0271dfcd5ca00578c01a971b09b584",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2018-19": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 540,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "e84ab5efa914ae6aa54a6355e0d67122276425853c17e0bf9881e1214b51c32e",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2019-20": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 530,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "59b7c98ded3a40b48d5bf1cab1d81fb953a2106968414b0a99e5e2b5be77c2db",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2020-21": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 529,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "120be0eebc12aa332015dcae2a955feb8d51f5fc6e4c847b10d8e4b6e3d9e277",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2021-22": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 540,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "e03991f2cd4fe0f4f9125a516857a299f3838a61fca6c2bf45025c77c3b9688c",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2022-23": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 605,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "5731572e49c02d5d71e52bea5f23aaea6b546753d713136c201ee99698fd901a",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2023-24": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 539,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "0c78b77b7200836107500a4ebd4be47c10e34102bca667d0a6a0a525a23bfa0f",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2024-25": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 572,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "b53a7bd7b97882cdd85b7b9aa3a8cd1acd8f717db2570064e94534fef62118fa",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  },
+  "2025-26": {
+   "canary_identical": true,
+   "error": null,
+   "players_predicted": 569,
+   "manifest_audit_violations": [],
+   "guard_blocks_target": true,
+   "manifest_sha256": "9b8b5c706069a703a74fd32467a5112a03c05fa4fe6dee2b4c808ad361baec01",
+   "non_exact_classes": [
+    "revision_risk"
+   ]
+  }
+ }
+}

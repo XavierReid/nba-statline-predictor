@@ -1,0 +1,808 @@
+{
+ "categories": {
+  "2014-15": {
+   "V1": {
+    "all": 132,
+    "gated": 105
+   },
+   "V2": {
+    "all": 117,
+    "gated": 88
+   },
+   "V3": {
+    "all": 125,
+    "gated": 77
+   },
+   "V4": {
+    "all": 0,
+    "gated": 0
+   },
+   "Y1": {
+    "all": 102,
+    "gated": 62
+   },
+   "Y2": {
+    "all": 67,
+    "gated": 50
+   },
+   "R-A": {
+    "all": 12,
+    "gated": 9
+   },
+   "R-B": {
+    "all": 14,
+    "gated": 6
+   },
+   "R-C": {
+    "all": 18,
+    "gated": 5
+   },
+   "R-D": {
+    "all": 30,
+    "gated": 7
+   },
+   "L": {
+    "all": 170,
+    "gated": 64
+   }
+  },
+  "2015-16": {
+   "V1": {
+    "all": 121,
+    "gated": 101
+   },
+   "V2": {
+    "all": 128,
+    "gated": 92
+   },
+   "V3": {
+    "all": 121,
+    "gated": 70
+   },
+   "V4": {
+    "all": 18,
+    "gated": 8
+   },
+   "Y1": {
+    "all": 63,
+    "gated": 27
+   },
+   "Y2": {
+    "all": 65,
+    "gated": 49
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 13
+   },
+   "R-B": {
+    "all": 15,
+    "gated": 6
+   },
+   "R-C": {
+    "all": 12,
+    "gated": 3
+   },
+   "R-D": {
+    "all": 18,
+    "gated": 1
+   },
+   "L": {
+    "all": 139,
+    "gated": 39
+   }
+  },
+  "2016-17": {
+   "V1": {
+    "all": 124,
+    "gated": 102
+   },
+   "V2": {
+    "all": 123,
+    "gated": 86
+   },
+   "V3": {
+    "all": 132,
+    "gated": 78
+   },
+   "V4": {
+    "all": 16,
+    "gated": 11
+   },
+   "Y1": {
+    "all": 53,
+    "gated": 29
+   },
+   "Y2": {
+    "all": 66,
+    "gated": 47
+   },
+   "R-A": {
+    "all": 13,
+    "gated": 10
+   },
+   "R-B": {
+    "all": 13,
+    "gated": 4
+   },
+   "R-C": {
+    "all": 23,
+    "gated": 6
+   },
+   "R-D": {
+    "all": 30,
+    "gated": 8
+   },
+   "L": {
+    "all": 163,
+    "gated": 55
+   }
+  },
+  "2017-18": {
+   "V1": {
+    "all": 131,
+    "gated": 110
+   },
+   "V2": {
+    "all": 110,
+    "gated": 76
+   },
+   "V3": {
+    "all": 124,
+    "gated": 79
+   },
+   "V4": {
+    "all": 14,
+    "gated": 7
+   },
+   "Y1": {
+    "all": 78,
+    "gated": 38
+   },
+   "Y2": {
+    "all": 74,
+    "gated": 53
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 12
+   },
+   "R-B": {
+    "all": 14,
+    "gated": 6
+   },
+   "R-C": {
+    "all": 25,
+    "gated": 7
+   },
+   "R-D": {
+    "all": 48,
+    "gated": 9
+   },
+   "L": {
+    "all": 217,
+    "gated": 63
+   }
+  },
+  "2018-19": {
+   "V1": {
+    "all": 130,
+    "gated": 112
+   },
+   "V2": {
+    "all": 119,
+    "gated": 82
+   },
+   "V3": {
+    "all": 121,
+    "gated": 63
+   },
+   "V4": {
+    "all": 22,
+    "gated": 17
+   },
+   "Y1": {
+    "all": 80,
+    "gated": 37
+   },
+   "Y2": {
+    "all": 75,
+    "gated": 52
+   },
+   "R-A": {
+    "all": 13,
+    "gated": 12
+   },
+   "R-B": {
+    "all": 16,
+    "gated": 6
+   },
+   "R-C": {
+    "all": 35,
+    "gated": 8
+   },
+   "R-D": {
+    "all": 30,
+    "gated": 2
+   },
+   "L": {
+    "all": 205,
+    "gated": 66
+   }
+  },
+  "2019-20": {
+   "V1": {
+    "all": 127,
+    "gated": 104
+   },
+   "V2": {
+    "all": 103,
+    "gated": 77
+   },
+   "V3": {
+    "all": 145,
+    "gated": 102
+   },
+   "V4": {
+    "all": 14,
+    "gated": 9
+   },
+   "Y1": {
+    "all": 70,
+    "gated": 39
+   },
+   "Y2": {
+    "all": 90,
+    "gated": 56
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 13
+   },
+   "R-B": {
+    "all": 14,
+    "gated": 7
+   },
+   "R-C": {
+    "all": 29,
+    "gated": 2
+   },
+   "R-D": {
+    "all": 53,
+    "gated": 8
+   },
+   "L": {
+    "all": 208,
+    "gated": 62
+   }
+  },
+  "2020-21": {
+   "V1": {
+    "all": 139,
+    "gated": 112
+   },
+   "V2": {
+    "all": 100,
+    "gated": 85
+   },
+   "V3": {
+    "all": 134,
+    "gated": 81
+   },
+   "V4": {
+    "all": 25,
+    "gated": 17
+   },
+   "Y1": {
+    "all": 100,
+    "gated": 45
+   },
+   "Y2": {
+    "all": 84,
+    "gated": 57
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 10
+   },
+   "R-B": {
+    "all": 15,
+    "gated": 11
+   },
+   "R-C": {
+    "all": 26,
+    "gated": 4
+   },
+   "R-D": {
+    "all": 30,
+    "gated": 6
+   },
+   "L": {
+    "all": 220,
+    "gated": 72
+   }
+  },
+  "2021-22": {
+   "V1": {
+    "all": 134,
+    "gated": 100
+   },
+   "V2": {
+    "all": 116,
+    "gated": 94
+   },
+   "V3": {
+    "all": 161,
+    "gated": 78
+   },
+   "V4": {
+    "all": 16,
+    "gated": 11
+   },
+   "Y1": {
+    "all": 72,
+    "gated": 32
+   },
+   "Y2": {
+    "all": 109,
+    "gated": 69
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 12
+   },
+   "R-B": {
+    "all": 16,
+    "gated": 9
+   },
+   "R-C": {
+    "all": 23,
+    "gated": 5
+   },
+   "R-D": {
+    "all": 64,
+    "gated": 10
+   },
+   "L": {
+    "all": 261,
+    "gated": 60
+   }
+  },
+  "2022-23": {
+   "V1": {
+    "all": 129,
+    "gated": 103
+   },
+   "V2": {
+    "all": 117,
+    "gated": 81
+   },
+   "V3": {
+    "all": 118,
+    "gated": 53
+   },
+   "V4": {
+    "all": 21,
+    "gated": 11
+   },
+   "Y1": {
+    "all": 81,
+    "gated": 35
+   },
+   "Y2": {
+    "all": 96,
+    "gated": 71
+   },
+   "R-A": {
+    "all": 13,
+    "gated": 12
+   },
+   "R-B": {
+    "all": 16,
+    "gated": 8
+   },
+   "R-C": {
+    "all": 18,
+    "gated": 4
+   },
+   "R-D": {
+    "all": 36,
+    "gated": 0
+   },
+   "L": {
+    "all": 201,
+    "gated": 57
+   }
+  },
+  "2023-24": {
+   "V1": {
+    "all": 147,
+    "gated": 110
+   },
+   "V2": {
+    "all": 117,
+    "gated": 84
+   },
+   "V3": {
+    "all": 137,
+    "gated": 53
+   },
+   "V4": {
+    "all": 21,
+    "gated": 9
+   },
+   "Y1": {
+    "all": 73,
+    "gated": 29
+   },
+   "Y2": {
+    "all": 103,
+    "gated": 59
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 12
+   },
+   "R-B": {
+    "all": 16,
+    "gated": 8
+   },
+   "R-C": {
+    "all": 24,
+    "gated": 5
+   },
+   "R-D": {
+    "all": 40,
+    "gated": 3
+   },
+   "L": {
+    "all": 233,
+    "gated": 56
+   }
+  },
+  "2024-25": {
+   "V1": {
+    "all": 151,
+    "gated": 119
+   },
+   "V2": {
+    "all": 106,
+    "gated": 81
+   },
+   "V3": {
+    "all": 115,
+    "gated": 61
+   },
+   "V4": {
+    "all": 15,
+    "gated": 8
+   },
+   "Y1": {
+    "all": 67,
+    "gated": 30
+   },
+   "Y2": {
+    "all": 104,
+    "gated": 68
+   },
+   "R-A": {
+    "all": 13,
+    "gated": 10
+   },
+   "R-B": {
+    "all": 15,
+    "gated": 10
+   },
+   "R-C": {
+    "all": 25,
+    "gated": 10
+   },
+   "R-D": {
+    "all": 48,
+    "gated": 3
+   },
+   "L": {
+    "all": 231,
+    "gated": 67
+   }
+  },
+  "2025-26": {
+   "V1": {
+    "all": 151,
+    "gated": 124
+   },
+   "V2": {
+    "all": 114,
+    "gated": 81
+   },
+   "V3": {
+    "all": 140,
+    "gated": 64
+   },
+   "V4": {
+    "all": 22,
+    "gated": 14
+   },
+   "Y1": {
+    "all": 80,
+    "gated": 38
+   },
+   "Y2": {
+    "all": 101,
+    "gated": 70
+   },
+   "R-A": {
+    "all": 14,
+    "gated": 11
+   },
+   "R-B": {
+    "all": 15,
+    "gated": 8
+   },
+   "R-C": {
+    "all": 26,
+    "gated": 10
+   },
+   "R-D": {
+    "all": 46,
+    "gated": 4
+   },
+   "L": {
+    "all": 235,
+    "gated": 81
+   }
+  }
+ },
+ "reconstruction": {
+  "2014-15": {
+   "players_with_logs": 492,
+   "late_arrivals": 82,
+   "late_arrival_share": 0.16666666666666666,
+   "late_arrival_minute_share": 0.05264156806100254,
+   "unprojectable_minute_share_R_early": 0.05264156806100254,
+   "top10_minute_players_missing_from_R_early": 12,
+   "R_early_roster_size_min_mean_max": [
+    11,
+    13.666666666666666,
+    15
+   ]
+  },
+  "2015-16": {
+   "players_with_logs": 476,
+   "late_arrivals": 60,
+   "late_arrival_share": 0.12605042016806722,
+   "late_arrival_minute_share": 0.031070004151407024,
+   "unprojectable_minute_share_R_early": 0.031070004151407024,
+   "top10_minute_players_missing_from_R_early": 6,
+   "R_early_roster_size_min_mean_max": [
+    12,
+    13.866666666666667,
+    15
+   ]
+  },
+  "2016-17": {
+   "players_with_logs": 486,
+   "late_arrivals": 67,
+   "late_arrival_share": 0.13786008230452676,
+   "late_arrival_minute_share": 0.04088236481304576,
+   "unprojectable_minute_share_R_early": 0.04088236481304576,
+   "top10_minute_players_missing_from_R_early": 8,
+   "R_early_roster_size_min_mean_max": [
+    12,
+    13.966666666666667,
+    16
+   ]
+  },
+  "2017-18": {
+   "players_with_logs": 540,
+   "late_arrivals": 113,
+   "late_arrival_share": 0.20925925925925926,
+   "late_arrival_minute_share": 0.04529997979934011,
+   "unprojectable_minute_share_R_early": 0.04529997979934011,
+   "top10_minute_players_missing_from_R_early": 9,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    14.233333333333333,
+    16
+   ]
+  },
+  "2018-19": {
+   "players_with_logs": 530,
+   "late_arrivals": 102,
+   "late_arrival_share": 0.19245283018867926,
+   "late_arrival_minute_share": 0.04673683077533695,
+   "unprojectable_minute_share_R_early": 0.04673683077533695,
+   "top10_minute_players_missing_from_R_early": 9,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    14.266666666666667,
+    16
+   ]
+  },
+  "2019-20": {
+   "players_with_logs": 514,
+   "late_arrivals": 88,
+   "late_arrival_share": 0.17120622568093385,
+   "late_arrival_minute_share": 0.03827386365814645,
+   "unprojectable_minute_share_R_early": 0.03827386365814645,
+   "top10_minute_players_missing_from_R_early": 7,
+   "R_early_roster_size_min_mean_max": [
+    12,
+    14.2,
+    16
+   ]
+  },
+  "2020-21": {
+   "players_with_logs": 540,
+   "late_arrivals": 82,
+   "late_arrival_share": 0.15185185185185185,
+   "late_arrival_minute_share": 0.03648388302613796,
+   "unprojectable_minute_share_R_early": 0.03648388302613796,
+   "top10_minute_players_missing_from_R_early": 8,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    15.266666666666667,
+    17
+   ]
+  },
+  "2021-22": {
+   "players_with_logs": 605,
+   "late_arrivals": 162,
+   "late_arrival_share": 0.26776859504132233,
+   "late_arrival_minute_share": 0.06879080207384407,
+   "unprojectable_minute_share_R_early": 0.06879080207384407,
+   "top10_minute_players_missing_from_R_early": 12,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    14.766666666666667,
+    17
+   ]
+  },
+  "2022-23": {
+   "players_with_logs": 539,
+   "late_arrivals": 91,
+   "late_arrival_share": 0.16883116883116883,
+   "late_arrival_minute_share": 0.05231980721628175,
+   "unprojectable_minute_share_R_early": 0.05231980721628175,
+   "top10_minute_players_missing_from_R_early": 13,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    14.933333333333334,
+    18
+   ]
+  },
+  "2023-24": {
+   "players_with_logs": 572,
+   "late_arrivals": 109,
+   "late_arrival_share": 0.19055944055944055,
+   "late_arrival_minute_share": 0.04130575350585319,
+   "unprojectable_minute_share_R_early": 0.04130575350585319,
+   "top10_minute_players_missing_from_R_early": 6,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    15.433333333333334,
+    18
+   ]
+  },
+  "2024-25": {
+   "players_with_logs": 569,
+   "late_arrivals": 114,
+   "late_arrival_share": 0.20035149384885764,
+   "late_arrival_minute_share": 0.06327028984286845,
+   "unprojectable_minute_share_R_early": 0.06327028984286845,
+   "top10_minute_players_missing_from_R_early": 15,
+   "R_early_roster_size_min_mean_max": [
+    13,
+    15.166666666666666,
+    18
+   ]
+  },
+  "2025-26": {
+   "players_with_logs": 582,
+   "late_arrivals": 128,
+   "late_arrival_share": 0.21993127147766323,
+   "late_arrival_minute_share": 0.06328478574664863,
+   "unprojectable_minute_share_R_early": 0.06328478574664863,
+   "top10_minute_players_missing_from_R_early": 10,
+   "R_early_roster_size_min_mean_max": [
+    12,
+    15.133333333333333,
+    19
+   ]
+  }
+ },
+ "critical_totals": {
+  "dev": {
+   "V1": {
+    "all": 1038,
+    "gated": 846
+   },
+   "V2": {
+    "all": 916,
+    "gated": 680
+   },
+   "V3": {
+    "all": 1063,
+    "gated": 628
+   },
+   "V4": {
+    "all": 125,
+    "gated": 80
+   },
+   "Y1": {
+    "all": 618,
+    "gated": 309
+   },
+   "Y2": {
+    "all": 630,
+    "gated": 433
+   },
+   "R-A": {
+    "all": 108,
+    "gated": 91
+   },
+   "R-B": {
+    "all": 117,
+    "gated": 55
+   },
+   "R-C": {
+    "all": 191,
+    "gated": 40
+   },
+   "R-D": {
+    "all": 303,
+    "gated": 51
+   },
+   "L": {
+    "all": 1583,
+    "gated": 481
+   }
+  },
+  "locked": {
+   "V1": {
+    "all": 578,
+    "gated": 456
+   },
+   "V2": {
+    "all": 454,
+    "gated": 327
+   },
+   "V3": {
+    "all": 510,
+    "gated": 231
+   },
+   "V4": {
+    "all": 79,
+    "gated": 42
+   },
+   "Y1": {
+    "all": 301,
+    "gated": 132
+   },
+   "Y2": {
+    "all": 404,
+    "gated": 268
+   },
+   "R-A": {
+    "all": 54,
+    "gated": 45
+   },
+   "R-B": {
+    "all": 62,
+    "gated": 34
+   },
+   "R-C": {
+    "all": 93,
+    "gated": 29
+   },
+   "R-D": {
+    "all": 170,
+    "gated": 10
+   },
+   "L": {
+    "all": 900,
+    "gated": 261
+   }
+  }
+ }
+}

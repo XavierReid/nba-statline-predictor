@@ -1,0 +1,494 @@
+{
+ "2013-14": {
+  "players_compared": 482,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 250,
+    "mean_abs": 1.1556016597510372,
+    "max_abs": 9
+   },
+   "close_shot": {
+    "differs": 8,
+    "mean_abs": 0.08298755186721991,
+    "max_abs": 5
+   },
+   "layup": {
+    "differs": 8,
+    "mean_abs": 0.08298755186721991,
+    "max_abs": 5
+   },
+   "dunk": {
+    "differs": 19,
+    "mean_abs": 0.17842323651452283,
+    "max_abs": 5
+   },
+   "perimeter_defense": {
+    "differs": 8,
+    "mean_abs": 0.08298755186721991,
+    "max_abs": 5
+   },
+   "interior_defense": {
+    "differs": 12,
+    "mean_abs": 0.24896265560165975,
+    "max_abs": 10
+   },
+   "clutch_rating": {
+    "differs": 112,
+    "mean_abs": 4.995850622406639,
+    "max_abs": 41
+   }
+  }
+ },
+ "2016-17": {
+  "players_compared": 486,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 276,
+    "mean_abs": 1.271604938271605,
+    "max_abs": 8
+   },
+   "close_shot": {
+    "differs": 6,
+    "mean_abs": 0.06172839506172839,
+    "max_abs": 5
+   },
+   "layup": {
+    "differs": 7,
+    "mean_abs": 0.0720164609053498,
+    "max_abs": 5
+   },
+   "dunk": {
+    "differs": 43,
+    "mean_abs": 0.43209876543209874,
+    "max_abs": 5
+   },
+   "perimeter_defense": {
+    "differs": 8,
+    "mean_abs": 0.0823045267489712,
+    "max_abs": 5
+   },
+   "interior_defense": {
+    "differs": 20,
+    "mean_abs": 0.411522633744856,
+    "max_abs": 10
+   },
+   "clutch_rating": {
+    "differs": 104,
+    "mean_abs": 4.598765432098766,
+    "max_abs": 39
+   }
+  }
+ },
+ "2019-20": {
+  "players_compared": 529,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 274,
+    "mean_abs": 1.289224952741021,
+    "max_abs": 7
+   },
+   "close_shot": {
+    "differs": 19,
+    "mean_abs": 0.17958412098298676,
+    "max_abs": 5
+   },
+   "layup": {
+    "differs": 26,
+    "mean_abs": 0.24574669187145556,
+    "max_abs": 5
+   },
+   "dunk": {
+    "differs": 83,
+    "mean_abs": 0.7637051039697542,
+    "max_abs": 6
+   },
+   "perimeter_defense": {
+    "differs": 26,
+    "mean_abs": 0.24574669187145556,
+    "max_abs": 5
+   },
+   "interior_defense": {
+    "differs": 16,
+    "mean_abs": 0.30245746691871456,
+    "max_abs": 10
+   },
+   "clutch_rating": {
+    "differs": 101,
+    "mean_abs": 4.079395085066163,
+    "max_abs": 47
+   }
+  }
+ },
+ "2020-21": {
+  "players_compared": 540,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 296,
+    "mean_abs": 1.385185185185185,
+    "max_abs": 9
+   },
+   "close_shot": {
+    "differs": 21,
+    "mean_abs": 0.19444444444444445,
+    "max_abs": 5
+   },
+   "layup": {
+    "differs": 33,
+    "mean_abs": 0.3055555555555556,
+    "max_abs": 5
+   },
+   "dunk": {
+    "differs": 92,
+    "mean_abs": 0.8351851851851851,
+    "max_abs": 6
+   },
+   "perimeter_defense": {
+    "differs": 29,
+    "mean_abs": 0.26851851851851855,
+    "max_abs": 5
+   },
+   "interior_defense": {
+    "differs": 20,
+    "mean_abs": 0.37037037037037035,
+    "max_abs": 10
+   },
+   "clutch_rating": {
+    "differs": 92,
+    "mean_abs": 3.6481481481481484,
+    "max_abs": 41
+   }
+  }
+ },
+ "2024-25": {
+  "players_compared": 569,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 301,
+    "mean_abs": 1.6520210896309315,
+    "max_abs": 9
+   },
+   "close_shot": {
+    "differs": 91,
+    "mean_abs": 0.7996485061511424,
+    "max_abs": 5
+   },
+   "layup": {
+    "differs": 123,
+    "mean_abs": 1.0808435852372584,
+    "max_abs": 5
+   },
+   "dunk": {
+    "differs": 137,
+    "mean_abs": 1.1564147627416521,
+    "max_abs": 5
+   },
+   "perimeter_defense": {
+    "differs": 447,
+    "mean_abs": 5.896309314586995,
+    "max_abs": 33
+   },
+   "interior_defense": {
+    "differs": 395,
+    "mean_abs": 6.427065026362039,
+    "max_abs": 38
+   },
+   "clutch_rating": {
+    "differs": 101,
+    "mean_abs": 3.7838312829525482,
+    "max_abs": 37
+   }
+  }
+ },
+ "2025-26": {
+  "players_compared": 582,
+  "only_in_backfill": 0,
+  "only_in_production": 0,
+  "attributes": {
+   "three_point": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "free_throw": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "mid_range": {
+    "differs": 64,
+    "mean_abs": 0.19931271477663232,
+    "max_abs": 25
+   },
+   "passing": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "steal": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "block": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "offensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "defensive_rebound": {
+    "differs": 0,
+    "mean_abs": 0.0,
+    "max_abs": 0
+   },
+   "overall_rating": {
+    "differs": 276,
+    "mean_abs": 1.1323024054982818,
+    "max_abs": 8
+   },
+   "close_shot": {
+    "differs": 193,
+    "mean_abs": 1.2646048109965635,
+    "max_abs": 27
+   },
+   "layup": {
+    "differs": 260,
+    "mean_abs": 1.647766323024055,
+    "max_abs": 9
+   },
+   "dunk": {
+    "differs": 196,
+    "mean_abs": 1.4553264604810996,
+    "max_abs": 9
+   },
+   "perimeter_defense": {
+    "differs": 508,
+    "mean_abs": 6.221649484536083,
+    "max_abs": 51
+   },
+   "interior_defense": {
+    "differs": 431,
+    "mean_abs": 7.084192439862543,
+    "max_abs": 43
+   },
+   "clutch_rating": {
+    "differs": 304,
+    "mean_abs": 11.048109965635739,
+    "max_abs": 43
+   }
+  }
+ }
+}

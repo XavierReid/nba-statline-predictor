@@ -355,3 +355,13 @@ aggregate is never allowed to hide it.
 all targets are reported (this amendment's data checks). 3. Development fitting and the MDE for 4 seasons
 are complete. 4. Method identifiers, fitted constants and their hashes are committed. 5. Only then is the
 locked set evaluated, once.
+
+## Amendment 2 findings (recorded 2026-11-01, before any fitting; locked set still closed)
+
+**Gates A1–A3 (as-of guard, metamorphic canary, manifest audit):** pass on all 12 targets with the V1 reference predictor (`results/canary_run.json`).
+
+**Coverage (`results/coverage_checks.json`):** critical categories below the 50 gated-player-season floor: R-A locked 45; R-B dev 55 / locked 34. Reported as limitations with wide intervals; not pooled across categories. R-C (locked 29) and R-D (locked 10) are too thin for any claim.
+
+**Roster reconstruction:** 13–27% of players first appear after game 10, carrying 3–7% of minutes; 6–15 top-10-minute players per season (summed over teams) are absent from the early-roster proxy. The end-to-end roster arm must report these limits.
+
+**Production compatibility (A2.6, `results/observed_bf1_vs_production.json`):** box-score attributes are identical in 2013-14, 2016-17, 2019-20, 2020-21 and 2024-25. In 2025-26, 64 rows differ, **all in `mid_range`**. Cause: production's 2025-26 `player_season_stats` has 57 players with null `mid_fga` (shot-location data incomplete), so `_raw_mid_range` falls back to the 2PT% proxy; the backfill has shot-location data for all 582. This is a production data-completeness gap, not a backfill defect. Consequence: observed-bf1 for 2025-26 is the better reference, and production-stored 2025-26 mid_range should not be treated as comparable. Not a blocker for using 2025-26 as a locked target, provided `mid_range` is read from the backfill.

@@ -365,3 +365,16 @@ locked set evaluated, once.
 **Roster reconstruction:** 13–27% of players first appear after game 10, carrying 3–7% of minutes; 6–15 top-10-minute players per season (summed over teams) are absent from the early-roster proxy. The end-to-end roster arm must report these limits.
 
 **Production compatibility (A2.6, `results/observed_bf1_vs_production.json`):** box-score attributes are identical in 2013-14, 2016-17, 2019-20, 2020-21 and 2024-25. In 2025-26, 64 rows differ, **all in `mid_range`**. Cause: production's 2025-26 `player_season_stats` has 57 players with null `mid_fga` (shot-location data incomplete), so `_raw_mid_range` falls back to the 2PT% proxy; the backfill has shot-location data for all 582. This is a production data-completeness gap, not a backfill defect. Consequence: observed-bf1 for 2025-26 is the better reference, and production-stored 2025-26 mid_range should not be treated as comparable. Not a blocker for using 2025-26 as a locked target, provided `mid_range` is read from the backfill.
+
+### A2.1 MDE for the 4 locked seasons (computed 2026-11-01 from development seasons only; `validation/ratings/mde.py`, `results/mde.json`)
+
+Stand-in challenger: V1 shrunk toward the prior-season league mean by volume with a generic constant (V2-like); rate targets attempt-weighted per Sec. 3.2. It measures variability, not method quality. (A first unweighted run made shrinkage look harmful for 3P% because non-shooters with a 0% target dominate; weighting is the protocol's own definition and was applied before any conclusion.)
+
+| target | dev pooled reduction | per-season SD | est. widest half-width, 4 locked seasons | MDE (80% power) |
+|---|---|---|---|---|
+| ft_pct | 9.3% | 3.5% | 6.2% | 7.8% |
+| fg3_pct | 24.0% | 4.8% | 7.7% | 10.0% |
+| usg_pct | -0.9% | 4.5% | 7.1% | 9.3% |
+| minutes_per_game | 15.0% | 5.1% | 8.1% | 10.5% |
+
+The widest half-width is the season-level (E3, 3 d.f.) interval in every case. **Every MDE is 8–10.5%, well above the 3% adoption threshold.** Statement per A2.1: the locked set cannot confirm a small effect, so a method more complex than the baseline is adopted only if it shows a large, consistent gain; otherwise the simpler baseline ships. Large gains from shrinkage on 3P%, minutes and FT% are in range (dev 9–24%, positive in every dev season), usage shows none. E1/E2 locked widths are extrapolated by sqrt(2) from the 8 dev seasons and are approximate.

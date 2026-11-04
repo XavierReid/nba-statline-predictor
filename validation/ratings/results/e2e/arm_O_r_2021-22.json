@@ -1,0 +1,67 @@
+{
+ "database": "nba_arm_o_r_2021_22",
+ "spec_players": 373,
+ "spec_sha256": "914e8df7b9b92d1e1ab50fd9269aea6372126c566ca83de3e594181aa099c50b",
+ "manifest": {
+  "arm": "O_r",
+  "target": "2021-22",
+  "method": null,
+  "player_season_stats": {
+   "*": {
+    "source": "observed_season_T",
+    "from_season": "2021-22",
+    "available_at_cutoff": false,
+    "note": "look-ahead oracle input"
+   },
+   "team_id": {
+    "source": "roster_proxy_R_early",
+    "available_at_cutoff": true,
+    "note": "identity and team of first appearance within 10 games; no outcome values"
+   },
+   "minutes_per_game": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2020-21",
+    "available_at_cutoff": true
+   },
+   "games_played": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2020-21",
+    "available_at_cutoff": true
+   }
+  },
+  "player_tendencies": {
+   "*": {
+    "source": "observed_season_T",
+    "from_season": "2021-22",
+    "available_at_cutoff": false,
+    "note": "look-ahead oracle input"
+   }
+  },
+  "player_attributes": {
+   "*": {
+    "source": "observed_season_T",
+    "from_season": "2021-22",
+    "available_at_cutoff": false,
+    "note": "look-ahead oracle input"
+   }
+  },
+  "team_season_stats": {
+   "*": {
+    "source": "prior_season_team_stats",
+    "from_season": "2020-21",
+    "available_at_cutoff": true
+   }
+  },
+  "player_game_logs": {
+   "*": {
+    "source": "removed",
+    "note": "availability target off"
+   }
+  },
+  "schedule": {
+   "source": "real_schedule",
+   "available_at_cutoff": true
+  }
+ },
+ "leak_free": true
+}

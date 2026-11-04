@@ -1,0 +1,11 @@
+{
+ "database": "nba_arm_e_2021_22",
+ "spec_players": 373,
+ "spec_sha256": "914e8df7b9b92d1e1ab50fd9269aea6372126c566ca83de3e594181aa099c50b",
+ "manifest": {
+  "arm": "E",
+  "target": "2021-22",
+  "note": "no season-T rows of any kind; no repair"
+ },
+ "leak_free": true
+}

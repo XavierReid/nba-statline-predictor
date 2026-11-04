@@ -1,0 +1,17 @@
+{
+ "arm": "E",
+ "target": "2021-22",
+ "checks": {
+  "player_season_stats: no season after T": true,
+  "player_tendencies: no season after T": true,
+  "player_attributes: no season after T": true,
+  "team_season_stats: no season after T": true,
+  "game logs for seasons >= T removed": true,
+  "E: no season-T rows in player_season_stats": true,
+  "E: no season-T rows in player_tendencies": true,
+  "E: no season-T rows in player_attributes": true,
+  "E: no season-T rows in team_season_stats": true,
+  "manifest: every P/D/E input available at the cutoff": true
+ },
+ "pass": true
+}

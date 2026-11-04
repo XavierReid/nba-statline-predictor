@@ -438,3 +438,43 @@ then upgrade the ratings with evidence; 5 and 6 follow.
 Rough size (PR-sized sessions): step 1 about 3-4; step 2 about 2-3; step 3 about 2; step 4 about 3.
 The MVP subset is about 8-10 sessions, none of which touches the trade-valuation work except the one
 dependency noted in Section 9 (projected production for the value model).
+
+# Revision 3 (2026-11-03) — the stat line is the primary artifact (approved with Amendment 3)
+
+## 15. Why Revision 2's schema changes
+Revision 2 treated ratings as the thing being initialized and the projected stat line as a side column
+(`rating_set_stat_lines`). The engine's make-probabilities, turnover, foul, assist and shot-mix inputs come from
+the stat line, and the loader needs a stat-line row to load a player at all. So the stat line becomes a
+first-class, versioned artifact and ratings are derived from it. Linked snapshots, not one blob, because
+they have different purposes and update schedules (a stat line refreshes with every in-season blend; a rating
+mapping can be re-derived from the same line under a new rating-code version).
+
+**New and changed tables** (additive; legacy tables unchanged)
+* `stat_line_sets(id, season, kind {observed, preseason, in_season}, information_cutoff, method_id,
+  method_version, input_manifest_sha256, parent_id, sealed_at)` with the same three CHECKs on
+  `information_cutoff` vs the season's first/last game as `rating_sets`; `stat_line_set_players` holds the
+  per-player rows (`LIKE player_season_stats` + `player_tendencies`, plus `field_source` jsonb per column:
+  `carry_forward | shrunk | rookie_prior | position_fallback | declared_constant`, `n_effective`).
+* `league_context_sets(id, season, information_cutoff, ...)` pins everything league-wide the engine reads
+  for a season: shot-zone priors, `league_avg_def_rating`, per-team pace/def_rating/oreb_pct defaults,
+  availability target. Preseason sets are computed from earlier seasons only (A3.5 items 1-4).
+* `rating_sets` gains **`stat_line_set_id NOT NULL`** (for `preseason` / `in_season`; observed sets point at
+  the legacy rows) and `rating_code_version`; a trigger requires `rating_sets.information_cutoff =
+  stat_line_sets.information_cutoff` and equal `kind`, so a rating set cannot be paired with a stat line from
+  another time. `rating_set_stat_lines` from Revision 2 is superseded by `stat_line_set_players`.
+* `simulation_runs.inputs_manifest` pins `stat_line_set_id + hash`, `rating_set_id + hash`,
+  `league_context_set_id + hash`, `roster_snapshot_id + hash`, config and seed; a `NOT VALID` CHECK requires
+  all four ids for new `myleague` runs.
+* **Loader.** `PlayerSource` resolves a run's pinned stat-line set; `observed-v1` still takes today's join
+  unchanged (historical byte-identity); any other set builds the transient `(player, attributes, tendencies,
+  stat_line)` rows and calls the existing roster builder, with league priors from the pinned
+  `league_context_set`. No engine change.
+
+**Gates added to section 13.** M11: every simulated input in a P run traces to a source with
+`data_through <= cutoff` (field-level manifest). M12: a rating set cannot be sealed or used without its
+matching stat-line set (negative test). M13: arm O byte-identical to the legacy pipeline on the existing
+fixtures. M14: arm E result recorded for a fresh season.
+
+**Sequence impact.** Step 1c (rating sets) now includes stat-line sets and league-context sets; the loader
+(2a) is built and validated against arms E, D, O_r, O before any projection method (3a) is touched. Still
+nothing in production until the schema/migration plan is approved.

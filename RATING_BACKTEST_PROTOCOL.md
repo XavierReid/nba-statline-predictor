@@ -378,3 +378,69 @@ Stand-in challenger: V1 shrunk toward the prior-season league mean by volume wit
 | minutes_per_game | 15.0% | 5.1% | 8.1% | 10.5% |
 
 The widest half-width is the season-level (E3, 3 d.f.) interval in every case. **Every MDE is 8–10.5%, well above the 3% adoption threshold.** Statement per A2.1: the locked set cannot confirm a small effect, so a method more complex than the baseline is adopted only if it shows a large, consistent gain; otherwise the simpler baseline ships. Large gains from shrinkage on 3P%, minutes and FT% are in range (dev 9–24%, positive in every dev season), usage shows none. E1/E2 locked widths are extrapolated by sqrt(2) from the 8 dev seasons and are approximate.
+
+---
+## Amendment 3 — the predictive unit is the player stat line (approved by Xavier, 2026-11-03; before any fitting)
+
+### A3.1 Finding that motivates it
+A read of `app/services/roster.py` and `possession.py` shows the engine takes shot make-probabilities
+(rim, non-rim/paint/mid, three, free throw), turnover economy (`tov_per_poss`), foul rate, assist rate,
+rebound/usage tendencies, shot mix and minutes **from the player's observed season stat line**
+(`PlayerSeasonStats` + `PlayerTendencies`); the 0-99 ratings are largely a fallback when those are absent.
+Consequently (i) a ratings-only preseason model does not solve day one, and (ii) simulating season T with
+real season-T stat lines and "preseason ratings" would leak the outcome through the stat line. The loader
+also requires a stat-line row for the simulated season, so a fresh season loads **zero players** today.
+**The primary predictive artifact is therefore a complete synthetic stat line; the 0-99 ratings are
+derived from that line by the existing rating pipeline.** Amendments 1-2 remain in force; where they speak
+of "ratings" for the end-to-end stage, read "stat line plus derived ratings".
+
+### A3.2 Arms (replaces the arm list in A2.2; same metrics, seeds and schedule rules)
+
+| arm | inputs | answers |
+|---|---|---|
+| **P** | predicted stat lines + ratings derived from them; roster/minutes from the preseason reconstruction | real preseason system performance |
+| **D** | P's roster and minutes; player stat-line shooting and rate fields omitted (ratings at the flat default) so the engine uses its league-average and positional fallbacks | what the engine produces with no player-specific profile |
+| **O_r** | observed season-T stat lines and ratings, **P's roster and minutes** | oracle: the engine's response to observed inputs under P's playing time. Not a pure measure of stat-line prediction error |
+| **O** | existing historical pipeline, unchanged | historical reference (look-ahead) |
+| **E** | the **current production loader** against a season with no season-T stat-line rows, no injection, no repair | documents today's day-one behaviour (zero players / error / completes). A diagnostic, **not** a baseline; D and E are never treated as equivalent |
+
+Roster and minutes are identical across P, D, O_r; minutes-prediction quality is reported separately
+(A2.3) so profile improvements and playing-time allocation are distinguishable. Matched seeds and the real
+schedule apply. O and O_r use season-T outcomes: look-ahead references, not forecasts or ceilings.
+
+### A3.3 The synthetic stat line is complete, and its field set is audited, not assumed
+Every player-level input the engine consumes is supplied by the synthetic line: the DB-row fields read by
+`_player_base`, `_add_observed_rates`, `_add_zone_rates`, `_build_roster` (shot zones and attempts, FT, FG3,
+turnovers, assists, PF, minutes, games, tendencies including three-point rate, usage, oreb/dreb, corner-three
+rate, foul-drawing, shot tendency) **and any other key a run reads**. The audit is mechanical: a traced
+player dict records every key read during a full simulated game set; the build fails if any key read is
+missing from the field manifest. Fields not predicted by the placeholder are filled with a declared
+fallback and labelled so (never silently zero).
+
+### A3.4 V1 carry-forward is a placeholder
+The first P is prior-season carry-forward (reader-only, as in `validation/ratings/predictors.py`), labelled a
+baseline placeholder, not a fitted model. No more sophisticated method is fitted until the loader, the
+arms, historical equivalence (O reproduces the existing pipeline) and the leakage audit are validated.
+
+### A3.5 Leakage audit extends to everything the engine reads for season T
+Besides player rows, the engine reads season-T data in these places (audit result, 2026-11-03):
+1. `_league_zone_prior` (league FG% priors from season-T `PlayerSeasonStats`) - arms P, D, O_r use the **prior** season's;
+2. `TeamSeasonStats` pace / def_rating / oreb_pct per team, and `_league_avg_def_rating` (`game_simulator`) - season-T outcomes; arms P, D, O_r use prior-season team values (or declared league constants for new franchises);
+3. `season_active_target` (season-T game logs; availability calibration) - prior-season value or availability off;
+4. `ensure_league_baseline` (lineup creation) scans all rosters of season T through `load_roster` - must be computed from the arm's own rosters;
+5. `build_season_context` is computed from the rostered pool - acceptable because the pool is arm-specific; asserted;
+6. roster membership (`HistoricalRosterProvider` uses season-T stats `team_id`) and `players.position` (mutable current snapshot; forbidden) - replaced by the R-early reconstruction and the height/weight position proxy for P, D, O_r;
+7. module-level caches keyed by season only (`_ZONE_PRIOR_CACHE`, `_LEAGUE_DEF_CACHE`, `_ACTIVE_TARGET_CACHE`, `_LEAGUE_DONE`): **each arm runs in its own process** (or caches are cleared), otherwise one arm contaminates another. The engine is not modified.
+Every arm writes a **field-level input manifest**: for each simulated player input and each league/team default, its source (observed T / prior season / static fact / roster proxy / declared constant) and whether it was available at the preseason cutoff. A single P/D/O_r input sourced from season T is a failed run.
+
+### A3.6 Versioned and pinned together
+A simulation run's manifest pins the stat-line set, the rating set derived from it, the league-context
+set (priors, team defaults), the roster snapshot and the seed; a rating set cannot exist without the
+stat-line set it was derived from (design Revision 3, section 15).
+
+### A3.7 Build order (approved)
+1. This amendment + design update. 2. Loader for E, D, O_r, O; validate each arm loads the intended roster and inputs.
+3. Historical equivalence: O reproduces the existing pipeline byte-for-byte. 4. P with V1 carry-forward.
+5. Full leakage audit (player inputs, league averages, positional defaults, roster, minutes).
+6. Evaluate P vs D and O_r with identical rosters, minutes, schedules and seeds.
+The engine stays untouched; the work constructs inputs and passes them through the existing roster builder.

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Xavier-only: opens the held-out seasons for rating validation. Run in your own terminal, not through Claude.
+#   scripts/open-locked-set <commit-that-froze-the-method>
+set -e
+[ -n "$1" ] || { echo "usage: $0 <frozen-commit>"; exit 1; }
+git cat-file -e "$1^{commit}" || { echo "unknown commit $1"; exit 1; }
+[ -z "$(git status --porcelain validation/ratings)" ] || { echo "validation/ratings has uncommitted changes; commit them first"; exit 1; }
+echo "frozen at $1 on $(date -u +%Y-%m-%dT%H:%MZ)" > validation/ratings/FREEZE
+echo "Locked seasons are now open. Do not edit the method after this point."

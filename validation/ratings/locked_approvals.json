@@ -1,0 +1,6 @@
+{
+  "validation.ratings.coverage_checks": "f7416161a8605b30a77a373ff03654cd09934c5224038dbaefb3b80f3c1ebcc7",
+  "validation.ratings.canary_run": "fadce19b59e2b2b57ce99db3ec709544c3219222af8cc9bf63eddc806df9459c",
+  "validation.ratings.compat_report": "21d0a82ae6fc3c5968066b4f1cb76f3e541129fd7ddfa8595c3087be51613884",
+  "validation.ratings.validate_backfill": "2303f44de2a6bf00e8ab29d609ec4a06c773e42e769a58f351fb27be14feff77"
+}

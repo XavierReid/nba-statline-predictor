@@ -14,11 +14,11 @@ The sim needs a full player stat line for each player; today a fresh season load
 
 - Hard lock on locked seasons (guard + hook); you open it with `scripts/open-locked-set`.
 - Field trace: P supplies every field the sim reads that the real-data arm supplies.
-- First P vs D vs O_r vs O comparison, 2021-22, 10 seeds each (`results/e2e/compare_2021-22.json`): carry-forward (P) closes about half of the gap between no-profile (D) and real lines on team standing order and scoring; weak on playing time.
+- First P vs D vs O_r vs O comparison, 2021-22, 10 seeds each (`results/e2e/compare_2021-22.json`): carry-forward (P) closes about half of the gap between no-profile (D) and real lines on team standing order and scoring; weak on playing time. Repeated on 2016-17 and 2018-19: same pattern (P recovers ~0.6-0.9 of the D-to-real-lines gap on standings order, scoring, rebounds, assists).
 
 ## Next (in order)
-1. Repeat the comparison on 2 more dev seasons (2016-17, 2018-19); decide what the placeholder is missing (rookies, 9 of top-80 players absent).
-2. Fix the minutes/roster projection (biggest remaining gap), then fancier prediction methods.
+1. Fix the minutes/roster projection (biggest remaining gap; 3-7 of the top-80 real players absent from the predicted roster).
+2. Then fancier prediction methods, fitted on dev seasons only.
 3. Only then: fancier prediction methods. Nothing in production until you approve the schema/migration plan.
 
 ## Waiting on you

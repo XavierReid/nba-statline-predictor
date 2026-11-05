@@ -1,0 +1,64 @@
+{
+ "database": "nba_arm_p_2016_17",
+ "spec_players": 345,
+ "spec_sha256": "aaf3971a7c2ea839ea0a9dcc6902d90f440a401e08c96494c3975e3ec2d10b12",
+ "manifest": {
+  "arm": "P",
+  "target": "2016-17",
+  "method": "V1 carry-forward (baseline placeholder, not a fitted model)",
+  "player_season_stats": {
+   "*": {
+    "source": "prior_season_carry_forward",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   },
+   "team_id": {
+    "source": "roster_proxy_R_early",
+    "available_at_cutoff": true,
+    "note": "identity and team of first appearance within 10 games; no outcome values"
+   },
+   "minutes_per_game": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   },
+   "games_played": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   }
+  },
+  "player_tendencies": {
+   "*": {
+    "source": "prior_season_carry_forward",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   }
+  },
+  "player_attributes": {
+   "*": {
+    "source": "prior_season_carry_forward",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   }
+  },
+  "team_season_stats": {
+   "*": {
+    "source": "prior_season_team_stats",
+    "from_season": "2015-16",
+    "available_at_cutoff": true
+   }
+  },
+  "player_game_logs": {
+   "*": {
+    "source": "removed",
+    "note": "availability target off"
+   }
+  },
+  "schedule": {
+   "source": "real_schedule",
+   "available_at_cutoff": true
+  }
+ },
+ "leak_free": true
+}

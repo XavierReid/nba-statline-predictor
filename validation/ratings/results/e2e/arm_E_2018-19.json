@@ -1,0 +1,11 @@
+{
+ "database": "nba_arm_e_2018_19",
+ "spec_players": 360,
+ "spec_sha256": "9b657f747eba0856fac2a239e28a2a1da59ba885700cdbc59b42252f5f296caa",
+ "manifest": {
+  "arm": "E",
+  "target": "2018-19",
+  "note": "no season-T rows of any kind; no repair"
+ },
+ "leak_free": true
+}

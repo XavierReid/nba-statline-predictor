@@ -1,0 +1,61 @@
+{
+ "database": "nba_arm_d_2018_19",
+ "spec_players": 360,
+ "spec_sha256": "9b657f747eba0856fac2a239e28a2a1da59ba885700cdbc59b42252f5f296caa",
+ "manifest": {
+  "arm": "D",
+  "target": "2018-19",
+  "method": null,
+  "player_season_stats": {
+   "*": {
+    "source": "omitted_engine_default",
+    "available_at_cutoff": true
+   },
+   "team_id": {
+    "source": "roster_proxy_R_early",
+    "available_at_cutoff": true,
+    "note": "identity and team of first appearance within 10 games; no outcome values"
+   },
+   "minutes_per_game": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2017-18",
+    "available_at_cutoff": true
+   },
+   "games_played": {
+    "source": "v1_prior_season_minutes_and_games",
+    "from_season": "2017-18",
+    "available_at_cutoff": true
+   }
+  },
+  "player_tendencies": {
+   "*": {
+    "source": "omitted_engine_default",
+    "available_at_cutoff": true
+   }
+  },
+  "player_attributes": {
+   "*": {
+    "source": "column_default",
+    "available_at_cutoff": true
+   }
+  },
+  "team_season_stats": {
+   "*": {
+    "source": "prior_season_team_stats",
+    "from_season": "2017-18",
+    "available_at_cutoff": true
+   }
+  },
+  "player_game_logs": {
+   "*": {
+    "source": "removed",
+    "note": "availability target off"
+   }
+  },
+  "schedule": {
+   "source": "real_schedule",
+   "available_at_cutoff": true
+  }
+ },
+ "leak_free": true
+}

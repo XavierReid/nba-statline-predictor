@@ -1,0 +1,11 @@
+{
+ "database": "nba_arm_e_2016_17",
+ "spec_players": 345,
+ "spec_sha256": "aaf3971a7c2ea839ea0a9dcc6902d90f440a401e08c96494c3975e3ec2d10b12",
+ "manifest": {
+  "arm": "E",
+  "target": "2016-17",
+  "note": "no season-T rows of any kind; no repair"
+ },
+ "leak_free": true
+}

@@ -1,0 +1,19 @@
+{
+ "arm": "D",
+ "target": "2018-19",
+ "checks": {
+  "player_season_stats: no season after T": true,
+  "player_tendencies: no season after T": true,
+  "player_attributes: no season after T": true,
+  "team_season_stats: no season after T": true,
+  "game logs for seasons >= T removed": true,
+  "player_season_stats: T rows are exactly the spec players": true,
+  "player_tendencies: T rows are exactly the spec players": true,
+  "player_attributes: T rows are exactly the spec players": true,
+  "team_season_stats T == prior-season values (30 teams)": true,
+  "minutes/games/team equal the shared spec": true,
+  "D: every non-spec stat-line column is NULL": true,
+  "manifest: every P/D/E input available at the cutoff": true
+ },
+ "pass": true
+}

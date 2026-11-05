@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run a module inside the api container against a chosen database.
+#   scripts/vrun <database> <module> [args...]
+#   scripts/vrun nba_backfill validation.ratings.coverage_checks
+# The database name is one of the Postgres databases (nba_backfill, nba_predictor, nba_arm_*).
+db="$1"; shift
+exec docker compose run --rm -e "DATABASE_URL=postgresql+psycopg2://nba:nba@postgres:5432/$db" api python -m "$@"

@@ -7,7 +7,8 @@ schedule (`games`) stays. Because every arm runs in its own process against its 
 season-keyed module caches in the engine cannot carry one arm's data into another.
 
 Arms: P (V1 carry-forward placeholder), D (P's roster/minutes, no player profile), O_r (observed T lines on
-P's roster/minutes), E (nothing for T, no repair). O is the unmodified backfill database itself.
+P's roster/minutes), E (nothing for T, no repair), O (an UNMODIFIED clone of the backfill, so simulation runs
+are written to a throwaway copy rather than the isolated backfill itself).
 
     python -m validation.ratings.e2e.arms 2022-23 P      # prints the database url and writes the manifest
 """
@@ -24,7 +25,7 @@ from validation.ratings.predictors import v1_carry_forward
 
 BASE_DB = "nba_backfill"
 ADMIN = "postgresql+psycopg2://nba:nba@postgres:5432/{}"
-ARMS = ("P", "D", "O_r", "E")
+ARMS = ("P", "D", "O_r", "E", "O")
 PLAYER_TABLES = ("player_season_stats", "player_tendencies", "player_attributes")
 PLACEHOLDER = "V1 carry-forward (baseline placeholder, not a fitted model)"
 
@@ -101,6 +102,10 @@ def build_arm(arm: str, target: str) -> str:
                   {"a": name, "b": BASE_DB})
         c.execute(text('drop database if exists "%s"' % name))
         c.execute(text('create database "%s" template "%s"' % (name, BASE_DB)))
+    if arm == "O":
+        json.dump({"database": name, "note": "unmodified clone of the backfill"},
+                  open("validation/ratings/results/e2e/arm_O_%s.json" % target, "w"), indent=1)
+        return name
     eng = create_engine(ADMIN.format(name), future=True)
     manifest = field_manifest(arm, target)
     with eng.begin() as c:

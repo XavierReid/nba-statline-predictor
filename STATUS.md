@@ -17,7 +17,7 @@ The sim needs a full player stat line for each player; today a fresh season load
 - First P vs D vs O_r vs O comparison, 2021-22, 10 seeds each (`results/e2e/compare_2021-22.json`): carry-forward (P) closes about half of the gap between no-profile (D) and real lines on team standing order and scoring; weak on playing time. Repeated on 2016-17 and 2018-19: same pattern (P recovers ~0.6-0.9 of the D-to-real-lines gap on standings order, scoring, rebounds, assists).
 
 ## Next (in order)
-1. Fix the minutes/roster projection (biggest remaining gap; 3-7 of the top-80 real players absent from the predicted roster).
+1. Minutes models M1/M2 tried on dev seasons: no better than last-year's minutes (about -1% error, not significant), so the baseline stays. 14-16% of real minutes are played by players missing from the projected roster; waiting on you whether to build M3 (fill roster gaps).
 2. Then fancier prediction methods, fitted on dev seasons only.
 3. Only then: fancier prediction methods. Nothing in production until you approve the schema/migration plan.
 

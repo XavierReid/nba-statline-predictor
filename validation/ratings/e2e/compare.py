@@ -23,9 +23,12 @@ def metrics(e):
             "top80_present": [x["top80_present"] for x in r], "h2h": [e["h2h_best_wins"] / e["h2h_games"]]}
 
 
-def main(target):
+def main(target, suffix=""):
+    global ARMS
+    ARMS = ["D" + suffix, "P" + suffix, "O_r" + suffix, "O"]
     ev = {a: json.load(open("validation/ratings/results/e2e/eval_%s_%s.json" % (a, target))) for a in ARMS}
     m = {a: metrics(ev[a]) for a in ARMS}
+    base = lambda a: a[: -len(suffix)] if suffix and a.endswith(suffix) else a
     print("%-14s" % "metric", *("%16s" % a for a in ARMS))
     out = {}
     for k in ("rho", "spread_ratio", "h2h", "ppg_mae", "rpg_mae", "apg_mae", "mpg_mae", "top80_present"):
@@ -34,9 +37,9 @@ def main(target):
         print("%-14s" % k, *("%9.3f+/-%.3f" % row[a] for a in ARMS))
     print("\nGap closed by P between D and the oracle runs: (P-D)/(ref-D); 1 = as good as the reference, <0 = worse than D")
     for k, sign in (("rho", 1), ("ppg_mae", -1), ("rpg_mae", -1), ("apg_mae", -1), ("mpg_mae", -1)):
-        d, p = out[k]["D"][0], out[k]["P"][0]
+        d, p = out[k]["D" + suffix][0], out[k]["P" + suffix][0]
         gaps = []
-        for ref in ("O_r", "O"):
+        for ref in ("O_r" + suffix, "O"):
             den = sign * (out[k][ref][0] - d)
             gaps.append("%s: %s" % (ref, "%.2f" % (sign * (p - d) / den) if abs(den) > 1e-9 else "n/a"))
         print("  %-8s" % k, "   ".join(gaps))
@@ -44,4 +47,4 @@ def main(target):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "")

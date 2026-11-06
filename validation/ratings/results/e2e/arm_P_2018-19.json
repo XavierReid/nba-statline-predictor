@@ -1,7 +1,8 @@
 {
- "database": "nba_arm_p_2018_19",
- "spec_players": 360,
- "spec_sha256": "9b657f747eba0856fac2a239e28a2a1da59ba885700cdbc59b42252f5f296caa",
+ "database": "nba_arm_p_m3_2018_19",
+ "rookies_added": 68,
+ "spec_players": 428,
+ "spec_sha256": "81a0022e1d717beab5177014b6d8ea28e97457b4dc843320e5564489d5c8b425",
  "manifest": {
   "arm": "P",
   "target": "2018-19",
@@ -58,6 +59,11 @@
   "schedule": {
    "source": "real_schedule",
    "available_at_cutoff": true
+  },
+  "m3_rookies": {
+   "source": "draft_bucket_mean_minutes_and_games",
+   "available_at_cutoff": true,
+   "note": "players with no prior season: presence, team, minutes and games only; profile at engine defaults"
   }
  },
  "leak_free": true

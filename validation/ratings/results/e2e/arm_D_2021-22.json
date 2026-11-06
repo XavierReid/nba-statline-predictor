@@ -1,7 +1,8 @@
 {
- "database": "nba_arm_d_2021_22",
- "spec_players": 373,
- "spec_sha256": "914e8df7b9b92d1e1ab50fd9269aea6372126c566ca83de3e594181aa099c50b",
+ "database": "nba_arm_d_m3_2021_22",
+ "rookies_added": 70,
+ "spec_players": 443,
+ "spec_sha256": "8337cb577f6389e4caf1d11cfacdb6749931c0443ec4a799a3cb848907fb761e",
  "manifest": {
   "arm": "D",
   "target": "2021-22",
@@ -55,6 +56,11 @@
   "schedule": {
    "source": "real_schedule",
    "available_at_cutoff": true
+  },
+  "m3_rookies": {
+   "source": "draft_bucket_mean_minutes_and_games",
+   "available_at_cutoff": true,
+   "note": "players with no prior season: presence, team, minutes and games only; profile at engine defaults"
   }
  },
  "leak_free": true

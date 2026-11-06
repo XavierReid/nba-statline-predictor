@@ -12,6 +12,7 @@
   "player_attributes: T rows are exactly the spec players": true,
   "team_season_stats T == prior-season values (30 teams)": true,
   "minutes/games/team equal the shared spec": true,
+  "M3: rookie rows carry no profile (stat columns NULL)": true,
   "P: stat line equals the prior-season line (non-spec columns)": true,
   "manifest: every P/D/E input available at the cutoff": true
  },

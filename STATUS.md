@@ -17,7 +17,7 @@ The sim needs a full player stat line for each player; today a fresh season load
 - First P vs D vs O_r vs O comparison, 2021-22, 10 seeds each (`results/e2e/compare_2021-22.json`): carry-forward (P) closes about half of the gap between no-profile (D) and real lines on team standing order and scoring; weak on playing time. Repeated on 2016-17 and 2018-19: same pattern (P recovers ~0.6-0.9 of the D-to-real-lines gap on standings order, scoring, rebounds, assists).
 
 ## Next (in order)
-1. Minutes models M1/M2 tried on dev seasons: no better than last-year's minutes (about -1% error, not significant), so the baseline stays. 14-16% of real minutes are played by players missing from the projected roster; waiting on you whether to build M3 (fill roster gaps).
+1. Minutes models M1/M2 tried on dev seasons: no better than last-year's minutes (about -1% error, not significant), so the baseline stays. 14-16% of real minutes are played by players missing from the projected roster; M3 (rookie fill-in by draft bucket) built and tested on 3 dev seasons: roster coverage of real minutes 85% -> 95%, standings order slightly better (+0.02 to +0.07) but established players' scoring/minutes error gets worse (rookies take minutes). Mixed; not adopted until you decide the next variant.
 2. Then fancier prediction methods, fitted on dev seasons only.
 3. Only then: fancier prediction methods. Nothing in production until you approve the schema/migration plan.
 

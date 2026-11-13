@@ -1,8 +1,8 @@
 {
- "database": "nba_arm_o_r_m3_2021_22",
- "rookies_added": 70,
- "spec_players": 443,
- "spec_sha256": "8337cb577f6389e4caf1d11cfacdb6749931c0443ec4a799a3cb848907fb761e",
+ "database": "nba_arm_o_r_m3b_2021_22",
+ "rookies_added": 30,
+ "spec_players": 403,
+ "spec_sha256": "77a71c662c76f195dfc7063f1db9aa93adf625dceeb2a57c9bad646b2b310e93",
  "manifest": {
   "arm": "O_r",
   "target": "2021-22",

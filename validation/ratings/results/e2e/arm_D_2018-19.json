@@ -1,8 +1,8 @@
 {
- "database": "nba_arm_d_m3_2018_19",
- "rookies_added": 68,
- "spec_players": 428,
- "spec_sha256": "81a0022e1d717beab5177014b6d8ea28e97457b4dc843320e5564489d5c8b425",
+ "database": "nba_arm_d_m3b_2018_19",
+ "rookies_added": 26,
+ "spec_players": 386,
+ "spec_sha256": "30e05bffc3113c38677b12ece9d680e172df0a8c983a79ad65145e0afc4a7251",
  "manifest": {
   "arm": "D",
   "target": "2018-19",

@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, text
 from validation.ratings import lockguard
 
 URL = "postgresql+psycopg2://nba:nba@postgres:5432/%s"
-LABELS = ["D", "P", "O_r", "D_m3", "P_m3", "O_r_m3", "O"]
+LABELS = ["D", "P", "O_r", "P_m3", "D_m3", "O_r_m3", "P_m3b", "D_m3b", "O_r_m3b", "O"]
 
 
 def db(label, target):
@@ -29,9 +29,9 @@ def main(target):
             "order by minutes_per_game*games_played desc limit 80"), {"s": target})}
     with db("P", target).connect() as c:
         v1 = {r[0] for r in c.execute(text("select player_id from arm_spec"))}
-    with db("P_m3", target).connect() as c:
+    with db("P_m3b", target).connect() as c:
         added = {r[0] for r in c.execute(text("select player_id from arm_spec where rookie"))}
-    S, R = [p for p in real if p in v1], [p for p in real if p in added]
+    S, R = [p for p in real if p in v1], [p for p in real if p in added]    # R: first-round rookies M3b adds
     out = {"target": target, "n_S": len(S), "n_R": len(R), "arms": {}}
     for label in LABELS:
         with db(label, target).connect() as c:

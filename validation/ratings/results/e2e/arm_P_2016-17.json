@@ -1,8 +1,8 @@
 {
- "database": "nba_arm_p_m3_2016_17",
- "rookies_added": 74,
- "spec_players": 419,
- "spec_sha256": "529683a8ba47fbb32905e30b10e48c6b15bc02662472d727da6910f64f5976c2",
+ "database": "nba_arm_p_m3b_2016_17",
+ "rookies_added": 23,
+ "spec_players": 368,
+ "spec_sha256": "be264992293148ace7ec5cafedbc849e588fefaad0584a576bb450ce3f2f83cd",
  "manifest": {
   "arm": "P",
   "target": "2016-17",

@@ -38,7 +38,7 @@ def main(target, label):
             checks["minutes/games/team equal the shared spec"] = q(
                 "select count(*) from player_season_stats s join arm_spec a using (player_id) where s.season=:t and "
                 "s.minutes_per_game=a.mpg and s.games_played=a.gp and s.team_id=a.team_id", t=target) == spec
-            if variant == "m3" and arm == "P":
+            if variant and arm == "P":
                 checks["M3: rookie rows carry no profile (stat columns NULL)"] = q(
                     "select count(*) from player_season_stats s join arm_spec a using (player_id) where s.season=:t and a.rookie "
                     "and (s.points is not null or s.fga is not null or s.fta is not null)", t=target) == 0

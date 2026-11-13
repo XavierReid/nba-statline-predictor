@@ -31,9 +31,12 @@ def unseen_players(reader: AsOfReader, have) -> Dict[int, dict]:
             for pid, team in reader.preseason_roster_proxy("early", 10).items() if pid not in have}
 
 
-def rookie_defaults(reader: AsOfReader, have, priors: Dict[str, dict]) -> Dict[int, dict]:
+def rookie_defaults(reader: AsOfReader, have, priors: Dict[str, dict], buckets=BUCKETS) -> Dict[int, dict]:
+    """`buckets` limits which draft buckets get a default line (M3b: first-round picks only)."""
     out = {}
     for pid, u in unseen_players(reader, have).items():
+        if u["bucket"] not in buckets:
+            continue
         p = priors.get(u["bucket"]) or priors["ALL"]
         out[pid] = {"team_id": u["team_id"], "mpg": p["mpg"], "gp": int(round(p["gp"])), "bucket": u["bucket"], "rookie": True}
     return out

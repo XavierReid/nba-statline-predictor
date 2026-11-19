@@ -20,6 +20,8 @@ Start a 2026-27 MyLeague save on day one and have it play: real rosters, sensibl
 6. **A manifest per save.** Pins which roster snapshot, stat-line set, rating set and league averages the save uses, so a save is reproducible.
 
 ## What stays untouched
+Old seasons: they keep loading through today's pipeline with one frozen rating snapshot each, built from that season's own stats. Live rating updates apply to MyLeague saves only. Reproducibility is checked with the existing fixtures before and after each step.
+
 Every existing table, the game engine, and all historical runs. New data is added beside the old. The locked test seasons stay closed.
 
 ## Steps, each with a demo and an undo
@@ -41,7 +43,7 @@ Offseason aging and growth, college or overseas data, and real-world daily synci
 
 ## Known limits we are carrying
 - The stat-line forecast is a labeled placeholder (carry-forward). Better methods did not clear our bar on the development seasons.
-- Rookies and players new to a team start from defaults, so their early ratings show low confidence.
+- Players with no prior NBA season (rookies, international signees, returnees) start from defaults, so their early ratings show low confidence. Veterans who changed teams keep their own stat line; the weak spot is minutes, which carry over from the old role.
 - The real 2026-27 season is already underway, so a later step can use real games played so far.
 
 ## Decisions I need from you

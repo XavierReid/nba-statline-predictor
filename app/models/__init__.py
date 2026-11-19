@@ -11,3 +11,4 @@ from app.models.myleague import MyLeagueState, MyLeagueEvent  # noqa: F401
 from app.models.team_season_stats import TeamSeasonStats  # noqa: F401
 from app.models.scoring_event import ScoringEvent  # noqa: F401
 from app.models.player_game_log import PlayerGameLog  # noqa: F401
+from app.models.roster_snapshot import DataFetch, PlayerBio, RosterSnapshot, RosterAssignment  # noqa: F401

@@ -1,6 +1,6 @@
 # STATUS — read this first (refreshed at the end of every session)
 
-**Last updated:** 2026-11-05 · **Branch:** main
+**Last updated:** 2026-11-19 · **Branch:** main
 
 ## The goal
 Make a brand-new season (2026-27) playable from day one, and keep old simulations reproducible.
@@ -24,10 +24,11 @@ The sim needs a full player stat line for each player; today a fresh season load
 ## Decisions made (2026-11-18)
 - Ratings are a readable view of the stat line (stat line drives the sim); hand overrides win, marked, per save only.
 - MyLeague ratings update after each game day from the league's own simulated games; real-world daily sync comes later.
-- Roster source: pull current rosters from the NBA (to be verified), with a roster editor. No offseason progression yet.
+- Roster source: pull current rosters from the NBA (VERIFIED 2026-11-19: 525 players, bio fields incl. height/weight/birth date work), with a roster editor. No offseason progression yet.
 - Rookie profile test (draft slot, age, size) approved.
 
 ## Waiting on you
+- Approve `PLAN_FOUNDATION_PLAIN.md` (Step 1 plan), then OK to start Step 2 (safety fix).
 - Schema/migration plan approval (before any production change).
 - Whether to fix the silent "empty season finishes as complete" behavior (production change, not done).
 

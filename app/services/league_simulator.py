@@ -317,6 +317,15 @@ def run_league_simulation(simulation_id: int, config: Optional["SimConfig"] = No
                 )
             return roster_cache[team_id]
 
+        # A team with no loaded players means the season's player data is missing; skipping
+        # games one by one used to end in a "complete" run with partial or zero games.
+        empty = sorted({t for g in schedule for t in (g.home_team_id, g.away_team_id)
+                        if not get_roster(t)})
+        if empty:
+            _mark_failed(db, sim, f"no players loaded for {sim.season}; "
+                                  f"teams without a roster: {empty}")
+            return
+
         completed = 0
         for game in schedule:
             db.refresh(sim)
@@ -327,10 +336,6 @@ def run_league_simulation(simulation_id: int, config: Optional["SimConfig"] = No
 
             home_players = get_roster(game.home_team_id)
             away_players = get_roster(game.away_team_id)
-            if not home_players or not away_players:
-                log.warning("Missing roster for game %s — skipping", game.id)
-                continue
-
             seed = _game_seed(sim.seed, game.id)
             result = simulate_game(
                 home_players, away_players, seed=seed, season=sim.season,

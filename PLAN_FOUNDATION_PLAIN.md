@@ -38,6 +38,11 @@ Every existing table, the game engine, and all historical runs. New data is adde
 
 Each step ends with a manual checklist for you before it counts as done. Schema changes (3a) and anything under `app/` are shown to you before they are applied.
 
+## Older-season MyLeague saves
+- A save is a save: overrides and game-day rating updates work on any season. Changes live in the save's own history; the shared season snapshot stays frozen.
+- Roster snapshots also fit past seasons. They would be filled from stat rows we already have (no NBA pull). The NBA feed may serve past rosters, but that is untested and would likely give end-of-season rosters.
+- Start choice for an older-season save: real stat lines (today's behavior, with hindsight, the default) or forecasts from the prior season (leak-free option).
+
 ## What is not in this phase
 Offseason aging and growth, college or overseas data, and real-world daily syncing. Those come later.
 

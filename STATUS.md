@@ -28,7 +28,7 @@ The sim needs a full player stat line for each player; today a fresh season load
 - Rookie profile test (draft slot, age, size) approved.
 
 ## Waiting on you
-- Approve `PLAN_FOUNDATION_PLAIN.md` (Step 1 plan), then OK to start Step 2 (safety fix).
+- Approve `PLAN_FOUNDATION_PLAIN.md` (Step 1 plan). Step 2 safety fix applied 2026-11-19, awaiting your UAT.
 - Schema/migration plan approval (before any production change).
 - Whether to fix the silent "empty season finishes as complete" behavior (production change, not done).
 

@@ -34,6 +34,7 @@ class PlayerBio(Base):
 
     # NBA player id. No FK to players: rookies and new signees may not have a players row yet.
     player_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    full_name: Mapped[Optional[str]] = mapped_column(String(128))
     birth_date: Mapped[Optional[date]] = mapped_column(Date)
     height_in: Mapped[Optional[float]] = mapped_column(Float)
     weight_lb: Mapped[Optional[int]] = mapped_column(Integer)

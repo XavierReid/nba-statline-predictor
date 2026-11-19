@@ -120,7 +120,7 @@ def write(season: str, rosters, raw, index, seal: bool) -> int:
             db.add(RosterAssignment(snapshot_id=snap.id, player_id=r["PLAYER_ID"], team_id=r["TeamID"],
                                     status=_status(r), position=r.get("POSITION"), jersey=r.get("NUM")))
             bio = dict(
-                player_id=r["PLAYER_ID"], birth_date=datetime.strptime(r["BIRTH_DATE"].title(), "%b %d, %Y").date()
+                player_id=r["PLAYER_ID"], full_name=r.get("PLAYER"), birth_date=datetime.strptime(r["BIRTH_DATE"].title(), "%b %d, %Y").date()
                 if r.get("BIRTH_DATE") else None,
                 height_in=_height_in(r.get("HEIGHT")),
                 weight_lb=int(r["WEIGHT"]) if r.get("WEIGHT") else None,

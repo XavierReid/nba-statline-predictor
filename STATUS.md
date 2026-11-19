@@ -17,7 +17,7 @@ The sim needs a full player stat line for each player; today a fresh season load
 - First P vs D vs O_r vs O comparison, 2021-22, 10 seeds each (`results/e2e/compare_2021-22.json`): carry-forward (P) closes about half of the gap between no-profile (D) and real lines on team standing order and scoring; weak on playing time. Repeated on 2016-17 and 2018-19: same pattern (P recovers ~0.6-0.9 of the D-to-real-lines gap on standings order, scoring, rebounds, assists).
 
 ## Step 3a (2026-11-19)
-- Migration m3a1 applied to production (4 new tables, seal triggers). Snapshot 1 (2026-27, 525 players, unsealed) pulled. Backup: /tmp/3a/pre_3a.dump (delete after UAT).
+- Migration m3a1 applied to production (4 new tables, seal triggers). Snapshot 2 (2026-27, pulled 2026-11-19, 525 players, all named, unsealed); m3a2 adds player_bio.full_name. Backup: /tmp/3a/pre_3a.dump (delete after UAT).
 - Step 2 safety fix shipped (7aa69fd). Awaiting: 3a UAT, then seal snapshot 1.
 
 ## Next (in order)

@@ -21,6 +21,12 @@ The sim needs a full player stat line for each player; today a fresh season load
 2. Then fancier prediction methods, fitted on dev seasons only.
 3. Only then: fancier prediction methods. Nothing in production until you approve the schema/migration plan.
 
+## Decisions made (2026-11-18)
+- Ratings are a readable view of the stat line (stat line drives the sim); hand overrides win, marked, per save only.
+- MyLeague ratings update after each game day from the league's own simulated games; real-world daily sync comes later.
+- Roster source: pull current rosters from the NBA (to be verified), with a roster editor. No offseason progression yet.
+- Rookie profile test (draft slot, age, size) approved.
+
 ## Waiting on you
 - Schema/migration plan approval (before any production change).
 - Whether to fix the silent "empty season finishes as complete" behavior (production change, not done).

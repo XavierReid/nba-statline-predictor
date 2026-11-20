@@ -9,7 +9,7 @@ Status: PROPOSAL. Nothing here is built. Technical background: `DESIGN_2026_27_R
 - Roster snapshot 2 (sealed) already tells us who is on each team.
 
 ## The idea in one paragraph
-Build a **pinned "starting point" for 2026-27** out of last season: each player's forecast stat line (carry-forward, the labeled placeholder), ratings derived from that line, and league/team defaults from the prior season. Store it in new tables, never in the existing season tables, so predicted numbers can never be mistaken for real ones. Give the loader a second path that reads this starting point for 2026-27 only. Every existing season keeps loading exactly as today.
+Build a **pinned "preseason baseline" for 2026-27** out of last season: each player's forecast stat line (carry-forward, the labeled placeholder), ratings derived from that line, and league/team defaults from the prior season. Store it in new tables, never in the existing season tables, so predicted numbers can never be mistaken for real ones. Give the loader a second path that reads this preseason baseline for 2026-27 only. Every existing season keeps loading exactly as today.
 
 ## What gets built (new tables; nothing existing changes meaning)
 | New thing | Plain meaning |
@@ -23,25 +23,26 @@ Ratings labels, confidence display, change history and the UI come later (3d). 3
 
 ## Rules for the forecast (placeholder, honest, measurable)
 - **Veterans:** last season's line, even if they changed teams. Minutes carry over from the old role (known weak spot).
-- **Rookies and anyone with no NBA history:** a replacement-level line for their position at about 12 minutes a game, flagged as a default. Draft-slot-based starting points wait for Step 4.
+- **Rookies and anyone with no NBA history:** a replacement-level line for their position at about 12 minutes a game, flagged as a default. Draft-slot-based preseason baselines wait for Step 4.
 - **Players who left the league or aren't in the snapshot:** dropped.
 - **Team minutes:** the loader's existing logic already rescales each team to 240 minutes.
 - **No future information:** inputs are 2025-26 and earlier only, with the information cutoff before the season's first game. A check confirms every input traces to a date at or before the cutoff.
 
-## Schedule
-No real schedule is obtainable automatically, so 3b generates one: 1,230 games, 82 per team, 41 home and 41 away, with the NBA's division/conference/other-conference game counts, spread from late October to mid-April, from a fixed random seed. It is stored as ordinary game rows with ids marked "generated" and is **not** presented as real. A real schedule can replace it later if you download the NBA's schedule file and drop it in (I would build the importer then). Runs already made on the generated schedule keep their game rows.
+## Schedule (revised 2026-11-20)
+The NBA's stats endpoint `scheduleleaguev2` DOES serve the 2026-27 schedule (the game-finder and the static CDN file do not). It lists 1,200 fully assigned regular-season games (exactly 80 per team, Oct 20 to Apr 11, with NBA Cup group labels) plus 6 placeholder games with undecided teams. The NBA's own 82-game rule leaves 2 games per team (30 games in all) missing from the feed; I believe these are the NBA Cup knockout-week games, which are set after group play, but that is unverified.
+Plan: import the 1,200 real games with their real ids and dates, and fill the missing 30 with generated games (2 per team, home/away balanced, dated in mid-December), labeled "generated" so they are never presented as real. Result: 1,230 games, 82 per team, 41 home each. When the NBA publishes the rest, a refresh replaces the generated games before they are simulated. Real results already played (about 15 per team) are ignored; a save replays the season from day one.
 
 ## Loader change
-For a season with a pinned starting point, a new roster path reads the sealed snapshot for who is on each team and the stat-line and rating sets for how they play. It plugs into the existing roster builder, so the engine is untouched. It also works with the MyLeague trade overlay. Seasons without a pinned set take today's path unchanged.
+For a season with a pinned preseason baseline, a new roster path reads the sealed snapshot for who is on each team and the stat-line and rating sets for how they play. It plugs into the existing roster builder, so the engine is untouched. It also works with the MyLeague trade overlay. Seasons without a pinned set take today's path unchanged.
 
 ## Sub-steps (each ends with a demo and your OK)
-1. **3b-1: build the starting point.** New tables and the generator. Demo: print a team's forecast lines, ratings and which fields are defaults. No sim yet.
+1. **3b-1: build the preseason baseline.** New tables and the generator. Demo: print a team's forecast lines, ratings and which fields are defaults. No sim yet.
 2. **3b-2: schedule + loader path.** Generated schedule, the loader branch, run pins. Demo: league run and MyLeague save for 2026-27 play all 1,230 games. This also gives the real test of the Step 2 safety check.
 
 ## Gates (pass before 3b counts as done)
 - Every snapshot player loads, none dropped silently (30 teams).
 - Historical runs unchanged: the 198-hash game fence, the box-score fixture, the full test suite, the 60-day MyLeague snapshot and a full-league audit with the same seeds, before and after.
-- No future information in the starting point (cutoff check plus the scramble test).
+- No future information in the preseason baseline (cutoff check plus the scramble test).
 - Schedule valid: 1,230 games, 82 per team, 41 home each.
 - Standings sane: spread and team order compared with the known compression of past full-league runs (documented, not tuned).
 - Reproducible: re-running a save from its pinned ids gives identical box scores.
@@ -57,7 +58,7 @@ Additive tables and columns only. Dropping them and reverting the loader branch 
 - Using 2025-26 as an input is production use, not validation. We will not measure accuracy against it, and the locked-set rules for the final exam are unchanged.
 
 ## Decisions needed
-1. Generated schedule now, real one later by file drop?
-2. May the production starting point read 2025-26 (a locked season) as an input, with no accuracy testing on it?
+1. Real schedule from the NBA feed plus 30 generated fill-in games (labeled), OK?
+2. May the production preseason baseline read 2025-26 (a locked season) as an input, with no accuracy testing on it?
 3. Rookie placeholder: replacement-level line at about 12 minutes. OK for now?
 4. Include a minimal rating set in 3b (needed for the loader), with labels and history in 3d?
